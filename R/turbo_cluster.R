@@ -321,21 +321,19 @@ turbo_cluster_cpp <- function(mask, bvec, K=500, sigma1=1, sigma2=10, iterations
 
 
   while (iter< iter.max && switches > 0) {
-    message("find candidates")
     candlist <- find_candidates(neib$nn.index-1, neib$nn.dist, curclus, dthresh)
-    message("best clus")
+
     newclus <- best_candidate(candlist, curclus, t(grid), t(num_centroids), t(sp_centroids), valmat, sigma1, sigma2)
-    message("done best clus")
+
     switches <- attr(newclus, "nswitches")
 
-    message("compute centroids")
     centroids <- computeCentroids(valmat, grid, sort(unique(newclus)), newclus, medoid=use_medoid)
-    message("done compute centroids")
+
     sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
     num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
 
 
-    message("new switches (new)", switches)
+    message("switches: ", switches)
     curclus <- newclus
     iter <- iter + 1
   }
