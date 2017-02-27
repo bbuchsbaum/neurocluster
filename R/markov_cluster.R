@@ -18,7 +18,7 @@ markov_cluster <- function(mask, bvec, inflation=2, expansion=2, wsigma=.7, dsig
     An <- An * An
 
     D <- colSums(An)
-    conv = sum(D) - nrow(D)
+    conv = sum(D) - nrow(A)
     print(conv)
     An <- An %*% Diagonal(x=1/D)
     iter <- iter+1
