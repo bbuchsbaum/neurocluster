@@ -12,6 +12,14 @@ markov_cluster <- function(mask, bvec, inflation=2, expansion=2, wsigma=.7, dsig
   D <- colSums(A)
   An <- A %*% Diagonal(x=1/D)
 
+  An <- cbind(
+    c(.5,.5,0,0,0,0,0),
+    c(.333,.333,.333,0,0,0,0),
+    c(0,.333,.333,.333,0,0,0),
+    c(0,0,0,.333,.333,.333,0),
+    c(0,0,0,0,.333,.333,.333),
+    c(0,0,0,0,0,.5,.5)
+  )
   iter = 1
   while (iter < 10) {
     An <- An %*% An
