@@ -1,7 +1,9 @@
 
 
-compute_centroids <- function(valmat, grid, clusters, assignment, medoid=FALSE) {
+compute_centroids <- function(valmat, grid, assignment, medoid=FALSE) {
+
   csplit <- split(1:length(assignment), assignment)
+
   if (!medoid) {
     lapply(csplit, function(id) {
       mat <- valmat[, id]
@@ -11,7 +13,7 @@ compute_centroids <- function(valmat, grid, clusters, assignment, medoid=FALSE) 
   } else {
     lapply(csplit, function(id) {
       mat <- valmat[, id]
-      coords <- grid[idx,,drop=FALSE]
+      coords <- grid[id,,drop=FALSE]
       coords_dist <- as.matrix(dist(coords))
       coords_medoid_ind <- which.min(rowSums(coords_dist))
       Dmat <- 1-cor(mat)
@@ -24,9 +26,7 @@ compute_centroids <- function(valmat, grid, clusters, assignment, medoid=FALSE) 
 
 ## try multiple kmeans initializations, choose one with best intra-cluster correlation.
 
-#' turbo_cluster
-#'
-#' @export
+
 #' @import FNN
 #' @import assertthat
 #'
@@ -57,7 +57,7 @@ turbo_clusterR <- function(mask, bvec, K=500, lambda=.5, iterations=25, connecti
 
   valmat <- series(bvec, mask.idx)
 
-  centroids <- compute_centroids(valmat, grid, sort(unique(kres$cluster)), kres$cluster, medoid=use_medoid)
+  centroids <- compute_centroids(valmat, grid, kres$cluster, medoid=use_medoid)
   sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
   num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
 
@@ -103,7 +103,7 @@ turbo_clusterR <- function(mask, bvec, K=500, lambda=.5, iterations=25, connecti
 
 
 
-    centroids <- compute_centroids(bvec, mask.idx, grid, sort(unique(newclus)), newclus, medoid=use_medoid)
+    centroids <- compute_centroids(bvec, mask.idx, grid, newclus, medoid=use_medoid)
     switches <- sum(newclus != curclus)
 
     curclus <- newclus
@@ -123,27 +123,32 @@ turbo_clusterR <- function(mask, bvec, K=500, lambda=.5, iterations=25, connecti
 }
 
 turbo_cluster_fit <- function(valmat, grid, sigma1=1, sigma2=10, K=min(500, nrow(grid)),
-                              iterations=25, connectivity=27, use_medoid=FALSE) {
+                              iterations=25, connectivity=27, use_medoid=FALSE, initclus=NULL) {
 
   assert_that(connectivity > 1 & connectivity <= 27)
 
-  ## kmeans using coordinates only
-  kres <- kmeans(grid, K, iter.max=500)
-
-  clusid <- sort(unique(kres$cluster))
+  if (is.null(initclus)) {
+    ## kmeans using coordinates only
+    kres <- kmeans(grid, K, iter.max=500)
+    clusid <- sort(unique(kres$cluster))
+    curclus <- kres$cluster
+  } else {
+    assert_that(length(initclus) == nrow(grid))
+    clusid <- sort(unique(initclus))
+    assert_that(length(clusid) == K)
+    curclus <- initclus
+  }
 
   ## find k neighbors within 'connectivity' radius
   neib <- FNN::get.knn(grid, k=connectivity)
 
   ## has to be changed for surface... pass in neighbor_fun?
-
   dthresh <- median(neib$nn.dist[,connectivity])
 
-  centroids <- compute_centroids(valmat, grid, clusid, kres$cluster, medoid=use_medoid)
+  centroids <- compute_centroids(valmat, grid, curclus, medoid=use_medoid)
+
   sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
   num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
-
-  curclus <- kres$cluster
 
   iter <- 1
   switches <- 1
@@ -156,7 +161,7 @@ turbo_cluster_fit <- function(valmat, grid, sigma1=1, sigma2=10, K=min(500, nrow
 
     switches <- attr(newclus, "nswitches")
 
-    centroids <- compute_centroids(valmat, grid, sort(unique(newclus)), newclus, medoid=use_medoid)
+    centroids <- compute_centroids(valmat, grid, newclus, medoid=use_medoid)
 
     sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
     num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
@@ -174,6 +179,8 @@ turbo_cluster_fit <- function(valmat, grid, sigma1=1, sigma2=10, K=min(500, nrow
 }
 
 
+
+#' @export
 turbo_cluster_image <- function(bvec, mask, K=500, sigma1=1, sigma2=10, iterations=50, connectivity=27, use_medoid=FALSE,
                                 filter=list(lp=-1, hp=-1)) {
   mask.idx <- which(mask > 0)
@@ -218,6 +225,35 @@ filter_mat <- function(valmat, lp=-1, hp=100) {
   })
 }
 
+turbo_cluster_time <- function(valmat, K=min(nrow(valmat), 100), sigma1=1, sigma2=TR*3, TR=2, filter=list(lp=-1, hp=-1), use_medoid=FALSE) {
+  if (any(filter) > 0) {
+    message("turbo_cluster: filtering time series")
+    valmat <- filter_mat(valmat, filter$lp, filter$hp)
+  }
+
+  grid <- seq(0, by=TR, length.out=nrow(valmat))
+  curclus <- rep(1:K, each=round(nrow(valmat)/K), length.out=nrow(valmat))
+  clusid <- sort(unique(curclus))
+
+  connectivity=2
+  ## find k neighbors within 'connectivity' radius
+  neib <- FNN::get.knn(grid, k=connectivity)
+
+  dthresh <- median(neib$nn.dist[,connectivity])
+
+  centroids <- compute_centroids(t(valmat), as.matrix(grid), curclus, medoid=use_medoid)
+  sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
+  num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
+
+  iter <- 1
+  switches <- 1
+  iter.max <- iterations
+
+
+}
+
+
+#' @export
 turbo_cluster_surface <- function(bsurf, K=500, sigma1=1, sigma2=5, iterations=50,
                                   connectivity=6, use_medoid=FALSE, filter=list(lp=-1, hp=-1)) {
   mask.idx <- indices(bsurf)
@@ -247,6 +283,8 @@ turbo_cluster_surface <- function(bsurf, K=500, sigma1=1, sigma2=5, iterations=5
   class(ret) <- c("turbo_cluster_surface", "turbo_cluster", "list")
 }
 
+
+#' @export
 meta_clust.turbo_cluster_surface <- function(x, cuts) {
   D <- 1 - cor(t(x$centers))
   hres <- hclust(as.dist(D), method="ward.D2")
