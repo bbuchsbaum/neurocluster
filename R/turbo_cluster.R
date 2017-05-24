@@ -225,7 +225,7 @@ filter_mat <- function(valmat, lp=-1, hp=100) {
   })
 }
 
-turbo_cluster_time <- function(valmat, K=min(nrow(valmat), 100), sigma1=1, sigma2=TR*3, TR=2, filter=list(lp=-1, hp=-1), use_medoid=FALSE) {
+turbo_cluster_time <- function(valmat, K=min(nrow(valmat), 100), sigma1=1, sigma2=TR*3, iterations=50, TR=2, filter=list(lp=-1, hp=-1), use_medoid=FALSE) {
   if (any(filter) > 0) {
     message("turbo_cluster: filtering time series")
     valmat <- t(filter_mat(t(valmat), filter$lp, filter$hp))
@@ -241,6 +241,7 @@ turbo_cluster_time <- function(valmat, K=min(nrow(valmat), 100), sigma1=1, sigma
   ## find k neighbors within 'connectivity' radius
   neib <- FNN::get.knn(grid, k=connectivity)
 
+
   dthresh <- median(neib$nn.dist[,connectivity])
 
   centroids <- compute_centroids(valmat, grid, curclus, medoid=use_medoid)
@@ -250,6 +251,11 @@ turbo_cluster_time <- function(valmat, K=min(nrow(valmat), 100), sigma1=1, sigma
   iter <- 1
   switches <- 1
   iter.max <- iterations
+
+  ret <- turbo_cluster_fit(valmat, as.matrix(grid), sigma1=sigma1, sigma2=sigma2, K=K,
+                           iterations=iterations, connectivity=connectivity,
+                           use_medoid=use_medoid)
+
 
 
 }
