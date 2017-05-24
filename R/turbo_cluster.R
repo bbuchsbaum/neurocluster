@@ -211,7 +211,7 @@ turbo_cluster_image <- function(bvec, mask, K=500, sigma1=1, sigma2=10, iteratio
 }
 
 
-#' @importFrom locfit
+#' @importFrom locfit locfit
 filter_mat <- function(valmat, lp=-1, hp=100) {
   nn <- hp/nrow(valmat)
   nn1 <- lp/nrow(valmat)
@@ -228,11 +228,13 @@ filter_mat <- function(valmat, lp=-1, hp=100) {
 turbo_cluster_time <- function(valmat, K=min(nrow(valmat), 100), sigma1=1, sigma2=TR*3, TR=2, filter=list(lp=-1, hp=-1), use_medoid=FALSE) {
   if (any(filter) > 0) {
     message("turbo_cluster: filtering time series")
-    valmat <- filter_mat(valmat, filter$lp, filter$hp)
+    valmat <- t(filter_mat(t(valmat), filter$lp, filter$hp))
   }
 
-  grid <- seq(0, by=TR, length.out=nrow(valmat))
-  curclus <- rep(1:K, each=round(nrow(valmat)/K), length.out=nrow(valmat))
+  nels <- ncol(valmat)
+  grid <- as.matrix(seq(0, by=TR, length.out=nels))
+  curclus <- cluster::pam(grid, k=K)$clustering
+
   clusid <- sort(unique(curclus))
 
   connectivity=2
@@ -241,7 +243,7 @@ turbo_cluster_time <- function(valmat, K=min(nrow(valmat), 100), sigma1=1, sigma
 
   dthresh <- median(neib$nn.dist[,connectivity])
 
-  centroids <- compute_centroids(t(valmat), as.matrix(grid), curclus, medoid=use_medoid)
+  centroids <- compute_centroids(valmat, grid, curclus, medoid=use_medoid)
   sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
   num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
 
