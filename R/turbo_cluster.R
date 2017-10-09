@@ -181,7 +181,9 @@ turbo_cluster_fit <- function(valmat, grid, sigma1=1, sigma2=10, K=min(500, nrow
 
 
 #' @export
-turbo_cluster_image <- function(bvec, mask, K=500, sigma1=1, sigma2=10, iterations=50, connectivity=27, use_medoid=FALSE,
+turbo_cluster_image <- function(bvec, mask, K=500, sigma1=1,
+                                sigma2=10, iterations=50,
+                                connectivity=27, use_medoid=FALSE,
                                 filter=list(lp=-1, hp=-1)) {
   mask.idx <- which(mask > 0)
   grid <- indexToCoord(mask, mask.idx)
