@@ -41,7 +41,5 @@ markov_cluster <- function(mask, bvec, inflation=2, expansion=2, wsigma=.7, dsig
     An[which(An > 0 & An < t)] <- 0
     print(An)
     iter <- iter+1
-
-
   }
 }
