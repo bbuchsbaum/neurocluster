@@ -9,6 +9,7 @@ markov_cluster <- function(mask, bvec, inflation=2, expansion=2, wsigma=.7, dsig
   fmat <- series(bvec, mask.idx)
 
   A <- weighted_spatial_adjacency(grid, t(fmat), wsigma=wsigma, sigma=dsigma, weight_mode="heat",...)
+
   D <- colSums(A)
   An <- A %*% Diagonal(x=1/D)
 
