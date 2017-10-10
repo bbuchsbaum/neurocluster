@@ -1,7 +1,8 @@
 
 #' @importFrom rflann Neighbour
 #' @importFrom hashmap hashmap
-patch_cluster <- function(bvec, mask, K=500, radius=8, knn=5, filter=list(lp=-1, hp=-1)) {
+patch_cluster <- function(bvec, mask, K=500, patch_radius=8, connectivity=27,
+                          knn=5, filter=list(lp=-1, hp=-1)) {
 
   mask.idx <- which(mask > 0)
   grid <- indexToCoord(mask, mask.idx)
@@ -10,7 +11,7 @@ patch_cluster <- function(bvec, mask, K=500, radius=8, knn=5, filter=list(lp=-1,
   valmat <- series(bvec, mask.idx)
 
   if (any(filter) > 0) {
-    message("turbo_cluster: filtering time series")
+    message("patch_cluster: filtering time series")
     valmat <- filter_mat(valmat, filter$lp, filter$hp)
   }
 
