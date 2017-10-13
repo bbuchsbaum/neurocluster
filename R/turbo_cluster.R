@@ -1,5 +1,5 @@
 
-
+#' get centroids for a matrix and set of assignments
 compute_centroids <- function(valmat, grid, assignment, medoid=FALSE) {
 
   csplit <- split(1:length(assignment), assignment)
