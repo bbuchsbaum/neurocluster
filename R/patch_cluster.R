@@ -21,10 +21,10 @@ patch_cluster <- function(bvec, mask, K=500, patch_radius=8, connectivity=27,
   nn <- 27
   hmap <- hashmap("-1","-1")
   nabes <- rflann::Neighbour(grid, grid, nn)
+
   lapply(1:length(clist), function(i) {
     print(i)
     s1 <- series(bvec, clist[[i]])
-
 
     jind <- nabes$indices[i,2:nn]
     p1 <- pmin(i, jind)
@@ -41,12 +41,6 @@ patch_cluster <- function(bvec, mask, K=500, patch_radius=8, connectivity=27,
 
     hmap[[knames]] <- rvs
 
-
   })
-
-
-
-
-
 
 }
