@@ -64,20 +64,11 @@ BEGIN_RCPP
 END_RCPP
 }
 
-RcppExport SEXP neurocluster_best_candidate(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
-RcppExport SEXP neurocluster_find_candidates(SEXP, SEXP, SEXP, SEXP);
-RcppExport SEXP neurocluster_heat_kernel(SEXP, SEXP, SEXP);
-RcppExport SEXP neurocluster_normalized_heat_kernel(SEXP, SEXP, SEXP);
-
 static const R_CallMethodDef CallEntries[] = {
     {"_neurocluster_heat_kernel", (DL_FUNC) &_neurocluster_heat_kernel, 3},
     {"_neurocluster_normalized_heat_kernel", (DL_FUNC) &_neurocluster_normalized_heat_kernel, 3},
     {"_neurocluster_best_candidate", (DL_FUNC) &_neurocluster_best_candidate, 8},
     {"_neurocluster_find_candidates", (DL_FUNC) &_neurocluster_find_candidates, 4},
-    {"neurocluster_best_candidate",         (DL_FUNC) &neurocluster_best_candidate,         8},
-    {"neurocluster_find_candidates",        (DL_FUNC) &neurocluster_find_candidates,        4},
-    {"neurocluster_heat_kernel",            (DL_FUNC) &neurocluster_heat_kernel,            3},
-    {"neurocluster_normalized_heat_kernel", (DL_FUNC) &neurocluster_normalized_heat_kernel, 3},
     {NULL, NULL, 0}
 };
 

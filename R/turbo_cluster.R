@@ -122,6 +122,8 @@ turbo_clusterR <- function(mask, bvec, K=500, lambda=.5, iterations=25, connecti
        voxelSets=voxsplit)
 }
 
+
+#' @importFrom assertthat assert_that
 turbo_cluster_fit <- function(valmat, grid, sigma1=1, sigma2=10, K=min(500, nrow(grid)),
                               iterations=25, connectivity=27, use_medoid=FALSE, initclus=NULL) {
 
@@ -191,7 +193,7 @@ turbo_cluster_image <- function(bvec, mask, K=500, sigma1=1,
 
   valmat <- series(bvec, mask.idx)
 
-  if (any(filter) > 0) {
+  if (any(filter > 0)) {
     message("turbo_cluster: filtering time series")
     valmat <- filter_mat(valmat, filter$lp, filter$hp)
   }
@@ -213,7 +215,7 @@ turbo_cluster_image <- function(bvec, mask, K=500, sigma1=1,
 }
 
 
-#' @importFrom locfit locfit
+#' @import locfit
 filter_mat <- function(valmat, lp=-1, hp=100) {
   nn <- hp/nrow(valmat)
   nn1 <- lp/nrow(valmat)
