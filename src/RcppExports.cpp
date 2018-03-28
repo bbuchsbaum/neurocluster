@@ -7,7 +7,7 @@ using namespace Rcpp;
 
 // heat_kernel
 double heat_kernel(NumericVector x1, NumericVector x2, double sigma);
-RcppExport SEXP neurocluster_heat_kernel(SEXP x1SEXP, SEXP x2SEXP, SEXP sigmaSEXP) {
+RcppExport SEXP _neurocluster_heat_kernel(SEXP x1SEXP, SEXP x2SEXP, SEXP sigmaSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -20,7 +20,7 @@ END_RCPP
 }
 // normalized_heat_kernel
 double normalized_heat_kernel(NumericVector x1, NumericVector x2, double sigma);
-RcppExport SEXP neurocluster_normalized_heat_kernel(SEXP x1SEXP, SEXP x2SEXP, SEXP sigmaSEXP) {
+RcppExport SEXP _neurocluster_normalized_heat_kernel(SEXP x1SEXP, SEXP x2SEXP, SEXP sigmaSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -33,7 +33,7 @@ END_RCPP
 }
 // best_candidate
 IntegerVector best_candidate(List candidates, IntegerVector curclus, NumericMatrix coords, NumericMatrix data_centroids, NumericMatrix coord_centroids, NumericMatrix data, double sigma1, double sigma2);
-RcppExport SEXP neurocluster_best_candidate(SEXP candidatesSEXP, SEXP curclusSEXP, SEXP coordsSEXP, SEXP data_centroidsSEXP, SEXP coord_centroidsSEXP, SEXP dataSEXP, SEXP sigma1SEXP, SEXP sigma2SEXP) {
+RcppExport SEXP _neurocluster_best_candidate(SEXP candidatesSEXP, SEXP curclusSEXP, SEXP coordsSEXP, SEXP data_centroidsSEXP, SEXP coord_centroidsSEXP, SEXP dataSEXP, SEXP sigma1SEXP, SEXP sigma2SEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -51,7 +51,7 @@ END_RCPP
 }
 // find_candidates
 List find_candidates(IntegerMatrix nn_index, NumericMatrix nn_dist, IntegerVector curclus, double dthresh);
-RcppExport SEXP neurocluster_find_candidates(SEXP nn_indexSEXP, SEXP nn_distSEXP, SEXP curclusSEXP, SEXP dthreshSEXP) {
+RcppExport SEXP _neurocluster_find_candidates(SEXP nn_indexSEXP, SEXP nn_distSEXP, SEXP curclusSEXP, SEXP dthreshSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -62,4 +62,26 @@ BEGIN_RCPP
     rcpp_result_gen = Rcpp::wrap(find_candidates(nn_index, nn_dist, curclus, dthresh));
     return rcpp_result_gen;
 END_RCPP
+}
+
+RcppExport SEXP neurocluster_best_candidate(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
+RcppExport SEXP neurocluster_find_candidates(SEXP, SEXP, SEXP, SEXP);
+RcppExport SEXP neurocluster_heat_kernel(SEXP, SEXP, SEXP);
+RcppExport SEXP neurocluster_normalized_heat_kernel(SEXP, SEXP, SEXP);
+
+static const R_CallMethodDef CallEntries[] = {
+    {"_neurocluster_heat_kernel", (DL_FUNC) &_neurocluster_heat_kernel, 3},
+    {"_neurocluster_normalized_heat_kernel", (DL_FUNC) &_neurocluster_normalized_heat_kernel, 3},
+    {"_neurocluster_best_candidate", (DL_FUNC) &_neurocluster_best_candidate, 8},
+    {"_neurocluster_find_candidates", (DL_FUNC) &_neurocluster_find_candidates, 4},
+    {"neurocluster_best_candidate",         (DL_FUNC) &neurocluster_best_candidate,         8},
+    {"neurocluster_find_candidates",        (DL_FUNC) &neurocluster_find_candidates,        4},
+    {"neurocluster_heat_kernel",            (DL_FUNC) &neurocluster_heat_kernel,            3},
+    {"neurocluster_normalized_heat_kernel", (DL_FUNC) &neurocluster_normalized_heat_kernel, 3},
+    {NULL, NULL, 0}
+};
+
+RcppExport void R_init_neurocluster(DllInfo *dll) {
+    R_registerRoutines(dll, NULL, CallEntries, NULL, NULL);
+    R_useDynamicSymbols(dll, FALSE);
 }

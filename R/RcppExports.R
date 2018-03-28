@@ -2,18 +2,18 @@
 # Generator token: 10BE3573-1514-4C36-9D1C-5A225CD40393
 
 heat_kernel <- function(x1, x2, sigma) {
-    .Call('neurocluster_heat_kernel', PACKAGE = 'neurocluster', x1, x2, sigma)
+    .Call('_neurocluster_heat_kernel', PACKAGE = 'neurocluster', x1, x2, sigma)
 }
 
 normalized_heat_kernel <- function(x1, x2, sigma) {
-    .Call('neurocluster_normalized_heat_kernel', PACKAGE = 'neurocluster', x1, x2, sigma)
+    .Call('_neurocluster_normalized_heat_kernel', PACKAGE = 'neurocluster', x1, x2, sigma)
 }
 
 best_candidate <- function(candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2) {
-    .Call('neurocluster_best_candidate', PACKAGE = 'neurocluster', candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2)
+    .Call('_neurocluster_best_candidate', PACKAGE = 'neurocluster', candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2)
 }
 
 find_candidates <- function(nn_index, nn_dist, curclus, dthresh) {
-    .Call('neurocluster_find_candidates', PACKAGE = 'neurocluster', nn_index, nn_dist, curclus, dthresh)
+    .Call('_neurocluster_find_candidates', PACKAGE = 'neurocluster', nn_index, nn_dist, curclus, dthresh)
 }
 
