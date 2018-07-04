@@ -126,7 +126,9 @@ turbo_clusterR <- function(mask, bvec, K=500, lambda=.5, iterations=25, connecti
 }
 
 
+
 #' @inheritParams turbo_cluster
+#' @importFrom assertthat assert_that
 turbo_cluster_fit <- function(valmat, grid, sigma1=1, sigma2=10, K=min(500, nrow(grid)),
                               iterations=25, connectivity=27, use_medoid=FALSE, initclus=NULL) {
 
@@ -423,6 +425,15 @@ filter_mat <- function(valmat, lp=0, hp=.7, method=c("locfit", "bspline")) {
       valmat
     }
 
+<<<<<<< HEAD
+=======
+#' @import locfit
+filter_mat <- function(valmat, lp=-1, hp=100) {
+  nn <- hp/nrow(valmat)
+  nn1 <- lp/nrow(valmat)
+  time <- seq(1,nrow(valmat))
+  valmat <- apply(valmat, 2, function(vals) {
+    fvals <- vals - fitted(locfit(vals ~ lp(time, nn=nn)))
     if (lp > 0) {
       nlp <- nrow(valmat)/(lp * nrow(valmat))
       nlp <- min(nlp, nrow(valmat)-1)
