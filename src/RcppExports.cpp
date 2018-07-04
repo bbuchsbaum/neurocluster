@@ -31,6 +31,23 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// compute_scores
+NumericVector compute_scores(IntegerVector curclus, NumericMatrix coords, NumericMatrix data_centroids, NumericMatrix coord_centroids, NumericMatrix data, double sigma1, double sigma2);
+RcppExport SEXP _neurocluster_compute_scores(SEXP curclusSEXP, SEXP coordsSEXP, SEXP data_centroidsSEXP, SEXP coord_centroidsSEXP, SEXP dataSEXP, SEXP sigma1SEXP, SEXP sigma2SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerVector >::type curclus(curclusSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type coords(coordsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type data_centroids(data_centroidsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type coord_centroids(coord_centroidsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< double >::type sigma1(sigma1SEXP);
+    Rcpp::traits::input_parameter< double >::type sigma2(sigma2SEXP);
+    rcpp_result_gen = Rcpp::wrap(compute_scores(curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2));
+    return rcpp_result_gen;
+END_RCPP
+}
 // best_candidate
 IntegerVector best_candidate(List candidates, IntegerVector curclus, NumericMatrix coords, NumericMatrix data_centroids, NumericMatrix coord_centroids, NumericMatrix data, double sigma1, double sigma2);
 RcppExport SEXP _neurocluster_best_candidate(SEXP candidatesSEXP, SEXP curclusSEXP, SEXP coordsSEXP, SEXP data_centroidsSEXP, SEXP coord_centroidsSEXP, SEXP dataSEXP, SEXP sigma1SEXP, SEXP sigma2SEXP) {
@@ -64,20 +81,12 @@ BEGIN_RCPP
 END_RCPP
 }
 
-RcppExport SEXP neurocluster_best_candidate(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
-RcppExport SEXP neurocluster_find_candidates(SEXP, SEXP, SEXP, SEXP);
-RcppExport SEXP neurocluster_heat_kernel(SEXP, SEXP, SEXP);
-RcppExport SEXP neurocluster_normalized_heat_kernel(SEXP, SEXP, SEXP);
-
 static const R_CallMethodDef CallEntries[] = {
     {"_neurocluster_heat_kernel", (DL_FUNC) &_neurocluster_heat_kernel, 3},
     {"_neurocluster_normalized_heat_kernel", (DL_FUNC) &_neurocluster_normalized_heat_kernel, 3},
+    {"_neurocluster_compute_scores", (DL_FUNC) &_neurocluster_compute_scores, 7},
     {"_neurocluster_best_candidate", (DL_FUNC) &_neurocluster_best_candidate, 8},
     {"_neurocluster_find_candidates", (DL_FUNC) &_neurocluster_find_candidates, 4},
-    {"neurocluster_best_candidate",         (DL_FUNC) &neurocluster_best_candidate,         8},
-    {"neurocluster_find_candidates",        (DL_FUNC) &neurocluster_find_candidates,        4},
-    {"neurocluster_heat_kernel",            (DL_FUNC) &neurocluster_heat_kernel,            3},
-    {"neurocluster_normalized_heat_kernel", (DL_FUNC) &neurocluster_normalized_heat_kernel, 3},
     {NULL, NULL, 0}
 };
 

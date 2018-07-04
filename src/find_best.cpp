@@ -26,6 +26,24 @@ double normalized_heat_kernel(NumericVector x1, NumericVector x2, double sigma) 
 }
 
 // [[Rcpp::export]]
+NumericVector compute_scores(IntegerVector curclus, NumericMatrix coords, NumericMatrix data_centroids,
+                             NumericMatrix coord_centroids, NumericMatrix data, double sigma1, double sigma2) {
+  int n = curclus.length();
+
+  //List scores(n);
+  NumericVector out(n);
+
+  for (int i=0; i<n; i++) {
+    double c1 = normalized_heat_kernel(data(_, i), data_centroids(_, curclus[i]-1), sigma1);
+    double c2 = heat_kernel(coords(_, i), coord_centroids(_, curclus[i]-1), sigma2);
+    out[i] = c1 + c2;
+  }
+
+  return out;
+}
+
+
+// [[Rcpp::export]]
 IntegerVector best_candidate(List candidates, IntegerVector curclus, NumericMatrix coords, NumericMatrix data_centroids,
                              NumericMatrix coord_centroids, NumericMatrix data, double sigma1, double sigma2) {
   int n = candidates.length();
@@ -46,7 +64,7 @@ IntegerVector best_candidate(List candidates, IntegerVector curclus, NumericMatr
       NumericVector score(cand.length());
 
       for (int j=0; j<cand.length(); j++) {
-        double c1 = normalized_heat_kernel(data(_, i), data_centroids(_,cand[j]-1), sigma1);
+        double c1 = normalized_heat_kernel(data(_, i), data_centroids(_, cand[j]-1), sigma1);
         double c2 = heat_kernel(coords(_, i), coord_centroids(_, cand[j]-1), sigma2);
         score[j] = c1 + c2;
       }

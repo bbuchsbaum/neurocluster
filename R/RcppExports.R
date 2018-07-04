@@ -9,6 +9,10 @@ normalized_heat_kernel <- function(x1, x2, sigma) {
     .Call('_neurocluster_normalized_heat_kernel', PACKAGE = 'neurocluster', x1, x2, sigma)
 }
 
+compute_scores <- function(curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2) {
+    .Call('_neurocluster_compute_scores', PACKAGE = 'neurocluster', curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2)
+}
+
 best_candidate <- function(candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2) {
     .Call('_neurocluster_best_candidate', PACKAGE = 'neurocluster', candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2)
 }
