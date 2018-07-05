@@ -15,7 +15,7 @@ filter_mat(valmat, lp = 0, hp = 0.7, method = c("locfit", "bspline"))
   of the number of time-points to include in each window. Must be between [0-1]}
 }
 \description{
-temporally filter a matrix of time-series
+temporally filter a matrix of time-series.
 }
 \examples{
 

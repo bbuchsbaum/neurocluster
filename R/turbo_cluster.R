@@ -434,7 +434,8 @@ filter_mat <- function(valmat, lp=0, hp=.7, method=c("locfit", "bspline")) {
   }
 }
 
-
+#' cluster objects with a temporal constraint
+#'
 #' @export
 #' @inheritParam turbo_cluster
 #' @examples
@@ -454,7 +455,7 @@ turbo_cluster_time <- function(valmat, K=min(nrow(valmat), 100), sigma1=1, sigma
   nels <- nrow(valmat)
   grid <- as.matrix(seq(0, by=TR, length.out=nels))
 
-  fits <- map(1:nreps, function(i) {
+  fits <- furrr::future_map(1:nreps, function(i) {
     initsamps <- sort(sample(1:nrow(valmat), K))
     initcenters <- valmat[initsamps,]
 
