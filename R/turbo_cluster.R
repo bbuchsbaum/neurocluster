@@ -1,7 +1,7 @@
 
 
 
-# get centroids for a matrix and set of assignments
+#  Get centroids for a matrix and set of assignments
 #' @keywords internal
 #' @importFrom purrr map
 compute_centroids <- function(valmat, grid, assignment, medoid=FALSE) {
@@ -28,102 +28,96 @@ compute_centroids <- function(valmat, grid, assignment, medoid=FALSE) {
   }
 }
 
-## try multiple kmeans initializations, choose one with best intra-cluster correlation.
 
-#' @import FNN
-#' @import assertthat
-#' @inheritParams turbo_cluster
-turbo_clusterR <- function(mask, bvec, K=500, lambda=.5, iterations=25, connectivity=27, use_medoid=FALSE) {
-  assert_that(lambda >= 0 && lambda <= 1)
-  assert_that(connectivity > 1 & connectivity <= 27)
-
-  mask.idx <- which(mask > 0)
-  grid <- indexToCoord(mask, mask.idx)
-  vgrid <- indexToGrid(mask, mask.idx)
-
-  #if (shrink > 0) {
-  #  message("running ", shrink, "shrinkage iterations with k = ", 5)
-  #  bvec <- shrink_vector(mask, vgrid, bvec, k=5, iter=shrink)
-  #}
-
-  kres <- kmeans(grid, K, iter.max=500)
-  kvol <- NeuroVol(kres$cluster, space(mask), indices=mask.idx)
-
-  clusid <- sort(unique(kres$cluster))
-  neib <- get.knn(grid, k=connectivity)
-
-
-
-  iter <- 1
-  switches <- 1
-  iter.max <- iterations
-
-  valmat <- series(bvec, mask.idx)
-
-  centroids <- compute_centroids(valmat, grid, kres$cluster, medoid=use_medoid)
-  sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
-  num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
-
-  denom <- max(get.knn(sp_centroids, k=1)$nn.dist[,1])
-
-
-  curclus <- kvol[mask.idx]
-
-
-  ## port iteration to rcpp
-  while (iter < iter.max && switches > 0) {
-    message("turboclust, iteration: ", iter)
-
-    newclus <- sapply(1:nrow(vgrid), function(i) {
-
-      ind <- neib$nn.index[i,]
-      D <- neib$nn.dist[i,]
-      keep <- which(D < dthresh)
-      ind <- ind[keep]
-
-      oclus <- unique(kvol[mask.idx[ind]])
-      diffclus <- which(oclus != curclus[i])
-
-      if (length(diffclus) > 0) {
-
-        candclus <- c(curclus[i], oclus[diffclus])
-
-        cval <- sapply(candclus, function(cc) {
-          (1 - cor(valmat[,i], centroids[[cc]]$center))/2
-        })
-
-        dvals <- sapply(candclus, function(cc) {
-          sqrt(sum((grid[i,] - centroids[[cc]]$centroid)^2))
-        })/denom
-
-        cost <- lambda*cval + (1-lambda)*dvals
-        #cost <- cvals
-        newc <- candclus[which.min(cost)]
-      } else {
-        curclus[i]
-      }
-    })
-
-
-
-    centroids <- compute_centroids(bvec, mask.idx, grid, newclus, medoid=use_medoid)
-    switches <- sum(newclus != curclus)
-
-    curclus <- newclus
-    message("tuboclust: nswitches ", switches)
-
-    iter <- iter + 1
-  }
-
-  kvol <- NeuroVol(newclus, space(mask), indices=mask.idx)
-  voxsplit <- split(data.frame(vgrid), newclus)
-
-  list(clusvol=kvol,
-       clusters=newclus,
-       centers = do.call(rbind, lapply(centroids, "[[", "center")),
-       coordCenters=do.call(rbind, lapply(centroids, "[[", "centroid")),
-       voxelSets=voxsplit)
-}
+# turbo_clusterR <- function(mask, bvec, K=500, lambda=.5, iterations=25, connectivity=27, use_medoid=FALSE) {
+#   assert_that(lambda >= 0 && lambda <= 1)
+#   assert_that(connectivity > 1 & connectivity <= 27)
+#
+#   mask.idx <- which(mask > 0)
+#   grid <- indexToCoord(mask, mask.idx)
+#   vgrid <- indexToGrid(mask, mask.idx)
+#
+#   #if (shrink > 0) {
+#   #  message("running ", shrink, "shrinkage iterations with k = ", 5)
+#   #  bvec <- shrink_vector(mask, vgrid, bvec, k=5, iter=shrink)
+#   #}
+#
+#   kres <- kmeans(grid, K, iter.max=500)
+#   kvol <- NeuroVol(kres$cluster, space(mask), indices=mask.idx)
+#
+#   clusid <- sort(unique(kres$cluster))
+#   neib <- get.knn(grid, k=connectivity)
+#
+#   iter <- 1
+#   switches <- 1
+#   iter.max <- iterations
+#
+#   valmat <- series(bvec, mask.idx)
+#
+#   centroids <- compute_centroids(valmat, grid, kres$cluster, medoid=use_medoid)
+#   sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
+#   num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
+#
+#   denom <- max(get.knn(sp_centroids, k=1)$nn.dist[,1])
+#
+#
+#   curclus <- kvol[mask.idx]
+#
+#
+#   ## port iteration to rcpp
+#   while (iter < iter.max && switches > 0) {
+#     message("turboclust, iteration: ", iter)
+#
+#     newclus <- sapply(1:nrow(vgrid), function(i) {
+#
+#       ind <- neib$nn.index[i,]
+#       D <- neib$nn.dist[i,]
+#       keep <- which(D < dthresh)
+#       ind <- ind[keep]
+#
+#       oclus <- unique(kvol[mask.idx[ind]])
+#       diffclus <- which(oclus != curclus[i])
+#
+#       if (length(diffclus) > 0) {
+#
+#         candclus <- c(curclus[i], oclus[diffclus])
+#
+#         cval <- sapply(candclus, function(cc) {
+#           (1 - cor(valmat[,i], centroids[[cc]]$center))/2
+#         })
+#
+#         dvals <- sapply(candclus, function(cc) {
+#           sqrt(sum((grid[i,] - centroids[[cc]]$centroid)^2))
+#         })/denom
+#
+#         cost <- lambda*cval + (1-lambda)*dvals
+#         #cost <- cvals
+#         newc <- candclus[which.min(cost)]
+#       } else {
+#         curclus[i]
+#       }
+#     })
+#
+#
+#
+#     centroids <- compute_centroids(bvec, mask.idx, grid, newclus, medoid=use_medoid)
+#     switches <- sum(newclus != curclus)
+#
+#     curclus <- newclus
+#     message("tuboclust: nswitches ", switches)
+#
+#     iter <- iter + 1
+#   }
+#
+#   kvol <- NeuroVol(newclus, space(mask), indices=mask.idx)
+#   voxsplit <- split(data.frame(vgrid), newclus)
+#
+#   list(clusvol=kvol,
+#        clusters=newclus,
+#        centers = do.call(rbind, lapply(centroids, "[[", "center")),
+#        coordCenters=do.call(rbind, lapply(centroids, "[[", "centroid")),
+#        voxelSets=voxsplit)
+# }
 
 
 
