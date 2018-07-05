@@ -300,7 +300,7 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
     sigma2 <- rep(sigma2, length.out=nreps)
   }
 
-  res <- furrr::future_map(1:nreps, function(i) {
+  res <- purrr::map(1:nreps, function(i) {
     if (sample_frac < 1) {
       n <- max(sample_frac * nrow(valmat),1)
       assert_that(n > 1)
@@ -316,6 +316,7 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
     structure(
          list(clusvol=kvol,
               cluster=ret$clusters,
+              centers=ret$center,
               coord_centers=ret$coord_centers),
          class=c("cluster_result", "list"))
   })
@@ -327,6 +328,7 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
     structure(
       list(clusvol=kvol,
            cluster=kvol@clusters,
+           centers=cen$center,
            coord_centers=cen$coord_centers),
       class=c("cluster_result", "list"))
   } else {
@@ -370,6 +372,11 @@ is.cl_partition.cluster_result <- function(x) {
   TRUE
 }
 
+#' filter_mat
+#'
+#' temporally filter a matrix of time-series.
+#'
+#'
 #' @param valmat a feature matrix with \code{nrow(valmat)} observations and `\code{ncol(valmat)} features.
 #' @param lp the low-pass bandwidth parameter specified as a fraction
 #'    of the number of time-points to include in each window. Must be between [0-1]
@@ -424,28 +431,9 @@ filter_mat <- function(valmat, lp=0, hp=.7, method=c("locfit", "bspline")) {
     } else {
       valmat
     }
-
-<<<<<<< HEAD
-=======
-#' @import locfit
-filter_mat <- function(valmat, lp=-1, hp=100) {
-  nn <- hp/nrow(valmat)
-  nn1 <- lp/nrow(valmat)
-  time <- seq(1,nrow(valmat))
-  valmat <- apply(valmat, 2, function(vals) {
-    fvals <- vals - fitted(locfit(vals ~ lp(time, nn=nn)))
-    if (lp > 0) {
-      nlp <- nrow(valmat)/(lp * nrow(valmat))
-      nlp <- min(nlp, nrow(valmat)-1)
-
-      bmat2 <- splines::bs(1:nrow(valmat), nlp)
-      fvalmat <- fitted(lm(fvalmat ~ bmat2))
-    }
   }
-
-  fvalmat
-
 }
+
 
 #' @export
 #' @inheritParam turbo_cluster
@@ -518,6 +506,28 @@ turbo_cluster_surface <- function(bsurf, K=500, sigma1=1, sigma2=5, iterations=5
   class(ret) <- c("cluster_result_surface", "cluster_result", "list")
 }
 
+
+#' @export
+meta_clust.cluster_result <- function(x, cuts, algo="hclust", hclust_method="ward.D2") {
+  D <- 1 - cor(t(x$centers))
+  hres <- hclust(as.dist(D), method="ward.D2")
+
+  orig <- x$cluster
+
+  cmat <- do.call(cbind, lapply(cuts, function(i) {
+    cind <- cutree(hres, i)
+    cind[orig]
+  }))
+
+  cvols <- map(1:ncol(cmat), function(i) {
+    ClusteredNeuroVol(x$clusvol@mask, cluster=cmat[,i])
+  })
+
+  cvols <- c(cvols, list(x$clusvol))
+
+  list(cvols=cvols, cuts=cuts, hclus=hres)
+
+}
 
 
 #' @export

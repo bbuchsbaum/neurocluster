@@ -6,7 +6,7 @@
 \usage{
 turbo_cluster(bvec, mask, K = 500, sigma1 = 1, sigma2 = 2.5,
   iterations = 50, connectivity = 27, use_medoid = FALSE, filter = c(lp
-  = -1, hp = -1))
+  = 0, hp = 0), sample_frac = 1, nreps = 1)
 }
 \arguments{
 \item{bvec}{a \code{\linkS4class{NeuroVec}} instance supplying the data to cluster.}
@@ -31,17 +31,17 @@ spatial features, whereas as large sigma2/sigma1 ration does the opposite.}
 \item{filter}{low- and high-pass filter parameters. See details.}
 }
 \value{
-a \code{list} with the following elements:
+a \code{list} of class \code{turbo_cluster_result} with the following elements:
 
 \describe{
   \item{clustervol}{an instance of type \linkS4class{ClusteredNeuroVol}}
   \item{clusters}{ a vector of cluster indices equal to the number of voxels in the mask}
-  \item{centersl}{ a matrix of cluster centers with each column representing the feature vector for a cluster }
+  \item{centers}{ a matrix of cluster centers with each column representing the feature vector for a cluster }
   \item{coord_centers}{ a matrix of spatial coordinates with each row corresponding to a cluster }
 }
 }
 \description{
-Cluster a \code{NeuroVec} instance into a set of spatially-connected clusters.
+Cluster a \code{NeuroVec} instance into a set of spatially constrained clusters.
 }
 \examples{
 
@@ -50,6 +50,14 @@ bvec <- replicate(10, NeuroVol(array(runif(20*20*20), c(20,20,20)),
 NeuroSpace(c(20,20,20))), simplify=FALSE)
 bvec <- do.call(concat, bvec)
 
-cres1 <- turbo_cluster(bvec, mask, K=100, sigma1=1, sigma2=10)
-cres2 <- turbo_cluster(bvec, mask, K=100, sigma1=10, sigma2=1)
+cres1 <- turbo_cluster(bvec, mask, K=100, sigma1=1, sigma2=10, sample_frac=.3)
+cres2 <- turbo_cluster(bvec, mask, K=100, sigma1=1, sigma2=6, sample_frac=.3)
+cres3 <- turbo_cluster(bvec, mask, K=100, sigma1=1, sigma2=4, sample_frac=.3)
+cres4 <- turbo_cluster(bvec, mask, K=100, sigma1=1, sigma2=2, sample_frac=.3)
+
+cres_cons <- merge_clus(cres1, cres2, cres3, cres4)
+
+cres_cons2 <- turbo_cluster(bvec, mask, K=100, sigma1=c(1,2,3), sigma2=c(3,2,1), sample_frac=.3)
+
+## to access the cluster volume: cres1$clusvol
 }
