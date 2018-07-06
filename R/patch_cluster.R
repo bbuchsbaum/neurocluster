@@ -18,7 +18,7 @@ patch_cluster <- function(bvec, mask, K=500, patch_radius=8, connectivity=27,
   slight <- neuroim2::searchlight(mask, radius=patch_radius, eager=TRUE)
   clist <- lapply(slight, identity)
 
-  nn <- 27
+  nn <- 50
   hmap <- hashmap("-1","-1")
   nabes <- rflann::Neighbour(grid, grid, nn)
 

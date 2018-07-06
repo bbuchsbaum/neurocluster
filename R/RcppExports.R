@@ -13,8 +13,8 @@ compute_scores <- function(curclus, coords, data_centroids, coord_centroids, dat
     .Call('_neurocluster_compute_scores', PACKAGE = 'neurocluster', curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2)
 }
 
-best_candidate <- function(candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2) {
-    .Call('_neurocluster_best_candidate', PACKAGE = 'neurocluster', candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2)
+best_candidate <- function(candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2, alpha) {
+    .Call('_neurocluster_best_candidate', PACKAGE = 'neurocluster', candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2, alpha)
 }
 
 find_candidates <- function(nn_index, nn_dist, curclus, dthresh) {

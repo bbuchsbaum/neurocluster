@@ -49,8 +49,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // best_candidate
-IntegerVector best_candidate(List candidates, IntegerVector curclus, NumericMatrix coords, NumericMatrix data_centroids, NumericMatrix coord_centroids, NumericMatrix data, double sigma1, double sigma2);
-RcppExport SEXP _neurocluster_best_candidate(SEXP candidatesSEXP, SEXP curclusSEXP, SEXP coordsSEXP, SEXP data_centroidsSEXP, SEXP coord_centroidsSEXP, SEXP dataSEXP, SEXP sigma1SEXP, SEXP sigma2SEXP) {
+IntegerVector best_candidate(List candidates, IntegerVector curclus, NumericMatrix coords, NumericMatrix data_centroids, NumericMatrix coord_centroids, NumericMatrix data, double sigma1, double sigma2, double alpha);
+RcppExport SEXP _neurocluster_best_candidate(SEXP candidatesSEXP, SEXP curclusSEXP, SEXP coordsSEXP, SEXP data_centroidsSEXP, SEXP coord_centroidsSEXP, SEXP dataSEXP, SEXP sigma1SEXP, SEXP sigma2SEXP, SEXP alphaSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -62,7 +62,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
     Rcpp::traits::input_parameter< double >::type sigma1(sigma1SEXP);
     Rcpp::traits::input_parameter< double >::type sigma2(sigma2SEXP);
-    rcpp_result_gen = Rcpp::wrap(best_candidate(candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2));
+    Rcpp::traits::input_parameter< double >::type alpha(alphaSEXP);
+    rcpp_result_gen = Rcpp::wrap(best_candidate(candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2, alpha));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -85,7 +86,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_neurocluster_heat_kernel", (DL_FUNC) &_neurocluster_heat_kernel, 3},
     {"_neurocluster_normalized_heat_kernel", (DL_FUNC) &_neurocluster_normalized_heat_kernel, 3},
     {"_neurocluster_compute_scores", (DL_FUNC) &_neurocluster_compute_scores, 7},
-    {"_neurocluster_best_candidate", (DL_FUNC) &_neurocluster_best_candidate, 8},
+    {"_neurocluster_best_candidate", (DL_FUNC) &_neurocluster_best_candidate, 9},
     {"_neurocluster_find_candidates", (DL_FUNC) &_neurocluster_find_candidates, 4},
     {NULL, NULL, 0}
 };

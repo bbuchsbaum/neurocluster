@@ -45,7 +45,7 @@ NumericVector compute_scores(IntegerVector curclus, NumericMatrix coords, Numeri
 
 // [[Rcpp::export]]
 IntegerVector best_candidate(List candidates, IntegerVector curclus, NumericMatrix coords, NumericMatrix data_centroids,
-                             NumericMatrix coord_centroids, NumericMatrix data, double sigma1, double sigma2) {
+                             NumericMatrix coord_centroids, NumericMatrix data, double sigma1, double sigma2, double alpha) {
   int n = candidates.length();
   int nswitches = 0;
 
@@ -66,7 +66,7 @@ IntegerVector best_candidate(List candidates, IntegerVector curclus, NumericMatr
       for (int j=0; j<cand.length(); j++) {
         double c1 = normalized_heat_kernel(data(_, i), data_centroids(_, cand[j]-1), sigma1);
         double c2 = heat_kernel(coords(_, i), coord_centroids(_, cand[j]-1), sigma2);
-        score[j] = c1 + c2;
+        score[j] = alpha*c1 + (1-alpha)*c2;
       }
 
       //scores[i] = score;

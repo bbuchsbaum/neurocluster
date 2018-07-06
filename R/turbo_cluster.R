@@ -1,22 +1,72 @@
+ThreeByThreeOffset <- rbind(c(1,0,0),
+                            c(-1,0,0),
+                            c(0,1,0),
+                            c(0,-1,0),
+                            c(0,0,1),
+                            c(0,0,-1))
+
+
+
+TwoByTwoOffset <- rbind(c(1,0,0),
+                        c(-1,0,0),
+                        c(0,1,0),
+                        c(0,-1,0))
+
+
+
+
+get_surround <- function(vox, surround, vol) {
+  vs <- sweep(surround, 2, vox, "+")
+  vol[vs]
+}
+
+local_gradient <- function(vox, bvec, mask, offset=.TwoByTwoOffset) {
+  vs <- sweep(offset, 2, vox, "+")
+  vsr <- apply(vs,2,range)
+
+  mdim <- dim(mask)
+  if (vsr[1,1] < 1 || vsr[2,1] > mdim[1]) {
+    NA
+  } else if (vsr[1,2] < 1 || vsr[2,2] > mdim[2]) {
+    NA
+  } else if (vsr[1,3] < 1 || vsr[2,3] > mdim[3]) {
+    NA
+  } else {
+    smat <- series(bvec, vs)
+    s1 <- series(bvec, vox[1], vox[2], vox[3])
+    sum(1 - cor(s1,smat))
+  }
+}
+
+min_gradient <- function(bvec, vox, surround, mask) {
+  voxneigb <- sweep(surround, 2, vox, "+")
+  g <- apply(voxneigb, 1, local_gradient, bvec, mask)
+  if (all(is.na(g))) {
+    vox
+  } else {
+    as.vector(voxneigb[which.min(g),])
+  }
+}
+
 
 
 
 #  Get centroids for a matrix and set of assignments
 #' @keywords internal
 #' @importFrom purrr map
-compute_centroids <- function(valmat, grid, assignment, medoid=FALSE) {
+compute_centroids <- function(feature_mat, grid, assignment, medoid=FALSE) {
 
   csplit <- split(1:length(assignment), assignment)
 
   if (!medoid) {
     map(csplit, function(id) {
-      mat <- valmat[, id]
+      mat <- feature_mat[, id]
       coords <- grid[id,,drop=FALSE]
       list(center=rowMeans(mat), centroid=colMeans(coords))
     })
   } else {
     map(csplit, function(id) {
-      mat <- valmat[, id, drop=FALSE]
+      mat <- feature_mat[, id, drop=FALSE]
       coords <- grid[id,,drop=FALSE]
       coords_dist <- as.matrix(dist(coords))
       coords_medoid_ind <- which.min(rowSums(coords_dist))
@@ -52,9 +102,9 @@ compute_centroids <- function(valmat, grid, assignment, medoid=FALSE) {
 #   switches <- 1
 #   iter.max <- iterations
 #
-#   valmat <- series(bvec, mask.idx)
+#   feature_mat <- series(bvec, mask.idx)
 #
-#   centroids <- compute_centroids(valmat, grid, kres$cluster, medoid=use_medoid)
+#   centroids <- compute_centroids(feature_mat, grid, kres$cluster, medoid=use_medoid)
 #   sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
 #   num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
 #
@@ -83,7 +133,7 @@ compute_centroids <- function(valmat, grid, assignment, medoid=FALSE) {
 #         candclus <- c(curclus[i], oclus[diffclus])
 #
 #         cval <- sapply(candclus, function(cc) {
-#           (1 - cor(valmat[,i], centroids[[cc]]$center))/2
+#           (1 - cor(feature_mat[,i], centroids[[cc]]$center))/2
 #         })
 #
 #         dvals <- sapply(candclus, function(cc) {
@@ -123,16 +173,24 @@ compute_centroids <- function(valmat, grid, assignment, medoid=FALSE) {
 
 #' @inheritParams turbo_cluster
 #' @importFrom assertthat assert_that
-turbo_cluster_fit <- function(valmat, grid, sigma1=1, sigma2=10, K=min(500, nrow(grid)),
-                              iterations=25, connectivity=27, use_medoid=FALSE, initclus=NULL) {
+turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1, sigma2=5,
+                              alpha=.5, iterations=25, connectivity=26, use_medoid=FALSE,
+                              intensity_mat=NULL, initclus=NULL) {
 
+  message("turbo_cluster_fit: sigma1 = ", sigma1, " sigma2 = ", sigma2)
   assert_that(connectivity > 1 & connectivity <= 27)
+  assert_that(alpha >= 0 && alpha <= 1)
+
+  feature_mat <- scale(feature_mat, center=TRUE, scale=TRUE)
 
   if (is.null(initclus)) {
     ## kmeans using coordinates only
-    kres <- kmeans(grid, K, iter.max=500)
+    gcen <- grid[as.integer(seq(1, nrow(grid), length.out=K)),]
+    kres <- kmeans(grid, centers=gcen, iter.max=500)
+    seeds <- FNN::get.knnx(grid, kres$centers)$nn.index[,1]
     clusid <- sort(unique(kres$cluster))
     curclus <- kres$cluster
+
   } else {
     assert_that(length(initclus) == nrow(grid))
     clusid <- sort(unique(initclus))
@@ -145,8 +203,9 @@ turbo_cluster_fit <- function(valmat, grid, sigma1=1, sigma2=10, K=min(500, nrow
 
   ## has to be changed for surface... pass in neighbor_fun?
   dthresh <- median(neib$nn.dist[,connectivity,drop=FALSE])
+  message("dthresh: ", dthresh)
 
-  centroids <- compute_centroids(valmat, grid, curclus, medoid=use_medoid)
+  centroids <- compute_centroids(feature_mat, grid, curclus, medoid=use_medoid)
 
   sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
   num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
@@ -160,11 +219,12 @@ turbo_cluster_fit <- function(valmat, grid, sigma1=1, sigma2=10, K=min(500, nrow
 
     newclus <- best_candidate(candlist, curclus, t(grid),
                               t(num_centroids), t(sp_centroids),
-                              valmat, sigma1, sigma2)
+                              feature_mat, sigma1, sigma2, alpha)
 
     switches <- attr(newclus, "nswitches")
+
     if (switches > 0) {
-      centroids <- compute_centroids(valmat, grid, newclus, medoid=use_medoid)
+      centroids <- compute_centroids(feature_mat, grid, newclus, medoid=use_medoid)
       sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
       num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
       curclus <- newclus
@@ -208,16 +268,16 @@ knn_shrink <- function(bvec, mask, k=5, connectivity=27) {
   mask.idx <- which(mask)
   grid <- index_to_coord(mask, mask.idx)
 
-  valmat <- series(bvec, mask.idx)
+  feature_mat <- series(bvec, mask.idx)
 
   ## find k neighbors within 'connectivity' radius
   neib <- FNN::get.knn(grid, k=connectivity)
 
-  svalmat <- t(do.call(rbind, map(1:nrow(neib$nn.index), function(i) {
-    rowMeans(valmat[, c(i, neib$nn.index[i,1:(k-1)])])
+  sfeature_mat <- t(do.call(rbind, map(1:nrow(neib$nn.index), function(i) {
+    rowMeans(feature_mat[, c(i, neib$nn.index[i,1:(k-1)])])
   })))
 
-  NeuroVec(valmat, space(bvec), mask=mask)
+  NeuroVec(feature_mat, space(bvec), mask=mask)
 }
 
 #' turbo_cluster
@@ -272,17 +332,21 @@ knn_shrink <- function(bvec, mask, k=5, connectivity=27) {
 turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
                                 sigma2=2.5, iterations=50,
                                 connectivity=27, use_medoid=FALSE,
+                                alpha=.5,
                                 filter=c(lp=0, hp=0),
+                                filter_method=c("bspline", "locfit"),
                                 sample_frac=1, nreps=1) {
+
+  filter_method <- match.arg(filter_method)
   mask.idx <- which(mask > 0)
   grid <- index_to_coord(mask, mask.idx)
 
-  valmat <- series(bvec, mask.idx)
+  feature_mat <- series(bvec, mask.idx)
 
   if (any(filter > 0)) {
     assert_that(filter$lp <= 1 && filter$hp <= 1)
-    message("turbo_cluster: pre-filtering time series data")
-    valmat <- filter_mat(valmat, filter$lp, filter$hp)
+    message("turbo_cluster: pre-filtering time series data with ", filter_method, " smoothing")
+    feature_mat <- filter_mat(feature_mat, filter$lp, filter$hp, method=filter_method)
   }
 
 
@@ -295,16 +359,18 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
   }
 
   res <- purrr::map(1:nreps, function(i) {
-    if (sample_frac < 1) {
-      n <- max(sample_frac * nrow(valmat),1)
+    feature_mat <- if (sample_frac < 1) {
+      n <- max(sample_frac * nrow(feature_mat),1)
       assert_that(n > 1)
-      keep <- sample(1:nrow(valmat), n)
-      vmat <- valmat[keep,,drop=FALSE]
+      keep <- sample(1:nrow(feature_mat), n)
+      feature_mat[keep,,drop=FALSE]
+    } else {
+      feature_mat
     }
 
-    ret <- turbo_cluster_fit(vmat, grid, sigma1=sigma1[i], sigma2=sigma2[i], K=K,
+    ret <- turbo_cluster_fit(feature_mat, grid, sigma1=sigma1[i], sigma2=sigma2[i], K=K,
                                 iterations=iterations, connectivity=connectivity,
-                                 use_medoid=use_medoid)
+                                use_medoid=use_medoid, alpha=alpha)
     kvol <- ClusteredNeuroVol(as.logical(mask), clusters=ret$clusters)
 
     structure(
@@ -316,9 +382,10 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
   })
 
   if (length(res) > 1) {
-    message("computing consensus clustering over ", length(res), "partitions")
-    kvol <- do.call(merge_clus, res)
-    cen <- compute_centroids(valmat, grid,assignment=kvol@clusters, medoid=use_medoid)
+    message("computing consensus clustering over ", length(res), " partitions")
+    kvol <- ClusteredNeuroVol(as.logical(mask), do.call(merge_clus, res))
+
+    cen <- compute_centroids(feature_mat, grid,assignment=kvol@clusters, medoid=use_medoid)
     structure(
       list(clusvol=kvol,
            cluster=kvol@clusters,
@@ -343,7 +410,7 @@ merge_clus.cluster_result <- function(x, ...) {
   ens <- do.call(clue::cl_ensemble, args)
   cons <- clue::cl_consensus(ens)
   hpart <- clue::as.cl_hard_partition(cons)
-  hpart$.Data
+  as.integer(hpart$.Data)
   #ClusteredNeuroVol(x$clusvol@mask, clusters=hpart$.Data)
 }
 
@@ -354,7 +421,7 @@ merge_clus.cluster_result_time <- function(x, ...) {
   ens <- do.call(clue::cl_ensemble, args)
   cons <- clue::cl_consensus(ens)
   hpart <- clue::as.cl_hard_partition(cons)
-  hpart$.Data
+  as.integer(hpart$.Data)
 }
 
 #' @export
@@ -371,7 +438,7 @@ is.cl_partition.cluster_result <- function(x) {
 #' temporally filter a matrix of time-series.
 #'
 #'
-#' @param valmat a feature matrix with \code{nrow(valmat)} observations and `\code{ncol(valmat)} features.
+#' @param feature_mat a feature matrix with \code{nrow(feature_mat)} observations and `\code{ncol(feature_mat)} features.
 #' @param lp the low-pass bandwidth parameter specified as a fraction
 #'    of the number of time-points to include in each window. Must be between [0-1]
 #'  @param hp the high-pass bandwidth parameter specified as a fraction
@@ -379,13 +446,13 @@ is.cl_partition.cluster_result <- function(x) {
 #' @importFrom locfit locfit lp
 #' @examples
 #'
-#' valmat <- matrix(rnorm(200*10), 200, 10)
+#' feature_mat <- matrix(rnorm(200*10), 200, 10)
 #' library(future)
 #' plan(multicore)
-#' svalmat <- filter_mat(valmat, lp=.2, hp=.7)
-#' svalmat2 <- filter_mat(valmat, lp=.2, hp=.7, method="bspline")
+#' sfeature_mat <- filter_mat(feature_mat, lp=.2, hp=.7)
+#' sfeature_mat2 <- filter_mat(feature_mat, lp=.2, hp=.7, method="bspline")
 #'
-filter_mat <- function(valmat, lp=0, hp=.7, method=c("locfit", "bspline")) {
+filter_mat <- function(feature_mat, lp=0, hp=.7, method=c("locfit", "bspline")) {
   assert_that(hp >= lp)
   assert_that(hp >= 0 && hp <= 1)
   assert_that(lp >= 0 && lp <= 1)
@@ -395,15 +462,15 @@ filter_mat <- function(valmat, lp=0, hp=.7, method=c("locfit", "bspline")) {
   if (method == "locfit") {
     nn <- hp
     nn1 <- lp
-    time <- seq(1,nrow(valmat))
+    time <- seq(1,nrow(feature_mat))
 
     if (lp ==0 && hp == 0) {
       warning("filter_mat: returning oriignal matrix unchanged, both 'lp' and 'hp' are 0")
-      return(valmat)
+      return(feature_mat)
     }
 
-    fvalmat <- do.call(cbind, furrr::future_map(1:ncol(valmat), function(i) {
-      vals <- valmat[,i]
+    ffeature_mat <- do.call(cbind, furrr::future_map(1:ncol(feature_mat), function(i) {
+      vals <- feature_mat[,i]
       fvals <- vals - fitted(locfit(vals ~ lp(time, nn=hp)))
 
       if (lp > 0) {
@@ -413,17 +480,17 @@ filter_mat <- function(valmat, lp=0, hp=.7, method=c("locfit", "bspline")) {
     }))
   } else {
 
-    fvalmat <- if (hp > 0) {
-      nhp <- ceiling(nrow(valmat)/(hp * nrow(valmat)))
+    ffeature_mat <- if (hp > 0) {
+      nhp <- ceiling(nrow(feature_mat)/(hp * nrow(feature_mat)))
       bmat1 <- if (nhp < 2) {
-        splines::ns(1:nrow(valmat), nhp)
+        splines::ns(1:nrow(feature_mat), nhp)
       } else {
-        splines::bs(1:nrow(valmat), nhp)
+        splines::bs(1:nrow(feature_mat), nhp)
       }
 
-      resid(lsfit(bmat1, valmat))
+      resid(lsfit(bmat1, feature_mat))
     } else {
-      valmat
+      feature_mat
     }
   }
 }
@@ -433,29 +500,29 @@ filter_mat <- function(valmat, lp=0, hp=.7, method=c("locfit", "bspline")) {
 #' @export
 #' @inheritParam turbo_cluster
 #' @examples
-#' valmat <- matrix(rnorm(100*10), 100, 10)
+#' feature_mat <- matrix(rnorm(100*10), 100, 10)
 #' library(future)
 #' plan(multicore)
-#' cres <- turbo_cluster_time(t(valmat), K=20)
+#' cres <- turbo_cluster_time(t(feature_mat), K=20)
 #'
-turbo_cluster_time <- function(valmat, K=min(nrow(valmat), 100), sigma1=1, sigma2=TR*3,
+turbo_cluster_time <- function(feature_mat, K=min(nrow(feature_mat), 100), sigma1=1, sigma2=TR*3,
                                iterations=50, TR=2, filter=list(lp=0, hp=0),
                                use_medoid=FALSE, nreps=5) {
   if (filter$lp > 0 || filter$hp > 0) {
     message("turbo_cluster: filtering time series")
-    valmat <- filter_mat(valmat, filter$lp, filter$hp)
+    feature_mat <- filter_mat(feature_mat, filter$lp, filter$hp)
   }
 
-  nels <- nrow(valmat)
+  nels <- nrow(feature_mat)
   grid <- as.matrix(seq(0, by=TR, length.out=nels))
 
   fits <- furrr::future_map(1:nreps, function(i) {
-    initsamps <- sort(sample(1:nrow(valmat), K))
-    initcenters <- valmat[initsamps,]
+    initsamps <- sort(sample(1:nrow(feature_mat), K))
+    initcenters <- feature_mat[initsamps,]
 
     curclus <- FNN::get.knnx(grid[initsamps,,drop=FALSE], grid, k=1)$nn.index[,1]
 
-    ret <- turbo_cluster_fit(t(valmat), as.matrix(grid),
+    ret <- turbo_cluster_fit(t(feature_mat), as.matrix(grid),
                            sigma1=sigma1, sigma2=sigma2,
                            K=K,
                            initclus=curclus,
@@ -477,14 +544,14 @@ turbo_cluster_surface <- function(bsurf, K=500, sigma1=1, sigma2=5, iterations=5
   mask.idx <- indices(bsurf)
   grid <- coords(bsurf)[mask.idx,]
 
-  valmat <- series(bsurf, mask.idx)
+  feature_mat <- series(bsurf, mask.idx)
 
   if (any(filter) > 0) {
     message("turbo_cluster: filtering time series")
-    valmat <- filter_mat(valmat, filter$lp, filter$hp)
+    feature_mat <- filter_mat(feature_mat, filter$lp, filter$hp)
   }
 
-  ret <- turbo_cluster_fit(valmat, grid, sigma1=sigma1, sigma2=sigma2, K=K,
+  ret <- turbo_cluster_fit(feature_mat, grid, sigma1=sigma1, sigma2=sigma2, K=K,
                            iterations=iterations, connectivity=connectivity,
                            use_medoid=use_medoid)
 
