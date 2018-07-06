@@ -175,7 +175,7 @@ compute_centroids <- function(feature_mat, grid, assignment, medoid=FALSE) {
 #' @importFrom assertthat assert_that
 turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1, sigma2=5,
                               alpha=.5, iterations=25, connectivity=26, use_medoid=FALSE,
-                              intensity_mat=NULL, initclus=NULL) {
+                              intensity_mat=NULL) {
 
   message("turbo_cluster_fit: sigma1 = ", sigma1, " sigma2 = ", sigma2)
   assert_that(connectivity > 1 & connectivity <= 27)
@@ -187,15 +187,22 @@ turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1
     ## kmeans using coordinates only
     gcen <- grid[as.integer(seq(1, nrow(grid), length.out=K)),]
     kres <- kmeans(grid, centers=gcen, iter.max=500)
-    seeds <- FNN::get.knnx(grid, kres$centers)$nn.index[,1]
     clusid <- sort(unique(kres$cluster))
     curclus <- kres$cluster
+
+    seeds <- FNN::get.knnx(grid, kres$centers)$nn.index[,1]
+    sp_centroids <- grid[seeds,]
+    num_centroids <- feature_mat[, seeds]
 
   } else {
     assert_that(length(initclus) == nrow(grid))
     clusid <- sort(unique(initclus))
     assert_that(length(clusid) == K)
     curclus <- initclus
+
+    centroids <- compute_centroids(feature_mat, grid, curclus, medoid=use_medoid)
+    sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
+    num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
   }
 
   ## find k neighbors within 'connectivity' radius
@@ -205,10 +212,6 @@ turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1
   dthresh <- median(neib$nn.dist[,connectivity,drop=FALSE])
   message("dthresh: ", dthresh)
 
-  centroids <- compute_centroids(feature_mat, grid, curclus, medoid=use_medoid)
-
-  sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
-  num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
 
   iter <- 1
   switches <- 1
