@@ -1,2 +1,2 @@
-#'@importFrom Rcpp evalCpp
-#'@useDynLib neurocluster
+#' @importFrom Rcpp evalCpp
+#' @useDynLib neurocluster

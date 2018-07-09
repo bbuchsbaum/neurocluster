@@ -4,7 +4,7 @@
 \alias{turbo_cluster_time}
 \title{cluster objects with a temporal constraint}
 \usage{
-turbo_cluster_time(valmat, K = min(nrow(valmat), 100), sigma1 = 1,
+turbo_cluster_time(feature_mat, K = min(nrow(feature_mat), 100), sigma1 = 1,
   sigma2 = TR * 3, iterations = 50, TR = 2, filter = list(lp = 0, hp =
   0), use_medoid = FALSE, nreps = 5)
 }
@@ -12,9 +12,9 @@ turbo_cluster_time(valmat, K = min(nrow(valmat), 100), sigma1 = 1,
 cluster objects with a temporal constraint
 }
 \examples{
-valmat <- matrix(rnorm(100*10), 100, 10)
+feature_mat <- matrix(rnorm(100*10), 100, 10)
 library(future)
 plan(multicore)
-cres <- turbo_cluster_time(t(valmat), K=20)
+cres <- turbo_cluster_time(t(feature_mat), K=20)
 
 }

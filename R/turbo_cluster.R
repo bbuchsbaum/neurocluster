@@ -49,34 +49,18 @@ min_gradient <- function(bvec, vox, surround, mask) {
 }
 
 
+correlation_gradient <- function(bvec, mask) {
+  sp <- spacing(mask)
+  d <- dist(do.call(expand.grid, map(sp, ~ c(.[1] - .[1], .[1]))))
+  rad <- max(d)
+  cgrad <- mask %>% neuroim2::searchlight_coords(radius=rad) %>% map_dbl(function(x) {
+    m <- series(bvec, x)
+    mean(cor(m[,1], m[,-1]))
+  })
 
-
-#  Get centroids for a matrix and set of assignments
-#' @keywords internal
-#' @importFrom purrr map
-compute_centroids <- function(feature_mat, grid, assignment, medoid=FALSE) {
-
-  csplit <- split(1:length(assignment), assignment)
-
-  if (!medoid) {
-    map(csplit, function(id) {
-      mat <- feature_mat[, id]
-      coords <- grid[id,,drop=FALSE]
-      list(center=rowMeans(mat), centroid=colMeans(coords))
-    })
-  } else {
-    map(csplit, function(id) {
-      mat <- feature_mat[, id, drop=FALSE]
-      coords <- grid[id,,drop=FALSE]
-      coords_dist <- as.matrix(dist(coords))
-      coords_medoid_ind <- which.min(rowSums(coords_dist))
-      Dmat <- 1-cor(mat)
-      mat_medoid_ind <- which.min(rowSums(Dmat))
-      list(center=mat[,mat_medoid_ind], centroid=coords[coords_medoid_ind,])
-    })
-
-  }
+  NeuroVol(cgrad, space(mask), indices=which(mask!=0))
 }
+
 
 
 # turbo_clusterR <- function(mask, bvec, K=500, lambda=.5, iterations=25, connectivity=27, use_medoid=FALSE) {
@@ -175,7 +159,7 @@ compute_centroids <- function(feature_mat, grid, assignment, medoid=FALSE) {
 #' @importFrom assertthat assert_that
 turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1, sigma2=5,
                               alpha=.5, iterations=25, connectivity=26, use_medoid=FALSE,
-                              intensity_mat=NULL) {
+                              intensity_mat=NULL, init_with_gradient=FALSE, initclus=NULL) {
 
   message("turbo_cluster_fit: sigma1 = ", sigma1, " sigma2 = ", sigma2)
   assert_that(connectivity > 1 & connectivity <= 27)
@@ -187,6 +171,7 @@ turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1
     ## kmeans using coordinates only
     gcen <- grid[as.integer(seq(1, nrow(grid), length.out=K)),]
     kres <- kmeans(grid, centers=gcen, iter.max=500)
+
     clusid <- sort(unique(kres$cluster))
     curclus <- kres$cluster
 
@@ -201,8 +186,8 @@ turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1
     curclus <- initclus
 
     centroids <- compute_centroids(feature_mat, grid, curclus, medoid=use_medoid)
-    sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
-    num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
+    sp_centroids <- centroids$centroid
+    num_centroids <- centroids$center
   }
 
   ## find k neighbors within 'connectivity' radius
@@ -211,7 +196,6 @@ turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1
   ## has to be changed for surface... pass in neighbor_fun?
   dthresh <- median(neib$nn.dist[,connectivity,drop=FALSE])
   message("dthresh: ", dthresh)
-
 
   iter <- 1
   switches <- 1
@@ -228,8 +212,8 @@ turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1
 
     if (switches > 0) {
       centroids <- compute_centroids(feature_mat, grid, newclus, medoid=use_medoid)
-      sp_centroids <- do.call(rbind, lapply(centroids, "[[", "centroid"))
-      num_centroids <- do.call(rbind, lapply(centroids, "[[", "center"))
+      sp_centroids <- do.call(rbind, centroids$centroid)
+      num_centroids <- do.call(rbind, centroids$center)
       curclus <- newclus
     }
 
@@ -280,7 +264,7 @@ knn_shrink <- function(bvec, mask, k=5, connectivity=27) {
     rowMeans(feature_mat[, c(i, neib$nn.index[i,1:(k-1)])])
   })))
 
-  NeuroVec(feature_mat, space(bvec), mask=mask)
+  SparseNeuroVec(sfeature_mat, space(bvec), mask=mask)
 }
 
 #' turbo_cluster
@@ -338,13 +322,13 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
                                 alpha=.5,
                                 filter=c(lp=0, hp=0),
                                 filter_method=c("bspline", "locfit"),
-                                sample_frac=1, nreps=1) {
+                                sample_frac=1, nreps=1, init_with_gradient=FALSE) {
 
   filter_method <- match.arg(filter_method)
   mask.idx <- which(mask > 0)
   grid <- index_to_coord(mask, mask.idx)
 
-  feature_mat <- series(bvec, mask.idx)
+  feature_mat <- neuroim2::series(bvec, mask.idx)
 
   if (any(filter > 0)) {
     assert_that(filter$lp <= 1 && filter$hp <= 1)
@@ -373,7 +357,7 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
 
     ret <- turbo_cluster_fit(feature_mat, grid, sigma1=sigma1[i], sigma2=sigma2[i], K=K,
                                 iterations=iterations, connectivity=connectivity,
-                                use_medoid=use_medoid, alpha=alpha)
+                                use_medoid=use_medoid, alpha=alpha, init_with_gradient=init_with_gradient)
     kvol <- ClusteredNeuroVol(as.logical(mask), clusters=ret$clusters)
 
     structure(
@@ -436,6 +420,20 @@ is.cl_partition.cluster_result <- function(x) {
   TRUE
 }
 
+
+#' filter_vec
+#'
+#' bandpass filter a \code{\linkS4class{NeuroVec}} over the 4th (temporal) dimesion
+#'
+#' @inheritParams filter_mat
+#' @param bvec an instance of type \code{\linkS4class{NeuroVec}} to filter
+#' @param mask a binary mask defining the voxels to include in the filter operation
+filter_vec <- function(bvec, mask, lp=0, hp=.7, method=c("locfit", "bspline")) {
+  feature_mat <- series(bvec, which(mask!=0))
+  fmat <- filter_mat(feature_mat, lp,hp,method)
+  SparseNeuroVec(fmat, space(bvec), mask=as.logical(mask))
+}
+
 #' filter_mat
 #'
 #' temporally filter a matrix of time-series.
@@ -460,6 +458,7 @@ filter_mat <- function(feature_mat, lp=0, hp=.7, method=c("locfit", "bspline")) 
   assert_that(hp >= 0 && hp <= 1)
   assert_that(lp >= 0 && lp <= 1)
 
+
   method <- match.arg(method)
 
   if (method == "locfit") {
@@ -472,7 +471,7 @@ filter_mat <- function(feature_mat, lp=0, hp=.7, method=c("locfit", "bspline")) 
       return(feature_mat)
     }
 
-    ffeature_mat <- do.call(cbind, furrr::future_map(1:ncol(feature_mat), function(i) {
+    feature_mat <- do.call(cbind, furrr::future_map(1:ncol(feature_mat), function(i) {
       vals <- feature_mat[,i]
       fvals <- vals - fitted(locfit(vals ~ lp(time, nn=hp)))
 
@@ -482,10 +481,11 @@ filter_mat <- function(feature_mat, lp=0, hp=.7, method=c("locfit", "bspline")) 
       fvals
     }))
   } else {
-
-    ffeature_mat <- if (hp > 0) {
+    ## bspline method
+    feature_mat <- if (hp > 0) {
       nhp <- ceiling(nrow(feature_mat)/(hp * nrow(feature_mat)))
-      bmat1 <- if (nhp < 2) {
+      message("filter_mat: number of highpass basis functions: ", nhp)
+      bmat1 <- if (nhp <= 2) {
         splines::ns(1:nrow(feature_mat), nhp)
       } else {
         splines::bs(1:nrow(feature_mat), nhp)
@@ -495,6 +495,19 @@ filter_mat <- function(feature_mat, lp=0, hp=.7, method=c("locfit", "bspline")) 
     } else {
       feature_mat
     }
+
+    feature_mat <- if (lp > 0) {
+      nlp <- ceiling(nrow(feature_mat)/(lp * (nrow(feature_mat)*.7)))
+      if (nlp > nrow(feature_mat)) {
+        nlp <- .8 * nrow(feature_mat)
+      }
+      message("filter_mat: number of low-pass basis functions: ", nlp)
+      bmat1 <- splines::bs(1:nrow(feature_mat), nlp)
+      fitted(lm(feature_mat ~ bmat1))
+    } else {
+      feature_mat
+    }
+
   }
 }
 
@@ -572,43 +585,5 @@ turbo_cluster_surface <- function(bsurf, K=500, sigma1=1, sigma2=5, iterations=5
 }
 
 
-#' @export
-meta_clust.cluster_result <- function(x, cuts, algo="hclust", hclust_method="ward.D2") {
-  D <- 1 - cor(t(x$centers))
-  hres <- hclust(as.dist(D), method="ward.D2")
 
-  orig <- x$cluster
-
-  cmat <- do.call(cbind, lapply(cuts, function(i) {
-    cind <- cutree(hres, i)
-    cind[orig]
-  }))
-
-  cvols <- map(1:ncol(cmat), function(i) {
-    ClusteredNeuroVol(x$clusvol@mask, cluster=cmat[,i])
-  })
-
-  cvols <- c(cvols, list(x$clusvol))
-
-  list(cvols=cvols, cuts=cuts, hclus=hres)
-
-}
-
-
-#' @export
-meta_clust.turbo_cluster_surface <- function(x, cuts) {
-  D <- 1 - cor(t(x$centers))
-  hres <- hclust(as.dist(D), method="ward.D2")
-
-  orig <- x$clusters
-
-  cmat <- do.call(cbind, lapply(cuts, function(i) {
-    cind <- cutree(hres, i)
-    cind[orig]
-  }))
-
-  out <- cbind(cmat, orig)
-  BrainSurfaceVector(geometry(x$clusvol), indices=x$clusvol@indices, mat=as.matrix(out))
-
-}
 

@@ -5,8 +5,9 @@
 \title{turbo_cluster}
 \usage{
 turbo_cluster(bvec, mask, K = 500, sigma1 = 1, sigma2 = 2.5,
-  iterations = 50, connectivity = 27, use_medoid = FALSE, filter = c(lp
-  = 0, hp = 0), sample_frac = 1, nreps = 1)
+  iterations = 50, connectivity = 27, use_medoid = FALSE, alpha = 0.5,
+  filter = c(lp = 0, hp = 0), filter_method = c("bspline", "locfit"),
+  sample_frac = 1, nreps = 1, init_with_gradient = FALSE)
 }
 \arguments{
 \item{bvec}{a \code{\linkS4class{NeuroVec}} instance supplying the data to cluster.}

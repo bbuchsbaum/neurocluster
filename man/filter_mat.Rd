@@ -4,10 +4,10 @@
 \alias{filter_mat}
 \title{filter_mat}
 \usage{
-filter_mat(valmat, lp = 0, hp = 0.7, method = c("locfit", "bspline"))
+filter_mat(feature_mat, lp = 0, hp = 0.7, method = c("locfit", "bspline"))
 }
 \arguments{
-\item{valmat}{a feature matrix with \code{nrow(valmat)} observations and `\code{ncol(valmat)} features.}
+\item{feature_mat}{a feature matrix with \code{nrow(feature_mat)} observations and `\code{ncol(feature_mat)} features.}
 
 \item{lp}{the low-pass bandwidth parameter specified as a fraction
   of the number of time-points to include in each window. Must be between [0-1]
@@ -19,10 +19,10 @@ temporally filter a matrix of time-series.
 }
 \examples{
 
-valmat <- matrix(rnorm(200*10), 200, 10)
+feature_mat <- matrix(rnorm(200*10), 200, 10)
 library(future)
 plan(multicore)
-svalmat <- filter_mat(valmat, lp=.2, hp=.7)
-svalmat2 <- filter_mat(valmat, lp=.2, hp=.7, method="bspline")
+sfeature_mat <- filter_mat(feature_mat, lp=.2, hp=.7)
+sfeature_mat2 <- filter_mat(feature_mat, lp=.2, hp=.7, method="bspline")
 
 }
