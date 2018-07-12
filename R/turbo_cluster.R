@@ -1,58 +1,26 @@
-ThreeByThreeOffset <- rbind(c(1,0,0),
-                            c(-1,0,0),
-                            c(0,1,0),
-                            c(0,-1,0),
-                            c(0,0,1),
-                            c(0,0,-1))
+# ThreeByThreeOffset <- rbind(c(1,0,0),
+#                             c(-1,0,0),
+#                             c(0,1,0),
+#                             c(0,-1,0),
+#                             c(0,0,1),
+#                             c(0,0,-1))
+#
+#
+#
+# TwoByTwoOffset <- rbind(c(1,0,0),
+#                         c(-1,0,0),
+#                         c(0,1,0),
+#                         c(0,-1,0))
+#
 
 
 
-TwoByTwoOffset <- rbind(c(1,0,0),
-                        c(-1,0,0),
-                        c(0,1,0),
-                        c(0,-1,0))
 
-
-
-
-get_surround <- function(vox, surround, vol) {
-  vs <- sweep(surround, 2, vox, "+")
-  vol[vs]
-}
-
-local_gradient <- function(vox, bvec, mask, offset=.TwoByTwoOffset) {
-  vs <- sweep(offset, 2, vox, "+")
-  vsr <- apply(vs,2,range)
-
-  mdim <- dim(mask)
-  if (vsr[1,1] < 1 || vsr[2,1] > mdim[1]) {
-    NA
-  } else if (vsr[1,2] < 1 || vsr[2,2] > mdim[2]) {
-    NA
-  } else if (vsr[1,3] < 1 || vsr[2,3] > mdim[3]) {
-    NA
-  } else {
-    smat <- series(bvec, vs)
-    s1 <- series(bvec, vox[1], vox[2], vox[3])
-    sum(1 - cor(s1,smat))
-  }
-}
-
-min_gradient <- function(bvec, vox, surround, mask) {
-  voxneigb <- sweep(surround, 2, vox, "+")
-  g <- apply(voxneigb, 1, local_gradient, bvec, mask)
-  if (all(is.na(g))) {
-    vox
-  } else {
-    as.vector(voxneigb[which.min(g),])
-  }
-}
-
-
+#' @keywords internal
 correlation_gradient <- function(bvec, mask) {
   sp <- spacing(mask)
   d <- dist(do.call(expand.grid, map(sp, ~ c(.[1] - .[1], .[1]))))
-  rad <- max(d)
+  rad <- min(d)+.1
   cgrad <- mask %>% neuroim2::searchlight_coords(radius=rad) %>% map_dbl(function(x) {
     m <- series(bvec, x)
     mean(cor(m[,1], m[,-1]))
@@ -154,12 +122,49 @@ correlation_gradient <- function(bvec, mask) {
 # }
 
 
+#' @keywords internal
+init_cluster <- function(bvec, mask, grid, K, use_gradient=TRUE) {
+  mask.idx <- which(mask>0)
+
+  ## initialize cluster centers
+  gcen <- grid[as.integer(seq(1, nrow(grid), length.out=K)),]
+  ## compute kmeans on coordinates
+  kres <- kmeans(grid, centers=gcen, iter.max=500)
+  clusvol <- NeuroVol(kres$cluster, space(mask), indices=mask.idx)
+
+  if (use_gradient) {
+    seeds <- FNN::get.knnx(grid, kres$centers)$nn.index[,1]
+    gradvol <- correlation_gradient(bvec,mask)
+    seedmask <- mask
+    seedmask[mask.idx] <- 0
+    seedmask[mask.idx[seeds]] <- 1
+    rad <- median(spacing(mask)) +.1
+    seedvox <- index_to_grid(mask, mask.idx[seeds])
+    voxcen <- do.call(rbind, map(1:nrow(seedvox), function(i) {
+      x <- seedvox[i,,drop=FALSE]
+      cid <- clusvol[x]
+      roi <- cuboid_roi(gradvol, x, 1, nonzero=TRUE)
+      cds <- coords(roi)
+      keep <- clusvol[cds] == cid
+
+      maxind <- which.max(roi[keep])
+      coords(roi)[keep,,drop=FALSE][maxind,]
+    }))
+
+    nclus
+
+  } else {
+    kres$cluster
+  }
+
+}
+
 
 #' @inheritParams turbo_cluster
 #' @importFrom assertthat assert_that
 turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1, sigma2=5,
                               alpha=.5, iterations=25, connectivity=26, use_medoid=FALSE,
-                              intensity_mat=NULL, init_with_gradient=FALSE, initclus=NULL) {
+                              initclus) {
 
   message("turbo_cluster_fit: sigma1 = ", sigma1, " sigma2 = ", sigma2)
   assert_that(connectivity > 1 & connectivity <= 27)
@@ -184,7 +189,6 @@ turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1
     clusid <- sort(unique(initclus))
     assert_that(length(clusid) == K)
     curclus <- initclus
-
     centroids <- compute_centroids(feature_mat, grid, curclus, medoid=use_medoid)
     sp_centroids <- centroids$centroid
     num_centroids <- centroids$center
@@ -322,20 +326,8 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
                                 alpha=.5,
                                 filter=c(lp=0, hp=0),
                                 filter_method=c("bspline", "locfit"),
-                                sample_frac=1, nreps=1, init_with_gradient=FALSE) {
-
-  filter_method <- match.arg(filter_method)
-  mask.idx <- which(mask > 0)
-  grid <- index_to_coord(mask, mask.idx)
-
-  feature_mat <- neuroim2::series(bvec, mask.idx)
-
-  if (any(filter > 0)) {
-    assert_that(filter$lp <= 1 && filter$hp <= 1)
-    message("turbo_cluster: pre-filtering time series data with ", filter_method, " smoothing")
-    feature_mat <- filter_mat(feature_mat, filter$lp, filter$hp, method=filter_method)
-  }
-
+                                sample_frac=1, nreps=1,
+                                init_with_gradient=FALSE) {
 
   if (length(sigma1) != nreps) {
     sigma1 <- rep(sigma1, length.out=nreps)
@@ -344,6 +336,21 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
   if (length(sigma2) != nreps) {
     sigma2 <- rep(sigma2, length.out=nreps)
   }
+
+  filter_method <- match.arg(filter_method)
+  mask.idx <- which(mask > 0)
+  grid <- index_to_coord(mask, mask.idx)
+
+  if (any(filter > 0)) {
+    assert_that(filter$lp <= 1 && filter$hp <= 1)
+    message("turbo_cluster: pre-filtering time series data with ", filter_method, " smoothing")
+    bvec <- filter_vec(bvec, mask, filter$lp, filter$hp, method=filter_method)
+  }
+
+  clusinit <- init_cluster(bvec, mask, grid, K, init_with_gradient)
+
+  feature_mat <- neuroim2::series(bvec, mask.idx)
+
 
   res <- purrr::map(1:nreps, function(i) {
     feature_mat <- if (sample_frac < 1) {
@@ -357,7 +364,8 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
 
     ret <- turbo_cluster_fit(feature_mat, grid, sigma1=sigma1[i], sigma2=sigma2[i], K=K,
                                 iterations=iterations, connectivity=connectivity,
-                                use_medoid=use_medoid, alpha=alpha, init_with_gradient=init_with_gradient)
+                                use_medoid=use_medoid, alpha=alpha,initclus=clusinit)
+
     kvol <- ClusteredNeuroVol(as.logical(mask), clusters=ret$clusters)
 
     structure(
