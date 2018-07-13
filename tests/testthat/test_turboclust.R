@@ -9,9 +9,9 @@ bvec <- read_vec("testdata/rscan01.nii.gz")
 mask <- read_vol("testdata/mask.nii")
 
 test_that("can run turbo_clust on a NeuroVec", {
-
-
-  cres <- turbo_cluster(bvec, mask, K=100, sigma1=1, sigma2=4, filter=list(lp=.03, hp=.33), filter_method="bspline")
+  cres <- turbo_cluster(bvec, mask, K=100,
+                        sigma1=1, sigma2=4,
+                        filter_method="bspline")
 })
 
 test_that("can run turbo_clust on a NeuroVec with nreps=5", {
