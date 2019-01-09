@@ -1,10 +1,14 @@
 #' @export
-meta_clust.cluster_result <- function(x, cuts, algo="hclust", hclust_method="ward.D") {
+meta_clust.cluster_result <- function(x, cuts=min(as.integer(length(x$centers)/2),2),
+                                      algo="hclust", hclust_method="ward.D") {
 
   orig <- x$cluster
 
   cvols <- if (algo == "hclust") {
-    D <- 1 - cor(t(x$centers))
+    cen <- do.call(rbind, x$centers)
+    #D <- 1 - cor(t(x$centers))
+
+    D <- 1 - cor(t(cen))
     hres <- hclust(as.dist(D), method=hclust_method)
     cmat <- do.call(cbind, lapply(cuts, function(i) {
       cind <- cutree(hres, i)
@@ -32,7 +36,7 @@ meta_clust.cluster_result <- function(x, cuts, algo="hclust", hclust_method="war
   #   clusters <- unlist(cltab[as.character(orig)])
   # }
 
-  list(cvols=cvols, cuts=cuts, hclus=hres)
+  list(cvols=cvols, cuts=cuts, cutmat=cmat, hclus=hres)
 
 }
 

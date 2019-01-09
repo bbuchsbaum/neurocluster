@@ -20,6 +20,12 @@ commute_cluster <- function(bvec, mask,
   grid <- index_to_coord(mask, mask.idx)
 
   feature_mat <- neuroim2::series(bvec, mask.idx)
+  csds <- matrixStats::colSds(feature_mat)
+  bad <- which(is.na(csds) | csds==0)
+  if (length(bad) > 0) {
+    warning(paste(length(bad), "have time-courses have NA or 0 stdev. Random vectors"))
+    feature_mat[, bad] <- matrix(rnorm(length(bad)*nrow(feature_mat)), nrow(feature_mat), length(bad))
+  }
 
   if (any(filter > 0)) {
     assert_that(filter$lp <= 1 && filter$hp <= 1)
@@ -30,6 +36,7 @@ commute_cluster <- function(bvec, mask,
   feature_mat <- scale(feature_mat)
 
   message("commute_cluster: computing similarity matrix.")
+
   W <- neighborweights::weighted_spatial_adjacency(grid, t(feature_mat),
                                                    dthresh=sigma2*2,
                                                    nnk=connectivity,
@@ -39,6 +46,7 @@ commute_cluster <- function(bvec, mask,
                                                    weight_mode=weight_mode,
                                                    include_diagonal=FALSE,
                                                    stochastic=TRUE)
+
 
   message("commute_cluster: computing commute-time embedding.")
   ct <- neighborweights::commute_time(W, ncomp=ncomp)
