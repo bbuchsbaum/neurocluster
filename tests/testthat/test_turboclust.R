@@ -2,7 +2,6 @@
 library(neuroim2)
 library(purrr)
 library(assertthat)
-library(neurocluster)
 library(locfit)
 
 bvec <- read_vec("testdata/rscan01.nii.gz")
@@ -16,7 +15,10 @@ test_that("can run turbo_clust on a NeuroVec", {
 
 test_that("can run turbo_clust on a NeuroVec with nreps=5", {
 
-  cres <- turbo_cluster(bvec, mask, K=100, sigma1=1, sigma2=1.5, filter=list(lp=.05, hp=.33), filter_method="bspline",
+  cres <- turbo_cluster(bvec, mask, K=100, sigma1=1,
+                        sigma2=1.5,
+                        filter=list(lp=.05, hp=.33),
+                        filter_method="bspline",
                         sample_frac=.3, nreps=12)
 })
 

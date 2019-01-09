@@ -3,6 +3,7 @@
 #' compute_centroids
 #'
 #' Get centroids for a matrix and set of assignments
+#'
 #' @param feature_mat a matrix for features where each column is a feature and each row is an observation
 #' @param grid a matrix of coordinates, where each row is a coordinates associated with the nth feature.
 #' @param assignment a vector of integer indices indicating the cluster assignment

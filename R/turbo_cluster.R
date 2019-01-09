@@ -122,45 +122,69 @@ correlation_gradient <- function(bvec, mask) {
 # }
 
 
-#' @keywords internal
-init_cluster <- function(bvec, mask, grid, K, use_gradient=TRUE) {
-  mask.idx <- which(mask>0)
 
-  ## initialize cluster centers
+
+#' @keywords internal
+init_cluster <- function(bvec, mask, grid, K, method=c("tesselation", "k++", "gradient")) {
+  method <- match.arg(method)
+
+  mask.idx <- which(mask>0)
   gcen <- grid[as.integer(seq(1, nrow(grid), length.out=K)),]
-  ## compute kmeans on coordinates
   kres <- kmeans(grid, centers=gcen, iter.max=500)
   clusvol <- NeuroVol(kres$cluster, space(mask), indices=mask.idx)
 
-  if (use_gradient) {
-    seeds <- FNN::get.knnx(grid, kres$centers)$nn.index[,1]
-    gradvol <- correlation_gradient(bvec,mask)
-    seedmask <- mask
-    seedmask[mask.idx] <- 0
-    seedmask[mask.idx[seeds]] <- 1
-    rad <- median(spacing(mask)) +.1
-    seedvox <- index_to_grid(mask, mask.idx[seeds])
-    voxcen <- do.call(rbind, map(1:nrow(seedvox), function(i) {
-      x <- seedvox[i,,drop=FALSE]
-      cid <- clusvol[x]
-      roi <- cuboid_roi(gradvol, x, 1, nonzero=TRUE)
-      cds <- coords(roi)
-      keep <- clusvol[cds] == cid
+  if (method == "tesselation" || method == "gradient") {
+    ## initialize cluster centers
+    ## compute kmeans on coordinates
+    if (method == "gradient") {
+      seeds <- FNN::get.knnx(grid, kres$centers)$nn.index[,1]
+      gradvol <- correlation_gradient(bvec,mask)
+      seedmask <- mask
+      seedmask[mask.idx] <- 0
+      seedmask[mask.idx[seeds]] <- 1
+      rad <- median(spacing(mask)) +.1
+      seedvox <- index_to_grid(mask, mask.idx[seeds])
+      voxcen <- do.call(rbind, purrr::map(1:nrow(seedvox), function(i) {
+        x <- seedvox[i,,drop=FALSE]
+        cid <- clusvol[x]
+        roi <- cuboid_roi(gradvol, x, 1, nonzero=TRUE)
+        cds <- coords(roi)
+        keep <- clusvol[cds] == cid
 
-      maxind <- which.max(roi[keep])
-      coords(roi)[keep,,drop=FALSE][maxind,]
-    }))
+        maxind <- which.max(roi[keep])
+        cds[keep,,drop=FALSE][maxind,]
+      }))
 
-    nclus
-
+      seedind <- grid_to_index(mask, voxcen)
+      clusind <- FNN::get.knnx(grid[seedind,], grid)$nn.index[,1]
+      clusind
+    } else {
+      kres$cluster
+    }
   } else {
-    kres$cluster
+    ## kmeans ++
+    centers <- matrix(0, K, dim(bvec)[4])
+    coords <- matrix(0, K, 3)
+    sam <- sample(1:nrow(grid), 1)
+
+    coords[1,] <- grid[sam,]
+    centers[1,] <- series(bvec, grid[sam,,drop=FALSE])
+
+    X <- series(bvec, mask.idx)
+
+    for (i in seq(1,K)) {
+      dc <- 1 - cor(X, centers[1:i,,drop=FALSE])
+      dcmin <- apply(dc,1,min)
+      FNN::get.knnx(coords[1:i,,drop=FALSE], grid)
+
+    }
   }
 
 }
 
 
 #' @inheritParams turbo_cluster
+#' @param initclus
 #' @importFrom assertthat assert_that
 turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1, sigma2=5,
                               alpha=.5, iterations=25, connectivity=26, use_medoid=FALSE,
@@ -327,7 +351,9 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
                                 filter=c(lp=0, hp=0),
                                 filter_method=c("bspline", "locfit"),
                                 sample_frac=1, nreps=1,
-                                init_with_gradient=FALSE) {
+                                init_method=c("tesselation", "k++", "gradient")) {
+
+  init_method=match.arg(init_method)
 
   if (length(sigma1) != nreps) {
     sigma1 <- rep(sigma1, length.out=nreps)
@@ -339,6 +365,8 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
 
   filter_method <- match.arg(filter_method)
   mask.idx <- which(mask > 0)
+
+  ## coordinate grid in mm units
   grid <- index_to_coord(mask, mask.idx)
 
   if (any(filter > 0)) {
@@ -347,7 +375,7 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
     bvec <- filter_vec(bvec, mask, filter$lp, filter$hp, method=filter_method)
   }
 
-  clusinit <- init_cluster(bvec, mask, grid, K, init_with_gradient)
+  clusinit <- init_cluster(bvec, mask, grid, K, init_method)
 
   feature_mat <- neuroim2::series(bvec, mask.idx)
 
