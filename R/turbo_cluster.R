@@ -15,6 +15,19 @@
 
 
 
+#' tesselate a mask volume into K clusters with kmeans applied to spatial coordinates
+#'
+#' @param mask an instance of type \code{NeuroVol}
+#' @param K the number of clusters
+#' @export
+tesselate <- function(mask, K=100) {
+  mask.idx <- which(mask>0)
+  grid <- index_to_coord(mask, mask.idx)
+
+  gcen <- grid[as.integer(seq(1, nrow(grid), length.out=K)),]
+  kres <- kmeans(grid, centers=gcen, iter.max=500)
+  clusvol <- ClusteredNeuroVol(mask, kres$cluster)
+}
 
 #' @keywords internal
 correlation_gradient <- function(bvec, mask) {
@@ -437,6 +450,8 @@ merge_clus.cluster_result <- function(x, ...) {
   #ClusteredNeuroVol(x$clusvol@mask, clusters=hpart$.Data)
 }
 
+
+#' @export
 merge_clus.cluster_result_time <- function(x, ...) {
   args <- c(list(x), list(...))
   assert_that(all(map_lgl(args, ~ inherits(., "cluster_result"))))
@@ -452,6 +467,8 @@ cl_class_ids.cluster_result <- function(x) {
   x$cluster
 }
 
+
+#' @export
 is.cl_partition.cluster_result <- function(x) {
   TRUE
 }
