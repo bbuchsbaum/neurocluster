@@ -22,6 +22,7 @@ commute_cluster <- function(bvec, mask,
   feature_mat <- neuroim2::series(bvec, mask.idx)
   csds <- matrixStats::colSds(feature_mat)
   bad <- which(is.na(csds) | csds==0)
+
   if (length(bad) > 0) {
     warning(paste(length(bad), "have time-courses have NA or 0 stdev. Random vectors"))
     feature_mat[, bad] <- matrix(rnorm(length(bad)*nrow(feature_mat)), nrow(feature_mat), length(bad))

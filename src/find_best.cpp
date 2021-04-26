@@ -58,9 +58,7 @@ IntegerVector best_candidate(List candidates, IntegerVector curclus, NumericMatr
 
     if (cand.length() <= 1) {
       out[i] = curclus[i];
-
     } else {
-
       NumericVector score(cand.length());
 
       for (int j=0; j<cand.length(); j++) {

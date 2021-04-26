@@ -204,6 +204,7 @@ turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1
                               initclus) {
 
   message("turbo_cluster_fit: sigma1 = ", sigma1, " sigma2 = ", sigma2)
+
   assert_that(connectivity > 1 & connectivity <= 27)
   assert_that(alpha >= 0 && alpha <= 1)
 
@@ -261,7 +262,6 @@ turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1
     message("turbo_clust_fit: iter ", iter, " -- num  switches =  ", switches)
     iter <- iter + 1
   }
-
 
   list(clusters=newclus,
        centers = do.call(rbind, lapply(centroids, "[[", "center")),
@@ -391,7 +391,6 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
   clusinit <- init_cluster(bvec, mask, grid, K, init_method)
 
   feature_mat <- neuroim2::series(bvec, mask.idx)
-
 
   res <- purrr::map(1:nreps, function(i) {
     feature_mat <- if (sample_frac < 1) {

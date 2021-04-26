@@ -1,11 +1,11 @@
 
 
 # @import neighborweights
-markov_cluster_fit <- function(feature_mat, connectivity=5, inflation=2, expansion=2) {
-  A <- edge_weights(feature_mat, neighbor_mode = "knn",
-                    weight_mode="heat", type="normal", k=connectivity, sigma=.73)
-  D <- colSums(A)
-  An <- A %*% Diagonal(x=1/D)
+# markov_cluster_fit <- function(feature_mat, connectivity=5, inflation=2, expansion=2) {
+#   A <- edge_weights(feature_mat, neighbor_mode = "knn",
+#                     weight_mode="heat", type="normal", k=connectivity, sigma=.73)
+#   D <- colSums(A)
+#   An <- A %*% Diagonal(x=1/D)
 #
 #   An <- cbind(
 #     c(.5,.5,0,0,0,0,0),
