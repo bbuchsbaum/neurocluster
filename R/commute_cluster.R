@@ -1,3 +1,37 @@
+commute_cluster_fit <- function(X, cds, K, ncomp=ceiling(sqrt(K*2)),
+                                   alpha=.2, sigma1=.73, sigma2=5,
+                                   connectivity=27,
+                                   weight_mode=c("binary", "heat")) {
+
+
+  feature_mat <- X
+  csds <- matrixStats::colSds(X)
+  bad <- which(is.na(csds) | csds==0)
+
+  if (length(bad) > 0) {
+    warning(paste(length(bad), "features have NA or 0 stdev. Random vectors"))
+    X[, bad] <- matrix(rnorm(length(bad)*nrow(X)), nrow(X), length(bad))
+  }
+
+  feature_mat <- scale(feature_mat)
+  W <- neighborweights::weighted_spatial_adjacency(cds, t(X),
+                                                   dthresh=sigma2*2,
+                                                   nnk=connectivity,
+                                                   wsigma=sigma1,
+                                                   sigma=sigma2,
+                                                   alpha=alpha,
+                                                   weight_mode=weight_mode,
+                                                   include_diagonal=FALSE,
+                                                   stochastic=TRUE)
+
+
+  message("commute_cluster: computing commute-time embedding.")
+  ct <- neighborweights::commute_time(W, ncomp=ncomp)
+
+  message("commute_cluster: performing k-means with ", K, " clusters.")
+  kres <- kmeans(ct$cds, center=K, iter.max=100)
+}
+
 
 
 #' @inheritParams turbo_cluster
