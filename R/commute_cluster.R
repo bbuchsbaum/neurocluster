@@ -13,7 +13,7 @@ commute_cluster_fit <- function(X, cds, K, ncomp=ceiling(sqrt(K*2)),
     X[, bad] <- matrix(rnorm(length(bad)*nrow(X)), nrow(X), length(bad))
   }
 
-  feature_mat <- scale(feature_mat)
+  X <- scale(X)
   W <- neighborweights::weighted_spatial_adjacency(cds, t(X),
                                                    dthresh=sigma2*2,
                                                    nnk=connectivity,
