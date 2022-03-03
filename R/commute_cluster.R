@@ -4,7 +4,7 @@ commute_cluster_fit <- function(X, cds, K, ncomp=ceiling(sqrt(K*2)),
                                    weight_mode=c("binary", "heat")) {
 
 
-  feature_mat <- X
+
   csds <- matrixStats::colSds(X)
   bad <- which(is.na(csds) | csds==0)
 
