@@ -10,6 +10,18 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// correlation_gradient_cpp
+NumericVector correlation_gradient_cpp(const NumericVector& img_4d, const NumericVector& brain_mask);
+RcppExport SEXP _neurocluster_correlation_gradient_cpp(SEXP img_4dSEXP, SEXP brain_maskSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const NumericVector& >::type img_4d(img_4dSEXP);
+    Rcpp::traits::input_parameter< const NumericVector& >::type brain_mask(brain_maskSEXP);
+    rcpp_result_gen = Rcpp::wrap(correlation_gradient_cpp(img_4d, brain_mask));
+    return rcpp_result_gen;
+END_RCPP
+}
 // heat_kernel
 double heat_kernel(NumericVector x1, NumericVector x2, double sigma);
 RcppExport SEXP _neurocluster_heat_kernel(SEXP x1SEXP, SEXP x2SEXP, SEXP sigmaSEXP) {
@@ -86,13 +98,79 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// update_centroid_online
+List update_centroid_online(const List& centroid, const NumericVector& x_i, const NumericVector& c_i);
+RcppExport SEXP _neurocluster_update_centroid_online(SEXP centroidSEXP, SEXP x_iSEXP, SEXP c_iSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const List& >::type centroid(centroidSEXP);
+    Rcpp::traits::input_parameter< const NumericVector& >::type x_i(x_iSEXP);
+    Rcpp::traits::input_parameter< const NumericVector& >::type c_i(c_iSEXP);
+    rcpp_result_gen = Rcpp::wrap(update_centroid_online(centroid, x_i, c_i));
+    return rcpp_result_gen;
+END_RCPP
+}
+// snic_main
+IntegerVector snic_main(IntegerVector L_data, const IntegerVector& mask, const NumericMatrix centroids, const IntegerVector centroid_idx, const IntegerMatrix valid_coords, const NumericMatrix norm_coords, const NumericMatrix& vecmat, int K, double s, double compactness, IntegerVector mask_lookup_data);
+RcppExport SEXP _neurocluster_snic_main(SEXP L_dataSEXP, SEXP maskSEXP, SEXP centroidsSEXP, SEXP centroid_idxSEXP, SEXP valid_coordsSEXP, SEXP norm_coordsSEXP, SEXP vecmatSEXP, SEXP KSEXP, SEXP sSEXP, SEXP compactnessSEXP, SEXP mask_lookup_dataSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerVector >::type L_data(L_dataSEXP);
+    Rcpp::traits::input_parameter< const IntegerVector& >::type mask(maskSEXP);
+    Rcpp::traits::input_parameter< const NumericMatrix >::type centroids(centroidsSEXP);
+    Rcpp::traits::input_parameter< const IntegerVector >::type centroid_idx(centroid_idxSEXP);
+    Rcpp::traits::input_parameter< const IntegerMatrix >::type valid_coords(valid_coordsSEXP);
+    Rcpp::traits::input_parameter< const NumericMatrix >::type norm_coords(norm_coordsSEXP);
+    Rcpp::traits::input_parameter< const NumericMatrix& >::type vecmat(vecmatSEXP);
+    Rcpp::traits::input_parameter< int >::type K(KSEXP);
+    Rcpp::traits::input_parameter< double >::type s(sSEXP);
+    Rcpp::traits::input_parameter< double >::type compactness(compactnessSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type mask_lookup_data(mask_lookup_dataSEXP);
+    rcpp_result_gen = Rcpp::wrap(snic_main(L_data, mask, centroids, centroid_idx, valid_coords, norm_coords, vecmat, K, s, compactness, mask_lookup_data));
+    return rcpp_result_gen;
+END_RCPP
+}
+// compute_boundaryscore_3d_cpp
+IntegerVector compute_boundaryscore_3d_cpp(IntegerVector volume, IntegerVector mask);
+RcppExport SEXP _neurocluster_compute_boundaryscore_3d_cpp(SEXP volumeSEXP, SEXP maskSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerVector >::type volume(volumeSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type mask(maskSEXP);
+    rcpp_result_gen = Rcpp::wrap(compute_boundaryscore_3d_cpp(volume, mask));
+    return rcpp_result_gen;
+END_RCPP
+}
+// detect_boundaries_2d_cpp
+IntegerVector detect_boundaries_2d_cpp(IntegerVector volume, IntegerVector mask);
+RcppExport SEXP _neurocluster_detect_boundaries_2d_cpp(SEXP volumeSEXP, SEXP maskSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerVector >::type volume(volumeSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type mask(maskSEXP);
+    rcpp_result_gen = Rcpp::wrap(detect_boundaries_2d_cpp(volume, mask));
+    return rcpp_result_gen;
+END_RCPP
+}
+
+RcppExport SEXP _rcpp_module_boot_correlation_gradient_module();
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_neurocluster_correlation_gradient_cpp", (DL_FUNC) &_neurocluster_correlation_gradient_cpp, 2},
     {"_neurocluster_heat_kernel", (DL_FUNC) &_neurocluster_heat_kernel, 3},
     {"_neurocluster_normalized_heat_kernel", (DL_FUNC) &_neurocluster_normalized_heat_kernel, 3},
     {"_neurocluster_compute_scores", (DL_FUNC) &_neurocluster_compute_scores, 7},
     {"_neurocluster_best_candidate", (DL_FUNC) &_neurocluster_best_candidate, 9},
     {"_neurocluster_find_candidates", (DL_FUNC) &_neurocluster_find_candidates, 4},
+    {"_neurocluster_update_centroid_online", (DL_FUNC) &_neurocluster_update_centroid_online, 3},
+    {"_neurocluster_snic_main", (DL_FUNC) &_neurocluster_snic_main, 11},
+    {"_neurocluster_compute_boundaryscore_3d_cpp", (DL_FUNC) &_neurocluster_compute_boundaryscore_3d_cpp, 2},
+    {"_neurocluster_detect_boundaries_2d_cpp", (DL_FUNC) &_neurocluster_detect_boundaries_2d_cpp, 2},
+    {"_rcpp_module_boot_correlation_gradient_module", (DL_FUNC) &_rcpp_module_boot_correlation_gradient_module, 0},
     {NULL, NULL, 0}
 };
 

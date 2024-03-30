@@ -1,17 +1,3 @@
-# ThreeByThreeOffset <- rbind(c(1,0,0),
-#                             c(-1,0,0),
-#                             c(0,1,0),
-#                             c(0,-1,0),
-#                             c(0,0,1),
-#                             c(0,0,-1))
-#
-#
-#
-# TwoByTwoOffset <- rbind(c(1,0,0),
-#                         c(-1,0,0),
-#                         c(0,1,0),
-#                         c(0,-1,0))
-#
 
 
 
@@ -29,22 +15,9 @@ tesselate <- function(mask, K=100) {
   clusvol <- ClusteredNeuroVol(mask, kres$cluster)
 }
 
-#' @keywords internal
-correlation_gradient <- function(bvec, mask) {
-  sp <- spacing(mask)
-  d <- dist(do.call(expand.grid, map(sp, ~ c(.[1] - .[1], .[1]))))
-  rad <- min(d)+.1
-  cgrad <- mask %>% neuroim2::searchlight_coords(radius=rad) %>% map_dbl(function(x) {
-    m <- series(bvec, x)
-    mean(cor(m[,1], m[,-1]))
-  })
-
-  NeuroVol(cgrad, space(mask), indices=which(mask!=0))
-}
 
 
-
-# turbo_clusterR <- function(mask, bvec, K=500, lambda=.5, iterations=25, connectivity=27, use_medoid=FALSE) {
+# supervoxelR <- function(mask, bvec, K=500, lambda=.5, iterations=25, connectivity=27, use_medoid=FALSE) {
 #   assert_that(lambda >= 0 && lambda <= 1)
 #   assert_that(connectivity > 1 & connectivity <= 27)
 #
@@ -138,72 +111,24 @@ correlation_gradient <- function(bvec, mask) {
 
 
 #' @keywords internal
-init_cluster <- function(bvec, mask, grid, K, method=c("tesselation", "k++", "gradient")) {
-  method <- match.arg(method)
-
+init_cluster <- function(bvec, mask, grid, K) {
   mask.idx <- which(mask>0)
   gcen <- grid[as.integer(seq(1, nrow(grid), length.out=K)),]
   kres <- kmeans(grid, centers=gcen, iter.max=500)
   clusvol <- NeuroVol(kres$cluster, space(mask), indices=mask.idx)
-
-  if (method == "tesselation" || method == "gradient") {
-    ## initialize cluster centers
-    ## compute kmeans on coordinates
-    if (method == "gradient") {
-      seeds <- FNN::get.knnx(grid, kres$centers)$nn.index[,1]
-      gradvol <- correlation_gradient(bvec,mask)
-      seedmask <- mask
-      seedmask[mask.idx] <- 0
-      seedmask[mask.idx[seeds]] <- 1
-      rad <- median(spacing(mask)) +.1
-      seedvox <- index_to_grid(mask, mask.idx[seeds])
-      voxcen <- do.call(rbind, purrr::map(1:nrow(seedvox), function(i) {
-        x <- seedvox[i,,drop=FALSE]
-        cid <- clusvol[x]
-        roi <- cuboid_roi(gradvol, x, 1, nonzero=TRUE)
-        cds <- coords(roi)
-        keep <- clusvol[cds] == cid
-
-        maxind <- which.max(roi[keep])
-        cds[keep,,drop=FALSE][maxind,]
-      }))
-
-      seedind <- grid_to_index(mask, voxcen)
-      clusind <- FNN::get.knnx(grid[seedind,], grid)$nn.index[,1]
-      clusind
-    } else {
-      kres$cluster
-    }
-  } else {
-    ## kmeans ++
-    centers <- matrix(0, K, dim(bvec)[4])
-    coords <- matrix(0, K, 3)
-    sam <- sample(1:nrow(grid), 1)
-
-    coords[1,] <- grid[sam,]
-    centers[1,] <- series(bvec, grid[sam,,drop=FALSE])
-
-    X <- series(bvec, mask.idx)
-
-    for (i in seq(1,K)) {
-      dc <- 1 - cor(X, centers[1:i,,drop=FALSE])
-      dcmin <- apply(dc,1,min)
-      FNN::get.knnx(coords[1:i,,drop=FALSE], grid)
-
-    }
-  }
-
+  kres$cluster
 }
 
 
-#' @inheritParams turbo_cluster
+#' @inheritParams supervoxels
 #' @param initclus
 #' @importFrom assertthat assert_that
-turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1, sigma2=5,
+#' @import neuroim2
+supervoxel_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1, sigma2=5,
                               alpha=.5, iterations=25, connectivity=26, use_medoid=FALSE,
-                              initclus) {
+                              initclus, use_gradient=TRUE) {
 
-  message("turbo_cluster_fit: sigma1 = ", sigma1, " sigma2 = ", sigma2)
+  message("supervoxel_fit: sigma1 = ", sigma1, " sigma2 = ", sigma2)
 
   assert_that(connectivity > 1 & connectivity <= 27)
   assert_that(alpha >= 0 && alpha <= 1)
@@ -228,8 +153,10 @@ turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1
     assert_that(length(clusid) == K)
     curclus <- initclus
     centroids <- compute_centroids(feature_mat, grid, curclus, medoid=use_medoid)
-    sp_centroids <- centroids$centroid
-    num_centroids <- centroids$center
+    sp_centroids <- do.call(rbind, centroids$centroid)
+    num_centroids <- do.call(rbind, centroids$center)
+
+    #browser()
   }
 
   ## find k neighbors within 'connectivity' radius
@@ -244,8 +171,9 @@ turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1
   iter.max <- iterations
 
   while (iter < iter.max && switches > 0) {
-    candlist <- find_candidates(neib$nn.index-1, neib$nn.dist, curclus, dthresh)
 
+    candlist <- find_candidates(neib$nn.index-1, neib$nn.dist, curclus, dthresh)
+    #browser()
     newclus <- best_candidate(candlist, curclus, t(grid),
                               t(num_centroids), t(sp_centroids),
                               feature_mat, sigma1, sigma2, alpha)
@@ -259,7 +187,7 @@ turbo_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sigma1=1
       curclus <- newclus
     }
 
-    message("turbo_clust_fit: iter ", iter, " -- num  switches =  ", switches)
+    message("supervoxels_fit: iter ", iter, " -- num  switches =  ", switches)
     iter <- iter + 1
   }
 
@@ -308,7 +236,7 @@ knn_shrink <- function(bvec, mask, k=5, connectivity=27) {
   SparseNeuroVec(sfeature_mat, space(bvec), mask=mask)
 }
 
-#' turbo_cluster
+#' supervoxels
 #'
 #' Cluster a \code{NeuroVec} instance into a set of spatially constrained clusters.
 #'
@@ -326,12 +254,15 @@ knn_shrink <- function(bvec, mask, k=5, connectivity=27) {
 #' @param iterations the maximum number of cluster iterations
 #' @param connectivity
 #' @param use_medoid whether to use the medoids to define cluster centroids
+#' @param alpha the relative weighting between spatial coherence and feature similarity metrics.
+#' alpha = 0, means all feature-weighting, alpha=0 is spatial weighting. Default is .5.
+#'
 #' @param filter low- and high-pass filter parameters. See details.
 #' @export
 #' @importFrom neuroim2 NeuroVec NeuroVol
 #' @import furrr
-#'
-#' @return a \code{list} of class \code{turbo_cluster_result} with the following elements:
+#' @import assertthat
+#' @return a \code{list} of class \code{supervoxels_cluster_result} with the following elements:
 #'
 #' \describe{
 #'   \item{clustervol}{an instance of type \linkS4class{ClusteredNeuroVol}}
@@ -347,26 +278,38 @@ knn_shrink <- function(bvec, mask, k=5, connectivity=27) {
 #' NeuroSpace(c(20,20,20))), simplify=FALSE)
 #' bvec <- do.call(concat, bvec)
 #'
-#' cres1 <- turbo_cluster(bvec, mask, K=100, sigma1=1, sigma2=10, sample_frac=.3)
-#' cres2 <- turbo_cluster(bvec, mask, K=100, sigma1=1, sigma2=6, sample_frac=.3)
-#' cres3 <- turbo_cluster(bvec, mask, K=100, sigma1=1, sigma2=4, sample_frac=.3)
-#' cres4 <- turbo_cluster(bvec, mask, K=100, sigma1=1, sigma2=2, sample_frac=.3)
+#' cres1 <- supervoxels(bvec, mask, K=100, sigma1=1, sigma2=10, sample_frac=.3)
+#' cres2 <- supervoxels(bvec, mask, K=100, sigma1=1, sigma2=6, sample_frac=.3)
+#' cres3 <- supervoxels(bvec, mask, K=100, sigma1=1, sigma2=4, sample_frac=.3)
+#' cres4 <- supervoxels(bvec, mask, K=100, sigma1=1, sigma2=2, sample_frac=.3)
+#' cres5 <- supervoxels(bvec, mask, K=100, sigma1=.5, sigma2=1, sample_frac=.3)
 #'
-#' cres_cons <- merge_clus(cres1, cres2, cres3, cres4)
+#' cres_cons <- merge_clus(cres1, cres2, cres3, cres4, cres5)
 #'
-#' cres_cons2 <- turbo_cluster(bvec, mask, K=100, sigma1=c(1,2,3), sigma2=c(3,2,1), sample_frac=.3)
+#' cres_cons2 <- supervoxels(bvec, mask, K=100, sigma1=c(1,2,3), sigma2=c(3,2,1), sample_frac=.3)
 #'
 #' ## to access the cluster volume: cres1$clusvol
-turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
+#'
+#' @details
+#'
+#' Here's a brief overview of the algorithm:
+#' 1. It first scales input data (bvec)
+#'
+#' 2. It initializes the clusters using the gradient of the image and a furthest neighbor approach.
+#'
+#' 3. It then runs the "supervoxel_fit" function, which iteratively finds spatially constrained clusters using a combination of feature similarity and spatial similarity. The feature similarity is calculated based on the heat kernel with bandwidth sigma1, while the spatial similarity is calculated based on the heat kernel with bandwidth sigma2. The relative weighting between these two similarities is controlled by the alpha parameter.
+#'
+#' 4. Finally, it returns a list containing the clustered NeuroVol object (clusvol), cluster assignments for each voxel (cluster), the feature vector for each cluster (centers), and the spatial coordinates of each cluster (coord_centers).
+#' This algorithm is particularly suitable for brain data analysis, as it takes both the spatial and feature similarities into account, allowing it to identify clusters that are spatially coherent and share similar features.
+#'
+supervoxel <- function(bvec, mask, K=500, sigma1=1,
                                 sigma2=2.5, iterations=50,
                                 connectivity=27, use_medoid=FALSE,
                                 alpha=.5,
                                 filter=c(lp=0, hp=0),
                                 filter_method=c("bspline", "locfit"),
-                                sample_frac=1, nreps=1,
-                                init_method=c("tesselation", "k++", "gradient")) {
+                                sample_frac=1, nreps=1) {
 
-  init_method=match.arg(init_method)
 
   if (length(sigma1) != nreps) {
     sigma1 <- rep(sigma1, length.out=nreps)
@@ -384,11 +327,11 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
 
   if (any(filter > 0)) {
     assert_that(filter$lp <= 1 && filter$hp <= 1)
-    message("turbo_cluster: pre-filtering time series data with ", filter_method, " smoothing")
+    message("supervoxel_cluster: pre-filtering time series data with ", filter_method, " smoothing")
     bvec <- filter_vec(bvec, mask, filter$lp, filter$hp, method=filter_method)
   }
 
-  clusinit <- init_cluster(bvec, mask, grid, K, init_method)
+  clusinit <- init_cluster(bvec, mask, grid, K)
 
   feature_mat <- neuroim2::series(bvec, mask.idx)
 
@@ -402,7 +345,7 @@ turbo_cluster <- function(bvec, mask, K=500, sigma1=1,
       feature_mat
     }
 
-    ret <- turbo_cluster_fit(feature_mat, grid, sigma1=sigma1[i], sigma2=sigma2[i], K=K,
+    ret <- supervoxel_cluster_fit(feature_mat, grid, sigma1=sigma1[i], sigma2=sigma2[i], K=K,
                                 iterations=iterations, connectivity=connectivity,
                                 use_medoid=use_medoid, alpha=alpha,initclus=clusinit)
 
@@ -443,7 +386,7 @@ merge_clus.cluster_result <- function(x, ...) {
   assert_that(all(map_lgl(args, ~ inherits(., "cluster_result"))))
 
   ens <- do.call(clue::cl_ensemble, args)
-  cons <- clue::cl_consensus(ens)
+  cons <- clue::cl_consensus(ens, method="SE")
   hpart <- clue::as.cl_hard_partition(cons)
   as.integer(hpart$.Data)
   #ClusteredNeuroVol(x$clusvol@mask, clusters=hpart$.Data)
@@ -566,18 +509,18 @@ filter_mat <- function(feature_mat, lp=0, hp=.7, method=c("locfit", "bspline")) 
 #' cluster objects with a temporal constraint
 #'
 #' @export
-#' @inheritParam turbo_cluster
+#' @inheritParam supervoxel_cluster
 #' @examples
 #' feature_mat <- matrix(rnorm(100*10), 100, 10)
 #' library(future)
 #' plan(multicore)
-#' cres <- turbo_cluster_time(t(feature_mat), K=20)
+#' cres <- supervoxel_cluster_time(t(feature_mat), K=20)
 #'
-turbo_cluster_time <- function(feature_mat, K=min(nrow(feature_mat), 100), sigma1=1, sigma2=TR*3,
+supervoxel_cluster_time <- function(feature_mat, K=min(nrow(feature_mat), 100), sigma1=1, sigma2=TR*3,
                                iterations=50, TR=2, filter=list(lp=0, hp=0),
                                use_medoid=FALSE, nreps=5) {
   if (filter$lp > 0 || filter$hp > 0) {
-    message("turbo_cluster: filtering time series")
+    message("supervoxel_cluster: filtering time series")
     feature_mat <- filter_mat(feature_mat, filter$lp, filter$hp)
   }
 
@@ -590,7 +533,7 @@ turbo_cluster_time <- function(feature_mat, K=min(nrow(feature_mat), 100), sigma
 
     curclus <- FNN::get.knnx(grid[initsamps,,drop=FALSE], grid, k=1)$nn.index[,1]
 
-    ret <- turbo_cluster_fit(t(feature_mat), as.matrix(grid),
+    ret <- supervoxel_cluster_fit(t(feature_mat), as.matrix(grid),
                            sigma1=sigma1, sigma2=sigma2,
                            K=K,
                            initclus=curclus,
@@ -607,7 +550,7 @@ turbo_cluster_time <- function(feature_mat, K=min(nrow(feature_mat), 100), sigma
 
 #' @export
 #' @import neurosurf
-turbo_cluster_surface <- function(bsurf, K=500, sigma1=1, sigma2=5, iterations=50,
+supervoxel_cluster_surface <- function(bsurf, K=500, sigma1=1, sigma2=5, iterations=50,
                                   connectivity=6, use_medoid=FALSE, filter=list(lp=-1, hp=-1)) {
   mask.idx <- indices(bsurf)
   grid <- coords(bsurf)[mask.idx,]
@@ -615,11 +558,11 @@ turbo_cluster_surface <- function(bsurf, K=500, sigma1=1, sigma2=5, iterations=5
   feature_mat <- series(bsurf, mask.idx)
 
   if (any(filter) > 0) {
-    message("turbo_cluster: filtering time series")
+    message("supervoxel_cluster: filtering time series")
     feature_mat <- filter_mat(feature_mat, filter$lp, filter$hp)
   }
 
-  ret <- turbo_cluster_fit(feature_mat, grid, sigma1=sigma1, sigma2=sigma2, K=K,
+  ret <- supervoxel_cluster_fit(feature_mat, grid, sigma1=sigma1, sigma2=sigma2, K=K,
                            iterations=iterations, connectivity=connectivity,
                            use_medoid=use_medoid)
 

@@ -2,20 +2,36 @@
 % Please edit documentation in R/compute_centroids.R
 \name{compute_centroids}
 \alias{compute_centroids}
-\title{compute_centroids}
+\title{Compute Centroids of Clusters}
 \usage{
 compute_centroids(feature_mat, grid, assignment, medoid = FALSE)
 }
 \arguments{
-\item{feature_mat}{a matrix for features where each column is a feature and each row is an observation}
+\item{feature_mat}{A matrix of features, where columns represent data points
+and rows represent features.}
 
-\item{grid}{a matrix of coordinates, where each row is a coordinates associated with the nth feature.}
+\item{grid}{A matrix representing the spatial grid of data points.}
 
-\item{assignment}{a vector of integer indices indicating the cluster assignment}
+\item{assignment}{A vector containing the cluster assignment for each data point.}
 
-\item{medoid}{compute the medoid rather than the mean of the cluster}
+\item{medoid}{A logical value indicating whether to calculate medoids instead
+of means for cluster centers and centroids. Default is FALSE.}
+}
+\value{
+A list containing two elements:
+        \item{center}{A matrix containing the centers of each cluster.}
+        \item{centroid}{A matrix containing the centroids of each cluster.}
 }
 \description{
-Get centroids for a matrix and set of assignments
+The compute_centroids function calculates the center and centroid of each cluster
+given a feature matrix, grid, and cluster assignments.
 }
-\keyword{internal}
+\examples{
+\dontrun{
+  # Assuming `feature_mat`, `grid`, and `assignment` are available
+  centroids <- compute_centroids(feature_mat, grid, assignment)
+  # To compute medoids instead of means
+  medoids <- compute_centroids(feature_mat, grid, assignment, medoid=TRUE)
+}
+
+}

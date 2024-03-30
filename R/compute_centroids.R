@@ -1,15 +1,29 @@
 
 
-#' compute_centroids
+#' Compute Centroids of Clusters
 #'
-#' Get centroids for a matrix and set of assignments
+#' The compute_centroids function calculates the center and centroid of each cluster
+#' given a feature matrix, grid, and cluster assignments.
 #'
-#' @param feature_mat a matrix for features where each column is a feature and each row is an observation
-#' @param grid a matrix of coordinates, where each row is a coordinates associated with the nth feature.
-#' @param assignment a vector of integer indices indicating the cluster assignment
-#' @param medoid compute the medoid rather than the mean of the cluster
-#' @keywords internal
-#' @importFrom purrr map
+#' @param feature_mat A matrix of features, where columns represent data points
+#'                    and rows represent features.
+#' @param grid A matrix representing the spatial grid of data points.
+#' @param assignment A vector containing the cluster assignment for each data point.
+#' @param medoid A logical value indicating whether to calculate medoids instead
+#'               of means for cluster centers and centroids. Default is FALSE.
+#'
+#' @return A list containing two elements:
+#'         \item{center}{A matrix containing the centers of each cluster.}
+#'         \item{centroid}{A matrix containing the centroids of each cluster.}
+#'
+#' @examples
+#' \dontrun{
+#'   # Assuming `feature_mat`, `grid`, and `assignment` are available
+#'   centroids <- compute_centroids(feature_mat, grid, assignment)
+#'   # To compute medoids instead of means
+#'   medoids <- compute_centroids(feature_mat, grid, assignment, medoid=TRUE)
+#' }
+#'
 #' @export
 compute_centroids <- function(feature_mat, grid, assignment, medoid=FALSE) {
 
@@ -17,7 +31,7 @@ compute_centroids <- function(feature_mat, grid, assignment, medoid=FALSE) {
 
   if (!medoid) {
     purrr::transpose(purrr::map(csplit, function(id) {
-      mat <- feature_mat[, id]
+      mat <- feature_mat[, id,drop=FALSE]
       coords <- grid[id,,drop=FALSE]
       list(center=rowMeans(mat), centroid=colMeans(coords))
     }))
