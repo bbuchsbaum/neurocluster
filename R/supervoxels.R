@@ -118,6 +118,7 @@ tesselate <- function(mask, K=100) {
 
 
 #' @keywords internal
+#' @noRd
 init_cluster <- function(bvec, mask, grid, K, use_gradient=TRUE) {
   mask.idx <- which(mask>0)
 
@@ -217,6 +218,7 @@ supervoxel_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sig
        coord_centers=do.call(rbind, lapply(centroids, "[[", "centroid")))
 }
 
+
 #' knn_shrink
 #'
 #' Replace each voxel by the mean of its k nearest neighbors in its local spatial neighborhood
@@ -234,7 +236,6 @@ supervoxel_cluster_fit <- function(feature_mat, grid, K=min(500, nrow(grid)),sig
 #' bvec <- do.call(concat, bvec)
 #'
 #' sbvec <- knn_shrink(bvec, mask,k=3)
-#'
 knn_shrink <- function(bvec, mask, k=5, connectivity=27) {
   assert_that(inherits(bvec, "NeuroVec"))
   assert_that(inherits(mask, "NeuroVol"))
@@ -307,10 +308,15 @@ knn_shrink <- function(bvec, mask, k=5, connectivity=27) {
 #'
 #' 2. It initializes the clusters using the gradient of the image and a furthest neighbor approach.
 #'
-#' 3. It then runs the "supervoxel_fit" function, which iteratively finds spatially constrained clusters using a combination of feature similarity and spatial similarity. The feature similarity is calculated based on the heat kernel with bandwidth sigma1, while the spatial similarity is calculated based on the heat kernel with bandwidth sigma2. The relative weighting between these two similarities is controlled by the alpha parameter.
+#' 3. It then runs the "supervoxel_fit" function, which iteratively finds spatially constrained clusters using a
+#'    combination of feature similarity and spatial similarity. The feature similarity is calculated based on the
+#'    heat kernel with bandwidth sigma1, while the spatial similarity is calculated based on the heat kernel with
+#'    bandwidth sigma2. The relative weighting between these two similarities is controlled by the alpha parameter.
 #'
-#' 4. Finally, it returns a list containing the clustered NeuroVol object (clusvol), cluster assignments for each voxel (cluster), the feature vector for each cluster (centers), and the spatial coordinates of each cluster (coord_centers).
-#' This algorithm is particularly suitable for brain data analysis, as it takes both the spatial and feature similarities into account, allowing it to identify clusters that are spatially coherent and share similar features.
+#' 4. Finally, it returns a list containing the clustered NeuroVol object (clusvol), cluster assignments for each
+#'   voxel (cluster), the feature vector for each cluster (centers), and the spatial coordinates of each cluster (coord_centers).
+#'   This algorithm is particularly suitable for brain data analysis, as it takes both the spatial and feature
+#'   similarities into account, allowing it to identify clusters that are spatially coherent and share similar features.
 #'
 supervoxels <- function(bvec, mask, K=500, sigma1=1,
                                 sigma2=2.5, iterations=50,

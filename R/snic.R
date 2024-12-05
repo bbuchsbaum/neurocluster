@@ -234,7 +234,7 @@ snic <- function(vec, mask, compactness=5, K=500) {
 
   kvol <- ClusteredNeuroVol(as.logical(mask), clusters=ret[mask.idx])
 
-  #browser()
+  browser()
 
   structure(
     list(clusvol=kvol,
