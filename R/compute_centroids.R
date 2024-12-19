@@ -1,5 +1,3 @@
-
-
 #' Compute Centroids of Clusters
 #'
 #' The compute_centroids function calculates the center and centroid of each cluster
