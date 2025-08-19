@@ -4,12 +4,7 @@
 \alias{meta_clust.cluster_result}
 \title{Meta Clustering for Cluster Results}
 \usage{
-\method{meta_clust}{cluster_result}(
-  x,
-  cuts = min(as.integer(length(x$centers)/2), 2),
-  algo = "hclust",
-  hclust_method = "ward.D"
-)
+\method{meta_clust}{cluster_result}(x, cuts = min(as.integer(length(x$centers)/2), 2), ...)
 }
 \arguments{
 \item{x}{A clustering result, typically an object of class \code{"cluster_result"}.}
@@ -17,11 +12,13 @@
 \item{cuts}{The number of cluster cuts to consider. Default is the minimum
 of half the number of centers and 2.}
 
-\item{algo}{A character string indicating the clustering algorithm to use.
-Default is "hclust" (hierarchical clustering).}
-
-\item{hclust_method}{A character string specifying the agglomeration method
-to use for hierarchical clustering. Default is "ward.D".}
+\item{...}{Additional arguments:
+\describe{
+  \item{algo}{A character string indicating the clustering algorithm to use.
+              Default is "hclust" (hierarchical clustering).}
+  \item{hclust_method}{A character string specifying the agglomeration method
+                       to use for hierarchical clustering. Default is "ward.D".}
+}}
 }
 \value{
 A list containing:
@@ -35,5 +32,5 @@ The meta_clust function performs meta clustering on a given clustering result
 by applying hierarchical clustering or other clustering algorithms.
 }
 \seealso{
-\code{\link[hclust]{hclust}}, \code{\link[stats]{cutree}}
+\code{\link[stats]{hclust}}, \code{\link[stats]{cutree}}
 }

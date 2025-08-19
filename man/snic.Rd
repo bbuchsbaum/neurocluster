@@ -4,7 +4,7 @@
 \alias{snic}
 \title{SNIC: Simple Non-Iterative Clustering}
 \usage{
-snic(vec, mask, compactness = 5, K = 500)
+snic(vec, mask, compactness = 5, K = 500, max_iter = 100)
 }
 \arguments{
 \item{vec}{A \code{NeuroVec} instance supplying the data to cluster.}
@@ -18,6 +18,9 @@ of included voxels.}
 in more compact clusters. Default is 5.}
 
 \item{K}{The number of clusters to find. Default is 500.}
+
+\item{max_iter}{Maximum number of iterations for the SNIC algorithm. Default is 100.
+Currently ignored as SNIC algorithm uses internal convergence criteria.}
 }
 \value{
 A \code{list} of class \code{snic_cluster_result} with the following elements:

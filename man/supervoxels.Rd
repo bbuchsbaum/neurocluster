@@ -2,7 +2,7 @@
 % Please edit documentation in R/supervoxels.R
 \name{supervoxels}
 \alias{supervoxels}
-\title{supervoxels}
+\title{Supervoxel Clustering (3D volumes)}
 \usage{
 supervoxels(
   bvec,
@@ -18,62 +18,55 @@ supervoxels(
 )
 }
 \arguments{
-\item{bvec}{a \code{\linkS4class{NeuroVec}} instance supplying the data to cluster.}
+\item{bvec}{A \code{\linkS4class{NeuroVec}} instance supplying the data to cluster.}
 
-\item{mask}{a \code{\linkS4class{NeuroVol}} mask defining the voxels to include in the clustering result.
-If the mask contains \code{numeric} data, nonzero values will define the included voxels. If the mask
-is a \code{\linkS4class{LogicalNeuroVol}} then \code{TRUE} will define the set of included voxels.}
+\item{mask}{A \code{\linkS4class{NeuroVol}} mask defining the voxels to include. If numeric, nonzero = included.}
 
-\item{K}{the number of clusters to find.}
+\item{K}{The number of clusters to find (default 500).}
 
-\item{sigma1}{the bandwidth of the heat kernel for computing similarity of the data vectors.}
+\item{sigma1}{The bandwidth of the heat kernel for the data vectors.}
 
-\item{sigma2}{the bandwidth of the heat kernel for computing similarity of the coordinate vectors.
-If this value is small, then relatively larger weights are given to nearby voxels. If is is large, then
-spatial weights will be less salient. A relatively large sigma1/sigma2 ratio weights data features more than
-spatial features, whereas as large sigma2/sigma1 ration does the opposite.}
+\item{sigma2}{The bandwidth of the heat kernel for the coordinate vectors.}
 
-\item{iterations}{the maximum number of cluster iterations}
+\item{iterations}{The maximum number of cluster iterations.}
 
-\item{connectivity}{the number of nearest neighbors defining the neighborhood}
+\item{connectivity}{The number of nearest neighbors defining the neighborhood.}
 
-\item{use_medoid}{whether to use the medoids to define cluster centroids}
+\item{use_medoid}{Logical; whether to use medoids rather than means for cluster centers.}
 
-\item{use_gradient}{use the image gradient to initialize clusters}
+\item{use_gradient}{Logical; use the image gradient to initialize clusters if possible.}
 
-\item{alpha}{the relative weighting between spatial coherence and feature similarity metrics.
-alpha = 1, means all feature-weighting, alpha=0 is spatial weighting. Default is .5.}
+\item{alpha}{The relative weighting of data similarity vs spatial similarity;
+\code{alpha=1} = all data weighting, \code{alpha=0} = purely spatial weighting.}
 }
 \value{
-a \code{list} of class \code{supervoxels_cluster_result} with the following elements:
-
-\describe{
-  \item{clustervol}{an instance of type \linkS4class{ClusteredNeuroVol}}
-  \item{clusters}{ a vector of cluster indices equal to the number of voxels in the mask}
-  \item{centers}{ a matrix of cluster centers with each column representing the feature vector for a cluster }
-  \item{coord_centers}{ a matrix of spatial coordinates with each row corresponding to a cluster }
-}
+A \code{list} (of class \code{cluster_result}) with elements:
+  \item{clusvol}{\code{ClusteredNeuroVol} containing the final clustering.}
+  \item{cluster}{Integer vector of cluster assignments for each voxel.}
+  \item{centers}{Matrix of cluster centers in feature space.}
+  \item{coord_centers}{Matrix of cluster spatial centroids.}
 }
 \description{
 Cluster a \code{NeuroVec} instance into a set of spatially constrained clusters.
 }
 \details{
-Here's a brief overview of the algorithm:
-1. It first scales input data (bvec)
-
-2. It initializes the clusters using the gradient of the image and a furthest neighbor approach.
-
-3. It then runs the "supervoxel_fit" function, which iteratively finds spatially constrained clusters using a combination of feature similarity and spatial similarity. The feature similarity is calculated based on the heat kernel with bandwidth sigma1, while the spatial similarity is calculated based on the heat kernel with bandwidth sigma2. The relative weighting between these two similarities is controlled by the alpha parameter.
-
-4. Finally, it returns a list containing the clustered NeuroVol object (clusvol), cluster assignments for each voxel (cluster), the feature vector for each cluster (centers), and the spatial coordinates of each cluster (coord_centers).
-This algorithm is particularly suitable for brain data analysis, as it takes both the spatial and feature similarities into account, allowing it to identify clusters that are spatially coherent and share similar features.
+The algorithm:
+\enumerate{
+  \item Scale input data (\code{bvec}) so each feature dimension is centered and scaled.
+  \item If \code{use_gradient = TRUE}, initialize cluster seeds using gradient-based heuristics.
+  \item Run an iterative, spatially-constrained clustering that updates voxel assignments based on
+        both feature similarity (bandwidth \code{sigma1}) and spatial proximity (bandwidth \code{sigma2}),
+        weighted by \code{alpha}.
+  \item Return the final clusters, plus the feature-space and coordinate-space centers.
+}
 }
 \examples{
-
 mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
-bvec <- replicate(10, NeuroVol(array(runif(20*20*20), c(20,20,20)),
-NeuroSpace(c(20,20,20))), simplify=FALSE)
+bvec <- replicate(10,
+                  NeuroVol(array(runif(20*20*20), c(20,20,20)),
+                           NeuroSpace(c(20,20,20))),
+                  simplify=FALSE)
 bvec <- do.call(concat, bvec)
-
 cres1 <- supervoxels(bvec, mask, K=100, sigma1=1, sigma2=3)
+
 }

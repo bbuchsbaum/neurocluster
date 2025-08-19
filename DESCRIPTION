@@ -9,7 +9,8 @@ Description: More about what it does (maybe more than one line)
 License: What license is it under?
 Encoding: UTF-8
 LazyData: true
-Imports: Rcpp (>= 0.11.3)
-LinkingTo: Rcpp
-RoxygenNote: 7.2.3
+Imports: Rcpp (>= 0.11.3), RcppParallel, Matrix, FNN, RANN, assertthat, clue, 
+    igraph, matrixStats, neighborweights, neuroim2, neurosurf, purrr
+LinkingTo: Rcpp, RcppParallel
+RoxygenNote: 7.3.2.9000
 Suggests: testthat

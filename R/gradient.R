@@ -46,55 +46,56 @@
 #' @export
 spatial_gradient <- function(vol, mask, sigma=.5) {
   mask.idx <- which(mask>0)
-  
-  G <- neighborweights::spatial_adjacency(index_to_coord(mask, mask.idx), 
-                                          dthresh=9, nnk=9, 
-                                          weight_mode="heat", 
+
+  G <- neighborweights::spatial_adjacency(index_to_coord(mask, mask.idx),
+                                          dthresh=9, nnk=9,
+                                          weight_mode="heat",
                                           sigma=.8, stochastic=TRUE)
   v <- vol[mask.idx]
   vs <- G %*% vol[mask.idx]
-  
-  S = neighborweights::spatial_laplacian(index_to_coord(mask, mask.idx), 
-                                         weight_mode="heat", 
-                                         nnk=27, 
-                                         dthresh=6, 
-                                         sigma=sigma, 
-                                         normalize=FALSE, 
+
+  S = neighborweights::spatial_laplacian(index_to_coord(mask, mask.idx),
+                                         weight_mode="heat",
+                                         nnk=27,
+                                         dthresh=6,
+                                         sigma=sigma,
+                                         normalize=FALSE,
                                          stochastic=FALSE)
-  
+
   grad <- S %*% vs
   NeuroVol(as.vector(grad), space(mask), indices=mask.idx)
-  
-  
+
+
 }
 
 
 
 #' @keywords internal
+#' @noRd
 # Function to check if any neighboring 4 voxels have a lower gradient value and update seeds
 perturb_seeds <- function(grad, seeds) {
   result <- logical(nrow(seeds))
   new_seeds <- seeds
-  
+
   for (i in seq_along(result)) {
     seed_i <- seeds[i, 1]
     seed_j <- seeds[i, 2]
     seed_k <- seeds[i, 3]
     seed_gradient <- grad[seed_i, seed_j, seed_k]
-    
+
     neighbors <- matrix(c(seed_i - 1, seed_j, seed_k,
                           seed_i + 1, seed_j, seed_k,
                           seed_i, seed_j - 1, seed_k,
                           seed_i, seed_j + 1, seed_k), ncol = 3, byrow = TRUE)
-    
+
     for (n in 1:nrow(neighbors)) {
       ni <- neighbors[n, 1]
       nj <- neighbors[n, 2]
       nk <- neighbors[n, 3]
-      
+
       if (ni >= 1 && nj >= 1 && nk >= 1 &&
           ni <= dim(grad)[1] && nj <= dim(grad)[2] && nk <= dim(grad)[3]) {
-        
+
         if (grad[ni, nj, nk] < seed_gradient) {
           result[i] <- TRUE
           new_seeds[i, ] <- c(ni, nj, nk)
@@ -103,7 +104,7 @@ perturb_seeds <- function(grad, seeds) {
       }
     }
   }
-  
+
   return(list(result = result, new_seeds = new_seeds))
 }
 

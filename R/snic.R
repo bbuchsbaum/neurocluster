@@ -12,13 +12,21 @@
 #'         selected - a vector of the selected indices corresponding to the initial cluster centers,
 #'         coords - a matrix or data frame with the spatial coordinates of the initial cluster centers.
 find_initial_points <- function(cds, grad, K=100) {
+  # Validate inputs
+  if (K > nrow(cds)) {
+    warning("K larger than available points, using all available points")
+    return(list(selected = 1:nrow(cds), coords = cds))
+  }
+  
   nfound=0
-  batchsize=10
+  batchsize=min(10, K)  # Don't exceed K
   sample_size=1000
   cds_cand <- cds
   sel <- c()
   iter <- 1
+  sample_size <- min(sample_size, nrow(cds_cand))
   while (nfound < K) {
+
     cand <- sort(sample(1:nrow(cds_cand), sample_size))
     gvals <- grad[cds[cand,]]
     gvals <- (gvals - min(gvals))/ diff(range(gvals))
@@ -36,10 +44,17 @@ find_initial_points <- function(cds, grad, K=100) {
 
     sel <- c(sel, selected)
     nfound <- length(sel)
+    
+    # Prevent selection of more points than needed
+    if (nfound >= K) {
+      sel <- sel[1:K]
+      break
+    }
+    
     iter <- iter+1
   }
 
-  list(selected=sel, coords=cds[sel[1:K],])
+  list(selected=sel[1:min(K, length(sel))], coords=cds[sel[1:min(K, length(sel))],])
 
 }
 
@@ -57,6 +72,8 @@ find_initial_points <- function(cds, grad, K=100) {
 #' @param compactness A numeric value controlling the compactness of the clusters, with larger values resulting
 #' in more compact clusters. Default is 5.
 #' @param K The number of clusters to find. Default is 500.
+#' @param max_iter Maximum number of iterations for the SNIC algorithm. Default is 100.
+#'   Currently ignored as SNIC algorithm uses internal convergence criteria.
 #'
 #' @return A \code{list} of class \code{snic_cluster_result} with the following elements:
 #' \describe{
@@ -77,10 +94,16 @@ find_initial_points <- function(cds, grad, K=100) {
 #'
 #' @seealso \code{\link{supervoxels}}
 #' @importFrom neuroim2 NeuroVec NeuroVol
+#' @importFrom RANN nn2
 #' @import assertthat
 #'
 #' @export
-snic <- function(vec, mask, compactness=5, K=500) {
+snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
+  # Validate inputs
+  if (K <= 0) {
+    stop("K must be positive (K > 0), got: ", K)
+  }
+  
   mask.idx <- which(mask>0)
   valid_coords <- index_to_grid(mask, mask.idx)
   norm_coords <- sweep(valid_coords, 2, spacing(mask), "/")
@@ -90,7 +113,7 @@ snic <- function(vec, mask, compactness=5, K=500) {
   mask_lookup[mask.grid] <- 0:(length(mask.idx)-1)
 
   vecmat <- series(vec, mask.idx)
-  vecmat <- scale(vecmat)
+  vecmat <- base::scale(vecmat)
   sam <- sample(1:ncol(vecmat), .05*ncol(vecmat))
   sf <- mean(as.vector(dist(t(vecmat[,sam])))^2)
   #vecmat <- vecmat/sf
@@ -122,15 +145,17 @@ snic <- function(vec, mask, compactness=5, K=500) {
                   mask_lookup)
 
 
-  kvol <- ClusteredNeuroVol(as.logical(mask), clusters=ret[mask.idx])
+  # Create ClusteredNeuroVol with consistent logical mask (only positive values are TRUE)
+  logical_mask <- mask > 0
+  kvol <- ClusteredNeuroVol(logical_mask, clusters=ret[mask.idx])
 
 
   structure(
     list(clusvol=kvol,
          gradvol=grad,
          cluster=ret[mask.idx],
-         centers=ret$center,
-         coord_centers=ret$coord_centers),
+         centers=NULL,  # SNIC doesn't compute explicit centers
+         coord_centers=NULL),  # SNIC doesn't compute explicit centers
     class=c("snic_cluster_result", "cluster_result", "list"))
 
 }

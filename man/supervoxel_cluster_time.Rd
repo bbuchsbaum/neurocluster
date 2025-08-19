@@ -2,13 +2,13 @@
 % Please edit documentation in R/supervoxels.R
 \name{supervoxel_cluster_time}
 \alias{supervoxel_cluster_time}
-\title{cluster objects with a temporal constraint}
+\title{Supervoxel Clustering in Time}
 \usage{
 supervoxel_cluster_time(
   feature_mat,
   K = min(nrow(feature_mat), 100),
   sigma1 = 1,
-  sigma2 = TR * 3,
+  sigma2 = 3,
   iterations = 50,
   TR = 2,
   filter = list(lp = 0, hp = 0),
@@ -17,24 +17,33 @@ supervoxel_cluster_time(
 )
 }
 \arguments{
-\item{K}{the number of clusters to find.}
+\item{feature_mat}{A matrix (nrows = time points, ncols = features) or vice versa.}
 
-\item{sigma1}{the bandwidth of the heat kernel for computing similarity of the data vectors.}
+\item{K}{Number of clusters.}
 
-\item{sigma2}{the bandwidth of the heat kernel for computing similarity of the coordinate vectors.
-If this value is small, then relatively larger weights are given to nearby voxels. If is is large, then
-spatial weights will be less salient. A relatively large sigma1/sigma2 ratio weights data features more than
-spatial features, whereas as large sigma2/sigma1 ration does the opposite.}
+\item{sigma1}{Heat kernel bandwidth for feature similarity (data vectors).}
 
-\item{iterations}{the maximum number of cluster iterations}
+\item{sigma2}{Heat kernel bandwidth for spatial similarity (coordinate vectors).}
 
-\item{use_medoid}{whether to use the medoids to define cluster centroids}
+\item{iterations}{Maximum number of cluster iterations.}
+
+\item{TR}{Repetition time (seconds).}
+
+\item{filter}{List specifying optional frequency filters, e.g., \code{list(lp=0.1, hp=0)}.}
+
+\item{use_medoid}{Whether to use medoids for cluster centers.}
+
+\item{nreps}{Number of repeated initializations.}
+}
+\value{
+A list of cluster results (one per repetition), each of which
+  has the same structure as \code{supervoxel_cluster_fit()}.
 }
 \description{
-cluster objects with a temporal constraint
+Cluster feature matrix (rows = time points) in a "supervoxel" style but over temporal dimension.
 }
 \examples{
-feature_mat <- matrix(rnorm(100*10), 100, 10)
+feature_mat <- matrix(rnorm(100 * 10), 100, 10)
 library(future)
 plan(multicore)
 cres <- supervoxel_cluster_time(t(feature_mat), K=20)

@@ -1,0 +1,415 @@
+✔ | F W  S  OK | Context
+
+⠏ |          0 | acsc_comprehensive                                             
+⠙ |   2      0 | acsc_comprehensive                                             
+⠸ |   3      1 | acsc_comprehensive                                             
+⠧ |   3     15 | acsc_comprehensive                                             
+⠸ |   3     21 | acsc_comprehensive                                             
+⠏ |   3     27 | acsc_comprehensive                                             
+⠸ |   3     31 | acsc_comprehensive                                             
+⠦ |   3     34 | acsc_comprehensive                                             
+✔ |   3  1  44 | acsc_comprehensive [2.3s]
+────────────────────────────────────────────────────────────────────────────────
+Warning ('test_acsc_comprehensive.R:1:1'): (code run outside of `test_that()`)
+replacing previous import ‘FNN::knn’ by ‘igraph::knn’ when loading ‘neurocluster’
+Backtrace:
+    ▆
+ 1. └─base::library(neurocluster) at test_acsc_comprehensive.R:1:1
+ 2.   ├─base::tryCatch(...)
+ 3.   │ └─base (local) tryCatchList(expr, classes, parentenv, handlers)
+ 4.   │   └─base (local) tryCatchOne(expr, names, parentenv, handlers[[1L]])
+ 5.   │     └─base (local) doTryCatch(return(expr), name, parentenv, handler)
+ 6.   └─base::loadNamespace(package, lib.loc)
+ 7.     └─base::namespaceImport(...)
+ 8.       └─base::namespaceImportFrom(...)
+
+Warning ('test_acsc_comprehensive.R:1:1'): (code run outside of `test_that()`)
+replacing previous import ‘igraph::graph’ by ‘neurosurf::graph’ when loading ‘neurocluster’
+Backtrace:
+    ▆
+ 1. └─base::library(neurocluster) at test_acsc_comprehensive.R:1:1
+ 2.   ├─base::tryCatch(...)
+ 3.   │ └─base (local) tryCatchList(expr, classes, parentenv, handlers)
+ 4.   │   └─base (local) tryCatchOne(expr, names, parentenv, handlers[[1L]])
+ 5.   │     └─base (local) doTryCatch(return(expr), name, parentenv, handler)
+ 6.   └─base::loadNamespace(package, lib.loc)
+ 7.     └─base::namespaceImport(...)
+ 8.       └─base::namespaceImportFrom(...)
+
+Warning ('test_acsc_comprehensive.R:1:1'): (code run outside of `test_that()`)
+replacing previous import ‘igraph::vertices’ by ‘neurosurf::vertices’ when loading ‘neurocluster’
+Backtrace:
+    ▆
+ 1. └─base::library(neurocluster) at test_acsc_comprehensive.R:1:1
+ 2.   ├─base::tryCatch(...)
+ 3.   │ └─base (local) tryCatchList(expr, classes, parentenv, handlers)
+ 4.   │   └─base (local) tryCatchOne(expr, names, parentenv, handlers[[1L]])
+ 5.   │     └─base (local) doTryCatch(return(expr), name, parentenv, handler)
+ 6.   └─base::loadNamespace(package, lib.loc)
+ 7.     └─base::namespaceImport(...)
+ 8.       └─base::namespaceImportFrom(...)
+────────────────────────────────────────────────────────────────────────────────
+
+⠏ |          0 | algorithm_comparison                                           
+⠹ |          3 | algorithm_comparison                                           
+⠙ |         22 | algorithm_comparison                                           
+⠏ |         40 | algorithm_comparison                                           
+⠏ |         60 | algorithm_comparison                                           
+✔ |         72 | algorithm_comparison
+
+⠏ |          0 | clustering                                                     
+⠹ |   2      1 | clustering                                                     
+⠼ |   2      3 | clustering                                                     
+⠴ |   2      4 | clustering                                                     
+⠦ |   2      5 | clustering                                                     
+⠧ |   2      6 | clustering                                                     
+⠋ |   2      9 | clustering                                                     
+✔ |   2     10 | clustering [23.8s]
+────────────────────────────────────────────────────────────────────────────────
+Warning ('test_clustering.R:5:1'): (code run outside of `test_that()`)
+package ‘purrr’ was built under R version 4.3.3
+Backtrace:
+    ▆
+ 1. └─base::library(purrr) at test_clustering.R:5:1
+ 2.   └─base (local) testRversion(pkgInfo, package, pkgpath)
+
+Warning ('test_clustering.R:6:1'): (code run outside of `test_that()`)
+package ‘assertthat’ was built under R version 4.3.3
+Backtrace:
+    ▆
+ 1. └─base::library(assertthat) at test_clustering.R:6:1
+ 2.   └─base (local) testRversion(pkgInfo, package, pkgpath)
+────────────────────────────────────────────────────────────────────────────────
+
+⠏ |          0 | input_validation                                               
+⠇ | 2 1      6 | input_validation                                               
+⠏ | 3 1      6 | input_validation                                               
+⠇ | 15 2     12 | input_validation                                              
+⠧ | 17 4     17 | input_validation                                              
+⠇ | 20 5     24 | input_validation                                              
+✖ | 26 6     29 | input_validation
+────────────────────────────────────────────────────────────────────────────────
+Warning ('test_input_validation.R:30:3'): validates NeuroVec input types and structure
+clustered volume only contains 1 partition
+Backtrace:
+    ▆
+ 1. ├─testthat::expect_error(slice_msf(wrong_vec, mask), info = "Should reject NeuroVec with dimensions different from mask") at test_input_validation.R:30:3
+ 2. │ └─testthat:::quasi_capture(...)
+ 3. │   ├─testthat (local) .capture(...)
+ 4. │   │ └─base::withCallingHandlers(...)
+ 5. │   └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+ 6. └─neurocluster::slice_msf(wrong_vec, mask)
+ 7.   └─neuroim2::ClusteredNeuroVol(as.logical(mask), clusters = cluster_ids)
+
+Failure ('test_input_validation.R:30:3'): validates NeuroVec input types and structure
+`slice_msf(wrong_vec, mask)` did not throw an error.
+Should reject NeuroVec with dimensions different from mask
+
+Error ('test_input_validation.R:72:3'): validates mask input types and structure
+Error in `ClusteredNeuroVol(as.logical(mask), clusters = cluster_ids)`: length(clusters) == sum(mask) is not TRUE
+Backtrace:
+     ▆
+  1. ├─testthat::expect_silent(...) at test_input_validation.R:72:3
+  2. │ └─testthat:::quasi_capture(enquo(object), NULL, evaluate_promise)
+  3. │   ├─testthat (local) .capture(...)
+  4. │   │ ├─withr::with_output_sink(...)
+  5. │   │ │ └─base::force(code)
+  6. │   │ ├─base::withCallingHandlers(...)
+  7. │   │ └─base::withVisible(code)
+  8. │   └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+  9. └─neurocluster::slice_msf(vec, negative_mask, num_runs = 1, r = 4)
+ 10.   └─neuroim2::ClusteredNeuroVol(as.logical(mask), clusters = cluster_ids)
+ 11.     └─base::stopifnot(length(clusters) == sum(mask))
+
+Failure ('test_input_validation.R:122:3'): validates parameter bounds and types
+`slice_msf(vec, mask, r = 1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:125:3'): validates parameter bounds and types
+`slice_msf(vec, mask, r = ntime - 1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:135:3'): validates parameter bounds and types
+`slice_msf(vec, mask, compactness = 0.1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:138:3'): validates parameter bounds and types
+`slice_msf(vec, mask, compactness = 0, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:141:3'): validates parameter bounds and types
+`slice_msf(vec, mask, compactness = 1000, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:150:3'): validates parameter bounds and types
+`slice_msf(vec, mask, min_size = nvox * 2, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:160:3'): validates parameter bounds and types
+`slice_msf(vec, mask, theta_link = 0, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:161:3'): validates parameter bounds and types
+`slice_msf(vec, mask, theta_link = 1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:164:3'): validates parameter bounds and types
+`slice_msf(vec, mask, theta_link = -0.1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:165:3'): validates parameter bounds and types
+`slice_msf(vec, mask, theta_link = 1.1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:169:3'): validates parameter bounds and types
+`slice_msf(vec, mask, min_contact = -1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:172:3'): validates parameter bounds and types
+`slice_msf(vec, mask, min_contact = 0, num_runs = 1)` produced warnings.
+
+Error ('test_input_validation.R:176:3'): validates parameter bounds and types
+<assertError/simpleError/error/condition>
+Error: `%in%`(x = nbhd, table = c(4, 8)) is not TRUE
+Backtrace:
+     ▆
+  1. ├─testthat::expect_silent(slice_msf(vec, mask, nbhd = 6, num_runs = 1)) at test_input_validation.R:176:3
+  2. │ └─testthat:::quasi_capture(enquo(object), NULL, evaluate_promise)
+  3. │   ├─testthat (local) .capture(...)
+  4. │   │ ├─withr::with_output_sink(...)
+  5. │   │ │ └─base::force(code)
+  6. │   │ ├─base::withCallingHandlers(...)
+  7. │   │ └─base::withVisible(code)
+  8. │   └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+  9. └─neurocluster::slice_msf(vec, mask, nbhd = 6, num_runs = 1)
+ 10.   └─assertthat::assert_that(nbhd %in% c(4, 8))
+
+Warning ('test_input_validation.R:203:5'): handles malformed time series data
+clustered volume only contains 1 partition
+Backtrace:
+    ▆
+ 1. ├─base::tryCatch(...) at test_input_validation.R:202:3
+ 2. │ └─base (local) tryCatchList(expr, classes, parentenv, handlers)
+ 3. │   └─base (local) tryCatchOne(expr, names, parentenv, handlers[[1L]])
+ 4. │     └─base (local) doTryCatch(return(expr), name, parentenv, handler)
+ 5. └─neurocluster::slice_msf(vec_nan, mask, num_runs = 1, r = 4) at test_input_validation.R:203:5
+ 6.   └─neuroim2::ClusteredNeuroVol(as.logical(mask), clusters = cluster_ids)
+
+Warning ('test_input_validation.R:225:5'): handles malformed time series data
+clustered volume only contains 1 partition
+Backtrace:
+    ▆
+ 1. ├─base::tryCatch(...) at test_input_validation.R:224:3
+ 2. │ └─base (local) tryCatchList(expr, classes, parentenv, handlers)
+ 3. │   └─base (local) tryCatchOne(expr, names, parentenv, handlers[[1L]])
+ 4. │     └─base (local) doTryCatch(return(expr), name, parentenv, handler)
+ 5. └─neurocluster::slice_msf(vec_inf, mask, num_runs = 1, r = 4) at test_input_validation.R:225:5
+ 6.   └─neuroim2::ClusteredNeuroVol(as.logical(mask), clusters = cluster_ids)
+
+Failure ('test_input_validation.R:244:3'): handles malformed time series data
+`... <- NULL` produced warnings.
+
+Failure ('test_input_validation.R:258:3'): handles malformed time series data
+`result_large <- slice_msf(vec_large, mask, num_runs = 1, r = 4)` produced warnings.
+
+Warning ('test_input_validation.R:280:3'): validates algorithm-specific parameter combinations
+clustered volume only contains 1 partition
+Backtrace:
+    ▆
+ 1. ├─testthat::expect_error(snic(vec, mask, K = 0), info = "SNIC should reject K <= 0") at test_input_validation.R:280:3
+ 2. │ └─testthat:::quasi_capture(...)
+ 3. │   ├─testthat (local) .capture(...)
+ 4. │   │ └─base::withCallingHandlers(...)
+ 5. │   └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+ 6. └─neurocluster::snic(vec, mask, K = 0)
+ 7.   └─neuroim2::ClusteredNeuroVol(as.logical(mask), clusters = ret[mask.idx])
+
+Failure ('test_input_validation.R:280:3'): validates algorithm-specific parameter combinations
+`snic(vec, mask, K = 0)` did not throw an error.
+SNIC should reject K <= 0
+
+Error ('test_input_validation.R:287:3'): validates algorithm-specific parameter combinations
+Error in `snic(vec, mask, K = 5, max_iter = 1)`: unused argument (max_iter = 1)
+Backtrace:
+    ▆
+ 1. └─testthat::expect_silent(snic(vec, mask, K = 5, max_iter = 1)) at test_input_validation.R:287:3
+ 2.   └─testthat:::quasi_capture(enquo(object), NULL, evaluate_promise)
+ 3.     ├─testthat (local) .capture(...)
+ 4.     │ ├─withr::with_output_sink(...)
+ 5.     │ │ └─base::force(code)
+ 6.     │ ├─base::withCallingHandlers(...)
+ 7.     │ └─base::withVisible(code)
+ 8.     └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+
+Failure ('test_input_validation.R:340:3'): handles edge case spatial configurations
+`result_2d <- slice_msf(vec_2d, mask_2d, num_runs = 1)` produced warnings.
+
+Warning ('test_input_validation.R:416:3'): validates consensus and meta-clustering inputs
+clustered volume only contains 1 partition
+Backtrace:
+    ▆
+ 1. └─neurocluster::slice_msf(vec, mask, num_runs = 1, r = 6) at test_input_validation.R:416:3
+ 2.   └─neuroim2::ClusteredNeuroVol(as.logical(mask), clusters = cluster_ids)
+
+Failure ('test_input_validation.R:443:3'): validates consensus and meta-clustering inputs
+`slice_msf(vec, mask, num_runs = 1, consensus = TRUE)` produced warnings.
+
+Failure ('test_input_validation.R:446:3'): validates consensus and meta-clustering inputs
+`slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = 0)` produced warnings.
+
+Failure ('test_input_validation.R:447:3'): validates consensus and meta-clustering inputs
+`slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = 1)` produced warnings.
+
+Failure ('test_input_validation.R:450:3'): validates consensus and meta-clustering inputs
+`slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = -0.1)` produced warnings.
+
+Failure ('test_input_validation.R:451:3'): validates consensus and meta-clustering inputs
+`slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = 1.1)` produced warnings.
+
+Warning ('test_input_validation.R:480:5'): error messages are informative
+clustered volume only contains 1 partition
+Backtrace:
+    ▆
+ 1. ├─base::tryCatch(...) at test_input_validation.R:479:3
+ 2. │ └─base (local) tryCatchList(expr, classes, parentenv, handlers)
+ 3. │   └─base (local) tryCatchOne(expr, names, parentenv, handlers[[1L]])
+ 4. │     └─base (local) doTryCatch(return(expr), name, parentenv, handler)
+ 5. └─neurocluster::slice_msf(vec, wrong_mask) at test_input_validation.R:480:5
+ 6.   └─neuroim2::ClusteredNeuroVol(as.logical(mask), clusters = cluster_ids)
+
+Error ('test_input_validation.R:483:3'): error messages are informative
+Error in `grepl("dimension", dim_error_msg, ignore.case = TRUE) || grepl("size", 
+    dim_error_msg, ignore.case = TRUE)`: 'length = 5' in coercion to 'logical(1)'
+Backtrace:
+    ▆
+ 1. └─testthat::expect_true(...) at test_input_validation.R:483:3
+ 2.   └─testthat::quasi_label(enquo(object), label, arg = "object")
+ 3.     └─rlang::eval_bare(expr, quo_get_env(quo))
+────────────────────────────────────────────────────────────────────────────────
+Maximum number of failures exceeded; quitting at end of file.
+ℹ Increase this number with (e.g.) `testthat::set_max_fails(Inf)` 
+
+══ Results ═════════════════════════════════════════════════════════════════════
+Duration: 27.6 s
+
+── Skipped tests (1) ───────────────────────────────────────────────────────────
+• On CRAN (1): 'test_acsc_comprehensive.R:477:3'
+
+── Failed tests ────────────────────────────────────────────────────────────────
+Failure ('test_input_validation.R:30:3'): validates NeuroVec input types and structure
+`slice_msf(wrong_vec, mask)` did not throw an error.
+Should reject NeuroVec with dimensions different from mask
+
+Error ('test_input_validation.R:72:3'): validates mask input types and structure
+Error in `ClusteredNeuroVol(as.logical(mask), clusters = cluster_ids)`: length(clusters) == sum(mask) is not TRUE
+Backtrace:
+     ▆
+  1. ├─testthat::expect_silent(...) at test_input_validation.R:72:3
+  2. │ └─testthat:::quasi_capture(enquo(object), NULL, evaluate_promise)
+  3. │   ├─testthat (local) .capture(...)
+  4. │   │ ├─withr::with_output_sink(...)
+  5. │   │ │ └─base::force(code)
+  6. │   │ ├─base::withCallingHandlers(...)
+  7. │   │ └─base::withVisible(code)
+  8. │   └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+  9. └─neurocluster::slice_msf(vec, negative_mask, num_runs = 1, r = 4)
+ 10.   └─neuroim2::ClusteredNeuroVol(as.logical(mask), clusters = cluster_ids)
+ 11.     └─base::stopifnot(length(clusters) == sum(mask))
+
+Failure ('test_input_validation.R:122:3'): validates parameter bounds and types
+`slice_msf(vec, mask, r = 1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:125:3'): validates parameter bounds and types
+`slice_msf(vec, mask, r = ntime - 1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:135:3'): validates parameter bounds and types
+`slice_msf(vec, mask, compactness = 0.1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:138:3'): validates parameter bounds and types
+`slice_msf(vec, mask, compactness = 0, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:141:3'): validates parameter bounds and types
+`slice_msf(vec, mask, compactness = 1000, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:150:3'): validates parameter bounds and types
+`slice_msf(vec, mask, min_size = nvox * 2, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:160:3'): validates parameter bounds and types
+`slice_msf(vec, mask, theta_link = 0, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:161:3'): validates parameter bounds and types
+`slice_msf(vec, mask, theta_link = 1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:164:3'): validates parameter bounds and types
+`slice_msf(vec, mask, theta_link = -0.1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:165:3'): validates parameter bounds and types
+`slice_msf(vec, mask, theta_link = 1.1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:169:3'): validates parameter bounds and types
+`slice_msf(vec, mask, min_contact = -1, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:172:3'): validates parameter bounds and types
+`slice_msf(vec, mask, min_contact = 0, num_runs = 1)` produced warnings.
+
+Error ('test_input_validation.R:176:3'): validates parameter bounds and types
+<assertError/simpleError/error/condition>
+Error: `%in%`(x = nbhd, table = c(4, 8)) is not TRUE
+Backtrace:
+     ▆
+  1. ├─testthat::expect_silent(slice_msf(vec, mask, nbhd = 6, num_runs = 1)) at test_input_validation.R:176:3
+  2. │ └─testthat:::quasi_capture(enquo(object), NULL, evaluate_promise)
+  3. │   ├─testthat (local) .capture(...)
+  4. │   │ ├─withr::with_output_sink(...)
+  5. │   │ │ └─base::force(code)
+  6. │   │ ├─base::withCallingHandlers(...)
+  7. │   │ └─base::withVisible(code)
+  8. │   └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+  9. └─neurocluster::slice_msf(vec, mask, nbhd = 6, num_runs = 1)
+ 10.   └─assertthat::assert_that(nbhd %in% c(4, 8))
+
+Failure ('test_input_validation.R:244:3'): handles malformed time series data
+`... <- NULL` produced warnings.
+
+Failure ('test_input_validation.R:258:3'): handles malformed time series data
+`result_large <- slice_msf(vec_large, mask, num_runs = 1, r = 4)` produced warnings.
+
+Failure ('test_input_validation.R:280:3'): validates algorithm-specific parameter combinations
+`snic(vec, mask, K = 0)` did not throw an error.
+SNIC should reject K <= 0
+
+Error ('test_input_validation.R:287:3'): validates algorithm-specific parameter combinations
+Error in `snic(vec, mask, K = 5, max_iter = 1)`: unused argument (max_iter = 1)
+Backtrace:
+    ▆
+ 1. └─testthat::expect_silent(snic(vec, mask, K = 5, max_iter = 1)) at test_input_validation.R:287:3
+ 2.   └─testthat:::quasi_capture(enquo(object), NULL, evaluate_promise)
+ 3.     ├─testthat (local) .capture(...)
+ 4.     │ ├─withr::with_output_sink(...)
+ 5.     │ │ └─base::force(code)
+ 6.     │ ├─base::withCallingHandlers(...)
+ 7.     │ └─base::withVisible(code)
+ 8.     └─rlang::eval_bare(quo_get_expr(.quo), quo_get_env(.quo))
+
+Failure ('test_input_validation.R:340:3'): handles edge case spatial configurations
+`result_2d <- slice_msf(vec_2d, mask_2d, num_runs = 1)` produced warnings.
+
+Failure ('test_input_validation.R:443:3'): validates consensus and meta-clustering inputs
+`slice_msf(vec, mask, num_runs = 1, consensus = TRUE)` produced warnings.
+
+Failure ('test_input_validation.R:446:3'): validates consensus and meta-clustering inputs
+`slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = 0)` produced warnings.
+
+Failure ('test_input_validation.R:447:3'): validates consensus and meta-clustering inputs
+`slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = 1)` produced warnings.
+
+Failure ('test_input_validation.R:450:3'): validates consensus and meta-clustering inputs
+`slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = -0.1)` produced warnings.
+
+Failure ('test_input_validation.R:451:3'): validates consensus and meta-clustering inputs
+`slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = 1.1)` produced warnings.
+
+Error ('test_input_validation.R:483:3'): error messages are informative
+Error in `grepl("dimension", dim_error_msg, ignore.case = TRUE) || grepl("size", 
+    dim_error_msg, ignore.case = TRUE)`: 'length = 5' in coercion to 'logical(1)'
+Backtrace:
+    ▆
+ 1. └─testthat::expect_true(...) at test_input_validation.R:483:3
+ 2.   └─testthat::quasi_label(enquo(object), label, arg = "object")
+ 3.     └─rlang::eval_bare(expr, quo_get_env(quo))
+
+[ FAIL 26 | WARN 11 | SKIP 1 | PASS 155 ]
+══ Terminated early ════════════════════════════════════════════════════════════
+Error: Test failures
+In addition: Warning message:
+package ‘testthat’ was built under R version 4.3.3 
+Execution halted

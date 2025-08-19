@@ -9,16 +9,20 @@ tesselate(mask, K = 100)
 \arguments{
 \item{mask}{A \code{NeuroVol} object representing the mask volume.}
 
-\item{K}{An integer value specifying the number of clusters (default: 100).}
+\item{K}{An integer value specifying the number of clusters (default: 100).
+
+If \code{K} exceeds the number of nonzero voxels, a warning is issued and \code{K}
+is set to the number of nonzero voxels.}
 }
 \value{
 An instance of \code{ClusteredNeuroVol} representing the clustered mask volume.
 }
 \description{
-This function tesselates a given mask volume into K clusters using k-means clustering
-applied to spatial coordinates. It returns a clustered mask volume object.
+This function tesselates a given mask volume into K clusters using k-means
+clustering applied to spatial coordinates. It returns a clustered mask volume object.
 }
 \examples{
 # Assuming you have a NeuroVol object 'mask' and you want to create 150 clusters
 clustered_volume <- tesselate(mask, K = 150)
+
 }

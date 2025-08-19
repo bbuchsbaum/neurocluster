@@ -98,6 +98,54 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// slice_msf_runwise
+Rcpp::List slice_msf_runwise(Rcpp::NumericMatrix TS, Rcpp::IntegerVector mask, Rcpp::IntegerVector vol_dim, int r, double fh_scale, int min_size, int nbhd, bool stitch_z, double theta_link, int min_contact, bool rows_are_time, double gamma, Rcpp::NumericVector voxel_dim, double spatial_beta, int target_k_global, int target_k_per_slice);
+RcppExport SEXP _neurocluster_slice_msf_runwise(SEXP TSSEXP, SEXP maskSEXP, SEXP vol_dimSEXP, SEXP rSEXP, SEXP fh_scaleSEXP, SEXP min_sizeSEXP, SEXP nbhdSEXP, SEXP stitch_zSEXP, SEXP theta_linkSEXP, SEXP min_contactSEXP, SEXP rows_are_timeSEXP, SEXP gammaSEXP, SEXP voxel_dimSEXP, SEXP spatial_betaSEXP, SEXP target_k_globalSEXP, SEXP target_k_per_sliceSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type TS(TSSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type mask(maskSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type vol_dim(vol_dimSEXP);
+    Rcpp::traits::input_parameter< int >::type r(rSEXP);
+    Rcpp::traits::input_parameter< double >::type fh_scale(fh_scaleSEXP);
+    Rcpp::traits::input_parameter< int >::type min_size(min_sizeSEXP);
+    Rcpp::traits::input_parameter< int >::type nbhd(nbhdSEXP);
+    Rcpp::traits::input_parameter< bool >::type stitch_z(stitch_zSEXP);
+    Rcpp::traits::input_parameter< double >::type theta_link(theta_linkSEXP);
+    Rcpp::traits::input_parameter< int >::type min_contact(min_contactSEXP);
+    Rcpp::traits::input_parameter< bool >::type rows_are_time(rows_are_timeSEXP);
+    Rcpp::traits::input_parameter< double >::type gamma(gammaSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type voxel_dim(voxel_dimSEXP);
+    Rcpp::traits::input_parameter< double >::type spatial_beta(spatial_betaSEXP);
+    Rcpp::traits::input_parameter< int >::type target_k_global(target_k_globalSEXP);
+    Rcpp::traits::input_parameter< int >::type target_k_per_slice(target_k_per_sliceSEXP);
+    rcpp_result_gen = Rcpp::wrap(slice_msf_runwise(TS, mask, vol_dim, r, fh_scale, min_size, nbhd, stitch_z, theta_link, min_contact, rows_are_time, gamma, voxel_dim, spatial_beta, target_k_global, target_k_per_slice));
+    return rcpp_result_gen;
+END_RCPP
+}
+// slice_fuse_consensus
+Rcpp::List slice_fuse_consensus(Rcpp::List run_results, Rcpp::IntegerVector vol_dim, int nbhd, double fh_scale, int min_size, bool use_features, double lambda, Rcpp::NumericVector voxel_dim, double spatial_beta, int target_k_global, int target_k_per_slice, bool stitch_z);
+RcppExport SEXP _neurocluster_slice_fuse_consensus(SEXP run_resultsSEXP, SEXP vol_dimSEXP, SEXP nbhdSEXP, SEXP fh_scaleSEXP, SEXP min_sizeSEXP, SEXP use_featuresSEXP, SEXP lambdaSEXP, SEXP voxel_dimSEXP, SEXP spatial_betaSEXP, SEXP target_k_globalSEXP, SEXP target_k_per_sliceSEXP, SEXP stitch_zSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::List >::type run_results(run_resultsSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type vol_dim(vol_dimSEXP);
+    Rcpp::traits::input_parameter< int >::type nbhd(nbhdSEXP);
+    Rcpp::traits::input_parameter< double >::type fh_scale(fh_scaleSEXP);
+    Rcpp::traits::input_parameter< int >::type min_size(min_sizeSEXP);
+    Rcpp::traits::input_parameter< bool >::type use_features(use_featuresSEXP);
+    Rcpp::traits::input_parameter< double >::type lambda(lambdaSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type voxel_dim(voxel_dimSEXP);
+    Rcpp::traits::input_parameter< double >::type spatial_beta(spatial_betaSEXP);
+    Rcpp::traits::input_parameter< int >::type target_k_global(target_k_globalSEXP);
+    Rcpp::traits::input_parameter< int >::type target_k_per_slice(target_k_per_sliceSEXP);
+    Rcpp::traits::input_parameter< bool >::type stitch_z(stitch_zSEXP);
+    rcpp_result_gen = Rcpp::wrap(slice_fuse_consensus(run_results, vol_dim, nbhd, fh_scale, min_size, use_features, lambda, voxel_dim, spatial_beta, target_k_global, target_k_per_slice, stitch_z));
+    return rcpp_result_gen;
+END_RCPP
+}
 // update_centroid_online
 List update_centroid_online(const List& centroid, const NumericVector& x_i, const NumericVector& c_i);
 RcppExport SEXP _neurocluster_update_centroid_online(SEXP centroidSEXP, SEXP x_iSEXP, SEXP c_iSEXP) {
@@ -166,6 +214,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_neurocluster_compute_scores", (DL_FUNC) &_neurocluster_compute_scores, 7},
     {"_neurocluster_best_candidate", (DL_FUNC) &_neurocluster_best_candidate, 9},
     {"_neurocluster_find_candidates", (DL_FUNC) &_neurocluster_find_candidates, 4},
+    {"_neurocluster_slice_msf_runwise", (DL_FUNC) &_neurocluster_slice_msf_runwise, 16},
+    {"_neurocluster_slice_fuse_consensus", (DL_FUNC) &_neurocluster_slice_fuse_consensus, 12},
     {"_neurocluster_update_centroid_online", (DL_FUNC) &_neurocluster_update_centroid_online, 3},
     {"_neurocluster_snic_main", (DL_FUNC) &_neurocluster_snic_main, 11},
     {"_neurocluster_compute_boundaryscore_3d_cpp", (DL_FUNC) &_neurocluster_compute_boundaryscore_3d_cpp, 2},

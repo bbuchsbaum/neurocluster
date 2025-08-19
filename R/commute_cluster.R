@@ -6,7 +6,7 @@ commute_cluster_fit <- function(X, cds, K, ncomp=ceiling(sqrt(K*2)),
                                    connectivity=27,
                                    weight_mode=c("binary", "heat")) {
 
-
+  weight_mode <- match.arg(weight_mode)
 
   csds <- matrixStats::colSds(X)
   bad <- which(is.na(csds) | csds==0)
@@ -16,7 +16,7 @@ commute_cluster_fit <- function(X, cds, K, ncomp=ceiling(sqrt(K*2)),
     X[, bad] <- matrix(rnorm(length(bad)*nrow(X)), nrow(X), length(bad))
   }
 
-  X <- scale(X)
+  X <- base::scale(X)
   W <- neighborweights::weighted_spatial_adjacency(cds, t(X),
                                                    dthresh=sigma2*2,
                                                    nnk=connectivity,
@@ -29,7 +29,21 @@ commute_cluster_fit <- function(X, cds, K, ncomp=ceiling(sqrt(K*2)),
 
 
   message("commute_cluster: computing commute-time embedding.")
-  ct <- neighborweights::commute_time(W, ncomp=ncomp)
+  
+  # Handle numerical stability issues for commute_cluster_fit
+  ct <- tryCatch({
+    neighborweights::commute_time_distance(W, ncomp=ncomp)
+  }, error = function(e) {
+    if (grepl("TridiagEigen", e$message)) {
+      stop("Eigenvalue decomposition failed in commute clustering. ",
+           "This often occurs with perfectly correlated signals or singular weight matrices. ",
+           "Try: 1) Using fewer components (ncomp), 2) Adjusting alpha parameter, ",
+           "3) Checking for duplicate time series, or 4) Adding small noise to your data. ",
+           "Original error: ", e$message)
+    } else {
+      stop(e)
+    }
+  })
 
   message("commute_cluster: performing k-means with ", K, " clusters.")
   kres <- kmeans(ct$cds, center=K, iter.max=100)
@@ -73,10 +87,10 @@ commute_cluster_fit <- function(X, cds, K, ncomp=ceiling(sqrt(K*2)),
 #'
 #' commute_res <- commute_cluster(vec, mask, K=100)
 #'
-#' @seealso \code{\link{snic}}, \code{\link{turbo_cluster}}
+#' @seealso \code{\link{snic}}
 #' @importFrom neuroim2 NeuroVec NeuroVol
 #' @importFrom matrixStats colSds
-#' @importFrom neighborweights weighted_spatial_adjacency commute_time
+#' @importFrom neighborweights weighted_spatial_adjacency commute_time_distance
 #' @importFrom stats kmeans
 #' @import assertthat
 #'
@@ -90,6 +104,7 @@ commute_cluster <- function(bvec, mask,
                             connectivity=27,
                             weight_mode=c("binary", "heat")) {
 
+  weight_mode <- match.arg(weight_mode)
 
   mask.idx <- which(mask > 0)
   grid <- index_to_coord(mask, mask.idx)
@@ -103,7 +118,7 @@ commute_cluster <- function(bvec, mask,
     feature_mat[, bad] <- matrix(rnorm(length(bad)*nrow(feature_mat)), nrow(feature_mat), length(bad))
   }
 
-  feature_mat <- scale(feature_mat)
+  feature_mat <- base::scale(feature_mat)
 
   message("commute_cluster: computing similarity matrix.")
 
@@ -117,13 +132,34 @@ commute_cluster <- function(bvec, mask,
                                                    include_diagonal=FALSE,
                                                    stochastic=TRUE)
 
-  W <- (W + t(W))/2
+  # W might be a sparse matrix from Matrix package
+  if (inherits(W, "Matrix")) {
+    W <- (W + Matrix::t(W))/2
+  } else {
+    W <- (W + t(W))/2
+  }
   message("commute_cluster: computing commute-time embedding.")
-  ct <- neighborweights::commute_time(W, ncomp=ncomp)
+  
+  # Handle numerical stability issues for main commute_cluster function
+  ct <- tryCatch({
+    neighborweights::commute_time_distance(W, ncomp=ncomp)
+  }, error = function(e) {
+    if (grepl("TridiagEigen", e$message)) {
+      stop("Eigenvalue decomposition failed in commute clustering. ",
+           "This often occurs with perfectly correlated signals or singular weight matrices. ",
+           "Try: 1) Using fewer components (ncomp), 2) Adjusting alpha parameter, ",
+           "3) Checking for duplicate time series, or 4) Adding small noise to your data. ",
+           "Original error: ", e$message)
+    } else {
+      stop(e)
+    }
+  })
 
   message("commute_cluster: performing k-means with ", K, " clusters.")
   kres <- kmeans(ct$cds, center=K, iter.max=500)
-  kvol <- ClusteredNeuroVol(as.logical(mask),kres$cluster)
+  # Create ClusteredNeuroVol with consistent logical mask (only positive values are TRUE)
+  logical_mask <- mask > 0
+  kvol <- ClusteredNeuroVol(logical_mask,kres$cluster)
 
   message("commute_cluster: computing final centroids")
   centroids <- compute_centroids(feature_mat, grid, kres$cluster, medoid=FALSE)

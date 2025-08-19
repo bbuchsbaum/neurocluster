@@ -5,12 +5,13 @@
 #'
 #' @param x A clustering result, typically an object of class \code{"cluster_result"}.
 #' @param cuts The number of cluster cuts to consider.
+#' @param ... Additional arguments passed to methods.
 #'
 #' @return Depends on the method called.
 #'
 #' @export
-meta_clust <- function(x, cuts) {
-  UseMethod("mean", x)
+meta_clust <- function(x, cuts, ...) {
+  UseMethod("meta_clust", x)
 }
 
 

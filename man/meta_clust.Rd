@@ -4,12 +4,14 @@
 \alias{meta_clust}
 \title{Meta Clustering for Cluster Results (S4 Generic)}
 \usage{
-meta_clust(x, cuts)
+meta_clust(x, cuts, ...)
 }
 \arguments{
 \item{x}{A clustering result, typically an object of class \code{"cluster_result"}.}
 
 \item{cuts}{The number of cluster cuts to consider.}
+
+\item{...}{Additional arguments passed to methods.}
 }
 \value{
 Depends on the method called.

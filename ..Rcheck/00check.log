@@ -1,0 +1,168 @@
+* using log directory ‘/Users/bbuchsbaum/code/neurocluster/..Rcheck’
+* using R version 4.3.2 (2023-10-31)
+* using platform: aarch64-apple-darwin20 (64-bit)
+* R was compiled by
+    Apple clang version 14.0.0 (clang-1400.0.29.202)
+    GNU Fortran (GCC) 12.2.0
+* running under: macOS Sonoma 14.3
+* using session charset: UTF-8
+* using options ‘--no-examples --no-tests --no-vignettes’
+* checking for file ‘./DESCRIPTION’ ... OK
+* checking extension type ... Package
+* this is package ‘neurocluster’ version ‘0.1.0’
+* package encoding: UTF-8
+* checking package namespace information ... OK
+* checking package dependencies ... OK
+* checking if this is a source package ... WARNING
+Subdirectory ‘neurocluster/src’ contains apparent object files/libraries
+  RcppExports.o correlation_gradient.o find_best.o neurocluster.so
+  slice_cluster.o snic.o
+Object files/libraries should not be included in a source package.
+* checking if there is a namespace ... OK
+* checking for executable files ... OK
+* checking for hidden files and directories ... NOTE
+Found the following hidden files and directories:
+  .Rhistory
+  .gitignore
+  ..Rcheck
+  .Rproj.user
+  .claude
+  .git
+These were most likely included in error. See section ‘Package
+structure’ in the ‘Writing R Extensions’ manual.
+* checking for portable file names ... OK
+* checking for sufficient/correct file permissions ... OK
+* checking whether package ‘neurocluster’ can be installed ... WARNING
+Found the following significant warnings:
+  Note: possible error in 'slice_fuse_consensus(run_results = run_results, ': unused arguments (k_fuse = k_fuse, min_size_fuse = min_size_fuse) 
+  Warning: replacing previous import ‘FNN::knn’ by ‘igraph::knn’ when loading ‘neurocluster’
+  Warning: replacing previous import ‘igraph::graph’ by ‘neurosurf::graph’ when loading ‘neurocluster’
+  Warning: replacing previous import ‘igraph::vertices’ by ‘neurosurf::vertices’ when loading ‘neurocluster’
+See ‘/Users/bbuchsbaum/code/neurocluster/..Rcheck/00install.out’ for details.
+Information on the location(s) of code generating the ‘Note’s can be
+obtained by re-running with environment variable R_KEEP_PKG_SOURCE set
+to ‘yes’.
+* used C++ compiler: ‘Homebrew clang version 20.1.8’
+* used SDK: ‘MacOSX14.2.sdk’
+* checking C++ specification ... OK
+  Not all R platforms support C++17
+* checking installed package size ... OK
+* checking package directory ... OK
+* checking DESCRIPTION meta-information ... WARNING
+Non-standard license specification:
+  What license is it under?
+Standardizable: FALSE
+Checking should be performed on sources prepared by ‘R CMD build’.
+* checking top-level files ... OK
+* checking for left-over files ... OK
+* checking index information ... OK
+* checking package subdirectories ... WARNING
+Found the following directory with the name of a check directory:
+  ./..Rcheck
+Most likely, these were included erroneously.
+* checking R files for non-ASCII characters ... OK
+* checking R files for syntax errors ... OK
+* checking whether the package can be loaded ... OK
+* checking whether the package can be loaded with stated dependencies ... OK
+* checking whether the package can be unloaded cleanly ... OK
+* checking whether the namespace can be loaded with stated dependencies ... OK
+* checking whether the namespace can be unloaded cleanly ... OK
+* checking loading without being on the library search path ... WARNING
+Error: package or namespace load failed for ‘neurocluster’ in loadNamespace(i, c(lib.loc, .libPaths()), versionCheck = vI[[i]]):
+ there is no package called ‘RANN’
+In addition: Warning messages:
+1: replacing previous import ‘FNN::knn’ by ‘igraph::knn’ when loading ‘neurocluster’ 
+2: replacing previous import ‘igraph::graph’ by ‘neurosurf::graph’ when loading ‘neurocluster’ 
+3: replacing previous import ‘igraph::vertices’ by ‘neurosurf::vertices’ when loading ‘neurocluster’ 
+Execution halted
+
+It looks like this package has a loading problem when not on .libPaths:
+see the messages for details.
+* checking dependencies in R code ... WARNING
+'::' or ':::' imports not declared from:
+  ‘RANN’ ‘furrr’ ‘robustbase’
+Namespace in Imports field not imported from: ‘RcppParallel’
+  All declared Imports should be used.
+There are ::: calls to the package's namespace in its code. A package
+  almost never needs to use ::: for its own objects:
+  ‘find_initial_points’
+* checking S3 generic/method consistency ... WARNING
+meta_clust:
+  function(x, cuts)
+meta_clust.cluster_result:
+  function(x, cuts, algo, hclust_method)
+See section ‘Generic functions and methods’ in the ‘Writing R
+Extensions’ manual.
+* checking replacement functions ... OK
+* checking foreign function calls ... OK
+* checking R code for possible problems ... NOTE
+commute_cluster: warning in kmeans(ct$cds, center = K, iter.max = 500):
+  partial argument match of 'center' to 'centers'
+commute_cluster_fit: warning in kmeans(ct$cds, center = K, iter.max =
+  100): partial argument match of 'center' to 'centers'
+meta_clust.cluster_result : <anonymous>: warning in
+  ClusteredNeuroVol(x$clusvol@mask, cluster = cmat[, i]): partial
+  argument match of 'cluster' to 'clusters'
+commute_cluster: no visible global function definition for ‘rnorm’
+commute_cluster_fit: no visible global function definition for ‘rnorm’
+compute_centroids : <anonymous>: no visible global function definition
+  for ‘dist’
+compute_centroids : <anonymous>: no visible global function definition
+  for ‘cor’
+merge_clus: possible error in UseMethod("merge_clus", x, method):
+  unused argument (method)
+meta_clust.cluster_result: no visible global function definition for
+  ‘cor’
+meta_clust.cluster_result: no visible global function definition for
+  ‘hclust’
+meta_clust.cluster_result: no visible global function definition for
+  ‘as.dist’
+meta_clust.cluster_result : <anonymous>: no visible global function
+  definition for ‘cutree’
+slice_msf_consensus: possible error in slice_fuse_consensus(run_results
+  = run_results, vol_dim = vol_dim, nbhd = nbhd, k_fuse = k_fuse,
+  min_size_fuse = min_size_fuse, use_features = use_features, lambda =
+  lambda, voxel_dim = voxel_dim, spatial_beta = 0): unused arguments
+  (k_fuse = k_fuse, min_size_fuse = min_size_fuse)
+snic: no visible global function definition for ‘dist’
+supervoxel_cluster_time: no visible global function definition for
+  ‘filter_mat’
+Undefined global functions or variables:
+  as.dist cor cutree dist filter_mat hclust rnorm
+Consider adding
+  importFrom("stats", "as.dist", "cor", "cutree", "dist", "hclust",
+             "rnorm")
+to your NAMESPACE file.
+* checking Rd files ... OK
+* checking Rd metadata ... OK
+* checking Rd cross-references ... OK
+* checking for missing documentation entries ... OK
+* checking for code/documentation mismatches ... WARNING
+Functions or methods with usage in documentation object 'hello' but not in code:
+  ‘hello’
+
+* checking Rd \usage sections ... OK
+* checking Rd contents ... OK
+* checking for unstated dependencies in examples ... WARNING
+'library' or 'require' call not declared from: ‘future’
+* checking LazyData ... NOTE
+  'LazyData' is specified without a 'data' directory
+* checking line endings in C/C++/Fortran sources/headers ... NOTE
+Found the following sources/headers not terminated with a newline:
+  src/slice_cluster.cpp
+Some compilers warn on such files.
+* checking line endings in Makefiles ... NOTE
+Found the following Makefile(s) without a final LF:
+  src/Makevars
+Some ‘make’ programs ignore lines not ending in LF.
+* checking compilation flags in Makevars ... OK
+* checking for GNU extensions in Makefiles ... OK
+* checking for portable use of $(BLAS_LIBS) and $(LAPACK_LIBS) ... OK
+* checking use of PKG_*FLAGS in Makefiles ... OK
+* checking compiled code ... OK
+* checking examples ... SKIPPED
+* checking for unstated dependencies in ‘tests’ ... OK
+* checking tests ... SKIPPED
+* checking PDF version of manual ... OK
+* DONE
+Status: 9 WARNINGs, 5 NOTEs

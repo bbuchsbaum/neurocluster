@@ -63,5 +63,5 @@ commute_res <- commute_cluster(vec, mask, K=100)
 
 }
 \seealso{
-\code{\link{snic}}, \code{\link{turbo_cluster}}
+\code{\link{snic}}
 }

@@ -6,10 +6,13 @@
 #' @param x A clustering result, typically an object of class \code{"cluster_result"}.
 #' @param cuts The number of cluster cuts to consider. Default is the minimum
 #'             of half the number of centers and 2.
-#' @param algo A character string indicating the clustering algorithm to use.
-#'             Default is "hclust" (hierarchical clustering).
-#' @param hclust_method A character string specifying the agglomeration method
-#'                      to use for hierarchical clustering. Default is "ward.D".
+#' @param ... Additional arguments:
+#'   \describe{
+#'     \item{algo}{A character string indicating the clustering algorithm to use.
+#'                 Default is "hclust" (hierarchical clustering).}
+#'     \item{hclust_method}{A character string specifying the agglomeration method
+#'                          to use for hierarchical clustering. Default is "ward.D".}
+#'   }
 #'
 #' @return A list containing:
 #'         \item{cvols}{A list of \code{\linkS4class{ClusteredNeuroVol}} instances.}
@@ -17,15 +20,25 @@
 #'         \item{cutmat}{A matrix representing the cluster assignments for each cut.}
 #'         \item{hclus}{The hierarchical clustering result.}
 #'
-#' @seealso \code{\link[hclust]{hclust}}, \code{\link[stats]{cutree}}
+#' @seealso \code{\link[stats]{hclust}}, \code{\link[stats]{cutree}}
 #' @export
-meta_clust.cluster_result <- function(x, cuts=min(as.integer(length(x$centers)/2),2),
-                                      algo="hclust", hclust_method="ward.D") {
+meta_clust.cluster_result <- function(x, cuts=min(as.integer(length(x$centers)/2),2), ...) {
+  # Extract additional arguments
+  dots <- list(...)
+  algo <- if (!is.null(dots$algo)) dots$algo else "hclust"
+  hclust_method <- if (!is.null(dots$hclust_method)) dots$hclust_method else "ward.D"
 
   orig <- x$cluster
 
+  # Check if centers exist (some methods like SNIC don't provide centers)
+  if (is.null(x$centers)) {
+    stop("Cannot perform meta clustering: the clustering result does not contain cluster centers. ",
+         "Methods like SNIC do not compute explicit cluster centers.")
+  }
+
   cvols <- if (algo == "hclust") {
-    cen <- do.call(rbind, x$centers)
+    # x$centers is already a matrix, no need to rbind
+    cen <- x$centers
     #D <- 1 - cor(t(x$centers))
 
     D <- 1 - cor(t(cen))
@@ -35,7 +48,7 @@ meta_clust.cluster_result <- function(x, cuts=min(as.integer(length(x$centers)/2
       cind[orig]
     }))
 
-    cvols <- map(1:ncol(cmat), function(i) {
+    cvols <- lapply(1:ncol(cmat), function(i) {
       ClusteredNeuroVol(x$clusvol@mask, cluster=cmat[,i])
     })
 
@@ -73,7 +86,8 @@ meta_clust.cluster_result <- function(x, cuts=min(as.integer(length(x$centers)/2
 #'
 #' @seealso \code{\link[clue]{cl_consensus}}, \code{\link[clue]{as.cl_hard_partition}}, \code{\link[clue]{cl_ensemble}}
 #' @importFrom clue cl_consensus as.cl_hard_partition cl_ensemble
-#' @importFrom assertthat assert_that map_lgl
+#' @importFrom assertthat assert_that
+#' @importFrom purrr map_lgl
 #' @export
 merge_clus.cluster_result <- function(x, method="SE", ...) {
   args <- c(list(x), list(...))
@@ -98,12 +112,34 @@ merge_clus.cluster_result_time <- function(x, ...) {
   as.integer(hpart$.Data)
 }
 
+#' Extract Class IDs from Cluster Result
+#'
+#' This function extracts the cluster class identifiers from a cluster result object.
+#' It is a method for the \code{\link[clue]{cl_class_ids}} generic from the \code{clue} package.
+#'
+#' @param x A \code{cluster_result} object containing clustering information.
+#'
+#' @return An integer vector of cluster assignments, one for each data point.
+#'
+#' @seealso \code{\link[clue]{cl_class_ids}} for the generic function.
 #' @export
 cl_class_ids.cluster_result <- function(x) {
   x$cluster
 }
 
 
+#' Test if Object is a Partition
+#'
+#' This function tests whether a cluster result object represents a partition.
+#' It is a method for the \code{\link[clue]{is.cl_partition}} generic from the \code{clue} package.
+#' For \code{cluster_result} objects, this always returns \code{TRUE} since cluster results
+#' represent valid partitions where each data point belongs to exactly one cluster.
+#'
+#' @param x A \code{cluster_result} object.
+#'
+#' @return \code{TRUE}, indicating that cluster results are always valid partitions.
+#'
+#' @seealso \code{\link[clue]{is.cl_partition}} for the generic function.
 #' @export
 is.cl_partition.cluster_result <- function(x) {
   TRUE
