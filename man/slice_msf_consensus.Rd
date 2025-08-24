@@ -15,23 +15,50 @@ slice_msf_consensus(
 )
 }
 \arguments{
-\item{run_results}{List of results from \code{slice_msf_single}.}
+\item{run_results}{List of results from \code{slice_msf_single}, each containing
+labels, weights, and sketch matrices.}
 
 \item{mask}{A \code{NeuroVol} mask used in the original segmentation.}
 
-\item{nbhd}{Neighborhood connectivity (4, 6, or 8). Default is 8.}
+\item{nbhd}{Neighborhood connectivity (4, 6, or 8). Should match the value used
+in the original segmentation. Default is 8.}
 
-\item{k_fuse}{Scale parameter for fusion. Default is 0.30.}
+\item{k_fuse}{Scale parameter for consensus fusion graph (0-2). Lower values create
+more refined clusters during fusion. If too low, may fragment consensus clusters.
+Default is 0.30.}
 
-\item{min_size_fuse}{Minimum cluster size. Default is 80.}
+\item{min_size_fuse}{Minimum cluster size during fusion. Can be set lower than
+the original min_size to preserve small but consistent clusters. Default is 80.}
 
-\item{use_features}{Use feature similarity in fusion. Default is FALSE.}
+\item{use_features}{Include feature similarity in consensus fusion. When TRUE,
+uses both label co-occurrence and temporal similarity from DCT sketches. This
+can improve cross-slice consistency and is recommended when targeting exact K.
+Default is FALSE.}
 
-\item{lambda}{Mix parameter (0-1). Default is 0.7.}
+\item{lambda}{Mixing parameter (0-1) controlling the balance between label agreement
+and feature similarity when use_features=TRUE. Higher values (0.7-0.9) emphasize
+label agreement, lower values (0.3-0.6) emphasize features. Default is 0.7.}
 }
 \value{
-A list with fused labels.
+A list with the following components:
+\describe{
+  \item{labels}{Integer vector of consensus cluster labels}
+  \item{params}{List of parameters used in consensus fusion}
+}
 }
 \description{
-Combines multiple SLiCE-MSF segmentation runs using consensus clustering.
+Combines multiple SLiCE-MSF segmentation runs using consensus clustering to improve
+stability and reduce variability. This function can help reduce z-plane artifacts
+by averaging cluster assignments across multiple independent runs.
+}
+\details{
+Consensus fusion works by building a co-association matrix that counts how often
+each pair of voxels is assigned to the same cluster across runs. This matrix is
+then used as edge weights in a new graph segmentation. When use_features=TRUE,
+the edge weights also incorporate the similarity of DCT sketches, providing
+additional stability.
+
+For reducing z-artifacts, using use_features=TRUE with lambda around 0.5-0.6 can
+help ensure that clusters are consistent both in terms of their boundaries and
+their temporal characteristics.
 }

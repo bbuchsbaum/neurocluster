@@ -15,8 +15,8 @@ using namespace Rcpp;
  based on local neighbors where distance < dthresh
  */
 
-// [[Rcpp::export]]
-double heat_kernel(NumericVector x1, NumericVector x2, double sigma) {
+// Internal implementation - not exported to avoid duplicate symbols
+double heat_kernel_internal(NumericVector x1, NumericVector x2, double sigma) {
   double dist_sq = 0.0;
   int len = x1.size();
   for (int i = 0; i < len; i++) {
@@ -27,8 +27,8 @@ double heat_kernel(NumericVector x1, NumericVector x2, double sigma) {
   return std::exp(-dist / (2.0 * sigma * sigma));
 }
 
-// [[Rcpp::export]]
-double normalized_heat_kernel(NumericVector x1, NumericVector x2, double sigma) {
+// Internal implementation - not exported to avoid duplicate symbols
+double normalized_heat_kernel_internal(NumericVector x1, NumericVector x2, double sigma) {
   double dist_sq = 0.0;
   int len = x1.size();
   for (int i = 0; i < len; i++) {
@@ -54,11 +54,11 @@ NumericVector compute_scores(IntegerVector curclus,
     int cluster_idx = curclus[i] - 1;
     NumericVector voxelData = data(_, i);
     NumericVector clusterData = data_centroids(_, cluster_idx);
-    double c1 = normalized_heat_kernel(voxelData, clusterData, sigma1);
+    double c1 = normalized_heat_kernel_internal(voxelData, clusterData, sigma1);
 
     NumericVector voxelCoord = coords(_, i);
     NumericVector clusterCoord = coord_centroids(_, cluster_idx);
-    double c2 = heat_kernel(voxelCoord, clusterCoord, sigma2);
+    double c2 = heat_kernel_internal(voxelCoord, clusterCoord, sigma2);
 
     out[i] = c1 + c2;
   }
@@ -90,8 +90,8 @@ IntegerVector best_candidate(List candidates,
     NumericVector score(cand.size());
     for (int j = 0; j < cand.size(); j++) {
       int cid = cand[j] - 1;
-      double c1 = normalized_heat_kernel(data(_, i), data_centroids(_, cid), sigma1);
-      double c2 = heat_kernel(coords(_, i), coord_centroids(_, cid), sigma2);
+      double c1 = normalized_heat_kernel_internal(data(_, i), data_centroids(_, cid), sigma1);
+      double c2 = heat_kernel_internal(coords(_, i), coord_centroids(_, cid), sigma2);
       score[j] = alpha * c1 + (1.0 - alpha) * c2;
     }
 

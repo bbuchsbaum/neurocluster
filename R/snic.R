@@ -83,6 +83,56 @@ find_initial_points <- function(cds, grad, K=100) {
 #' \item{centers}{A matrix of cluster centers with each column representing the feature vector for a cluster.}
 #' \item{coord_centers}{A matrix of spatial coordinates with each row corresponding to a cluster.}
 #' }
+#' 
+#' @details
+#' ## Parallelization Status
+#' 
+#' **Currently NOT parallelized.** SNIC uses a sequential priority queue-based algorithm
+#' that processes voxels in order of their distance from cluster centers.
+#' 
+#' ### Sequential Operations:
+#' 
+#' 1. **Initialization**: Gradient-based seed selection using `find_initial_points()`
+#'    - Finds K seed points with high gradient and spatial separation
+#'    - Sequential search through candidate voxels
+#' 
+#' 2. **Priority Queue Processing** (C++ implementation):
+#'    - Maintains a global priority queue of voxels to be assigned
+#'    - Each voxel assignment depends on previously processed neighbors
+#'    - Voxels are processed in order of their combined distance metric
+#' 
+#' 3. **Distance Computation**: For each voxel, calculates:
+#'    - Feature distance to nearest cluster center
+#'    - Spatial distance weighted by compactness parameter
+#'    - Combined into single priority score
+#' 
+#' ### Why Not Parallelized:
+#' 
+#' - **Sequential dependency**: Priority queue enforces strict processing order
+#' - **Global state**: Each voxel assignment affects subsequent assignments
+#' - **Algorithm design**: SNIC's key innovation is its non-iterative, sequential nature
+#' - **Coherent clusters**: Sequential processing ensures connected components
+#' 
+#' ### Performance Characteristics:
+#' 
+#' - **Complexity**: O(N log N) where N = number of voxels
+#' - **Memory**: O(N) for priority queue and assignments
+#' - **Speed**: Generally faster than iterative methods (supervoxels)
+#' - **Single pass**: Processes each voxel exactly once
+#' 
+#' ### Performance Tips:
+#' 
+#' - **Reduce K**: Fewer clusters means less competition for voxels
+#' - **Adjust compactness**: Higher values create more local clusters, faster processing
+#' - **Pre-smooth data**: Reduce noise to improve gradient-based initialization
+#' - **Use smaller masks**: Process ROIs separately if possible
+#' - **Alternative**: Consider `slice_msf()` or `acsc()` for parallel execution
+#' 
+#' ### Comparison with Other Methods:
+#' 
+#' - **Faster than**: `supervoxels()` due to non-iterative nature
+#' - **Slower than**: `slice_msf()` with parallel slices, `acsc()` with future backend
+#' - **More coherent than**: Methods without spatial priority (ensures connectivity)
 #'
 #' @examples
 #' mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))

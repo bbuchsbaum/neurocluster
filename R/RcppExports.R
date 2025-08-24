@@ -5,14 +5,6 @@ correlation_gradient_cpp <- function(img_4d, brain_mask) {
     .Call('_neurocluster_correlation_gradient_cpp', PACKAGE = 'neurocluster', img_4d, brain_mask)
 }
 
-heat_kernel <- function(x1, x2, sigma) {
-    .Call('_neurocluster_heat_kernel', PACKAGE = 'neurocluster', x1, x2, sigma)
-}
-
-normalized_heat_kernel <- function(x1, x2, sigma) {
-    .Call('_neurocluster_normalized_heat_kernel', PACKAGE = 'neurocluster', x1, x2, sigma)
-}
-
 compute_scores <- function(curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2) {
     .Call('_neurocluster_compute_scores', PACKAGE = 'neurocluster', curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2)
 }
@@ -23,6 +15,22 @@ best_candidate <- function(candidates, curclus, coords, data_centroids, coord_ce
 
 find_candidates <- function(nn_index, nn_dist, curclus, dthresh) {
     .Call('_neurocluster_find_candidates', PACKAGE = 'neurocluster', nn_index, nn_dist, curclus, dthresh)
+}
+
+best_candidate_parallel <- function(candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2, alpha, grain_size = 100L) {
+    .Call('_neurocluster_best_candidate_parallel', PACKAGE = 'neurocluster', candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2, alpha, grain_size)
+}
+
+best_candidate_sequential <- function(candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2, alpha) {
+    .Call('_neurocluster_best_candidate_sequential', PACKAGE = 'neurocluster', candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2, alpha)
+}
+
+heat_kernel <- function(x1, x2, sigma) {
+    .Call('_neurocluster_heat_kernel', PACKAGE = 'neurocluster', x1, x2, sigma)
+}
+
+normalized_heat_kernel <- function(x1, x2, sigma) {
+    .Call('_neurocluster_normalized_heat_kernel', PACKAGE = 'neurocluster', x1, x2, sigma)
 }
 
 slice_msf_runwise <- function(TS, mask, vol_dim, r = 12L, fh_scale = 0.32, min_size = 80L, nbhd = 8L, stitch_z = FALSE, theta_link = 0.85, min_contact = 1L, rows_are_time = TRUE, gamma = 1.5, voxel_dim = NULL, spatial_beta = 0.0, target_k_global = -1L, target_k_per_slice = -1L) {

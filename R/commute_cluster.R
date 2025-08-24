@@ -78,6 +78,63 @@ commute_cluster_fit <- function(X, cds, K, ncomp=ceiling(sqrt(K*2)),
 #' \item{centers}{A matrix of cluster centers with each column representing the feature vector for a cluster.}
 #' \item{coord_centers}{A matrix of spatial coordinates with each row corresponding to a cluster.}
 #' }
+#' 
+#' @details
+#' ## Parallelization Status
+#' 
+#' **Currently NOT parallelized.** The commute_cluster algorithm runs sequentially,
+#' relying on matrix operations from the `neighborweights` package.
+#' 
+#' ### Sequential Operations:
+#' 
+#' 1. **Graph Construction**: `weighted_spatial_adjacency()`
+#'    - Builds weighted adjacency matrix combining spatial and feature similarity
+#'    - Sequential nearest neighbor search
+#'    - Weight computation for each edge
+#' 
+#' 2. **Commute Time Embedding**: `commute_time_distance()`
+#'    - Eigendecomposition of graph Laplacian
+#'    - Computation of commute distances in spectral space
+#'    - Matrix operations potentially use BLAS/LAPACK threading
+#' 
+#' 3. **K-means Clustering**: Standard k-means on embedded coordinates
+#'    - Multiple random starts (sequential)
+#'    - Iterative centroid updates
+#' 
+#' ### Why Not Parallelized:
+#' 
+#' - **External dependencies**: Uses `neighborweights` package functions
+#' - **Matrix operations**: Relies on optimized BLAS/LAPACK libraries
+#' - **Eigendecomposition**: Difficult to parallelize efficiently in R
+#' - **Small overhead**: Graph construction often not the bottleneck
+#' 
+#' ### Performance Characteristics:
+#' 
+#' - **Complexity**: O(N³) for eigendecomposition (limiting factor)
+#' - **Memory intensive**: Stores full N×N adjacency matrix
+#' - **Scalability limit**: Practical for up to ~10,000 voxels
+#' - **Numerical stability**: Can fail with singular matrices or perfect correlations
+#' 
+#' ### Indirect Parallelization:
+#' 
+#' While the R code is sequential, performance can benefit from:
+#' - **Optimized BLAS**: Use OpenBLAS, Intel MKL, or Apple Accelerate
+#' - **Multi-threaded LAPACK**: Eigendecomposition may use multiple threads
+#' - Configure with: `options(matprod = "blas")` or system BLAS settings
+#' 
+#' ### Performance Tips:
+#' 
+#' - **Reduce connectivity**: Smaller neighborhoods = sparser matrices
+#' - **Increase alpha**: Higher values reduce graph density
+#' - **Use fewer components**: Set ncomp << K for faster embedding
+#' - **Pre-filter voxels**: Remove low-variance voxels before clustering
+#' - **Alternative methods**: For large data, use `slice_msf()` or `acsc()`
+#' 
+#' ### Common Issues:
+#' 
+#' - **Eigenvalue errors**: Often due to singular matrices from duplicate time series
+#' - **Memory errors**: Full adjacency matrix requires O(N²) memory
+#' - **Slow performance**: Eigendecomposition dominates runtime for large N
 #'
 #' @examples
 #' mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))

@@ -22,32 +22,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// heat_kernel
-double heat_kernel(NumericVector x1, NumericVector x2, double sigma);
-RcppExport SEXP _neurocluster_heat_kernel(SEXP x1SEXP, SEXP x2SEXP, SEXP sigmaSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< NumericVector >::type x1(x1SEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type x2(x2SEXP);
-    Rcpp::traits::input_parameter< double >::type sigma(sigmaSEXP);
-    rcpp_result_gen = Rcpp::wrap(heat_kernel(x1, x2, sigma));
-    return rcpp_result_gen;
-END_RCPP
-}
-// normalized_heat_kernel
-double normalized_heat_kernel(NumericVector x1, NumericVector x2, double sigma);
-RcppExport SEXP _neurocluster_normalized_heat_kernel(SEXP x1SEXP, SEXP x2SEXP, SEXP sigmaSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< NumericVector >::type x1(x1SEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type x2(x2SEXP);
-    Rcpp::traits::input_parameter< double >::type sigma(sigmaSEXP);
-    rcpp_result_gen = Rcpp::wrap(normalized_heat_kernel(x1, x2, sigma));
-    return rcpp_result_gen;
-END_RCPP
-}
 // compute_scores
 NumericVector compute_scores(IntegerVector curclus, NumericMatrix coords, NumericMatrix data_centroids, NumericMatrix coord_centroids, NumericMatrix data, double sigma1, double sigma2);
 RcppExport SEXP _neurocluster_compute_scores(SEXP curclusSEXP, SEXP coordsSEXP, SEXP data_centroidsSEXP, SEXP coord_centroidsSEXP, SEXP dataSEXP, SEXP sigma1SEXP, SEXP sigma2SEXP) {
@@ -95,6 +69,71 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< IntegerVector >::type curclus(curclusSEXP);
     Rcpp::traits::input_parameter< double >::type dthresh(dthreshSEXP);
     rcpp_result_gen = Rcpp::wrap(find_candidates(nn_index, nn_dist, curclus, dthresh));
+    return rcpp_result_gen;
+END_RCPP
+}
+// best_candidate_parallel
+IntegerVector best_candidate_parallel(List candidates, IntegerVector curclus, NumericMatrix coords, NumericMatrix data_centroids, NumericMatrix coord_centroids, NumericMatrix data, double sigma1, double sigma2, double alpha, int grain_size);
+RcppExport SEXP _neurocluster_best_candidate_parallel(SEXP candidatesSEXP, SEXP curclusSEXP, SEXP coordsSEXP, SEXP data_centroidsSEXP, SEXP coord_centroidsSEXP, SEXP dataSEXP, SEXP sigma1SEXP, SEXP sigma2SEXP, SEXP alphaSEXP, SEXP grain_sizeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type candidates(candidatesSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type curclus(curclusSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type coords(coordsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type data_centroids(data_centroidsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type coord_centroids(coord_centroidsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< double >::type sigma1(sigma1SEXP);
+    Rcpp::traits::input_parameter< double >::type sigma2(sigma2SEXP);
+    Rcpp::traits::input_parameter< double >::type alpha(alphaSEXP);
+    Rcpp::traits::input_parameter< int >::type grain_size(grain_sizeSEXP);
+    rcpp_result_gen = Rcpp::wrap(best_candidate_parallel(candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2, alpha, grain_size));
+    return rcpp_result_gen;
+END_RCPP
+}
+// best_candidate_sequential
+IntegerVector best_candidate_sequential(List candidates, IntegerVector curclus, NumericMatrix coords, NumericMatrix data_centroids, NumericMatrix coord_centroids, NumericMatrix data, double sigma1, double sigma2, double alpha);
+RcppExport SEXP _neurocluster_best_candidate_sequential(SEXP candidatesSEXP, SEXP curclusSEXP, SEXP coordsSEXP, SEXP data_centroidsSEXP, SEXP coord_centroidsSEXP, SEXP dataSEXP, SEXP sigma1SEXP, SEXP sigma2SEXP, SEXP alphaSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type candidates(candidatesSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type curclus(curclusSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type coords(coordsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type data_centroids(data_centroidsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type coord_centroids(coord_centroidsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< double >::type sigma1(sigma1SEXP);
+    Rcpp::traits::input_parameter< double >::type sigma2(sigma2SEXP);
+    Rcpp::traits::input_parameter< double >::type alpha(alphaSEXP);
+    rcpp_result_gen = Rcpp::wrap(best_candidate_sequential(candidates, curclus, coords, data_centroids, coord_centroids, data, sigma1, sigma2, alpha));
+    return rcpp_result_gen;
+END_RCPP
+}
+// heat_kernel
+double heat_kernel(NumericVector x1, NumericVector x2, double sigma);
+RcppExport SEXP _neurocluster_heat_kernel(SEXP x1SEXP, SEXP x2SEXP, SEXP sigmaSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type x1(x1SEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type x2(x2SEXP);
+    Rcpp::traits::input_parameter< double >::type sigma(sigmaSEXP);
+    rcpp_result_gen = Rcpp::wrap(heat_kernel(x1, x2, sigma));
+    return rcpp_result_gen;
+END_RCPP
+}
+// normalized_heat_kernel
+double normalized_heat_kernel(NumericVector x1, NumericVector x2, double sigma);
+RcppExport SEXP _neurocluster_normalized_heat_kernel(SEXP x1SEXP, SEXP x2SEXP, SEXP sigmaSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type x1(x1SEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type x2(x2SEXP);
+    Rcpp::traits::input_parameter< double >::type sigma(sigmaSEXP);
+    rcpp_result_gen = Rcpp::wrap(normalized_heat_kernel(x1, x2, sigma));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -209,11 +248,13 @@ RcppExport SEXP _rcpp_module_boot_correlation_gradient_module();
 
 static const R_CallMethodDef CallEntries[] = {
     {"_neurocluster_correlation_gradient_cpp", (DL_FUNC) &_neurocluster_correlation_gradient_cpp, 2},
-    {"_neurocluster_heat_kernel", (DL_FUNC) &_neurocluster_heat_kernel, 3},
-    {"_neurocluster_normalized_heat_kernel", (DL_FUNC) &_neurocluster_normalized_heat_kernel, 3},
     {"_neurocluster_compute_scores", (DL_FUNC) &_neurocluster_compute_scores, 7},
     {"_neurocluster_best_candidate", (DL_FUNC) &_neurocluster_best_candidate, 9},
     {"_neurocluster_find_candidates", (DL_FUNC) &_neurocluster_find_candidates, 4},
+    {"_neurocluster_best_candidate_parallel", (DL_FUNC) &_neurocluster_best_candidate_parallel, 10},
+    {"_neurocluster_best_candidate_sequential", (DL_FUNC) &_neurocluster_best_candidate_sequential, 9},
+    {"_neurocluster_heat_kernel", (DL_FUNC) &_neurocluster_heat_kernel, 3},
+    {"_neurocluster_normalized_heat_kernel", (DL_FUNC) &_neurocluster_normalized_heat_kernel, 3},
     {"_neurocluster_slice_msf_runwise", (DL_FUNC) &_neurocluster_slice_msf_runwise, 16},
     {"_neurocluster_slice_fuse_consensus", (DL_FUNC) &_neurocluster_slice_fuse_consensus, 12},
     {"_neurocluster_update_centroid_online", (DL_FUNC) &_neurocluster_update_centroid_online, 3},
