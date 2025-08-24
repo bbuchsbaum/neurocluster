@@ -3,6 +3,8 @@
 #include <Rcpp.h>
 #include <RcppParallel.h>
 #include <unordered_set>
+#include <set>
+#include <map>
 #include <cmath>
 #include <atomic>
 
@@ -318,16 +320,64 @@ List compute_centroids_parallel(IntegerVector cluster_ids,
                                 NumericMatrix coords,
                                 int n_clusters,
                                 int grain_size = 10) {
-  // Preallocate output matrices
-  NumericMatrix data_centroids(data.nrow(), n_clusters);
-  NumericMatrix coord_centroids(coords.nrow(), n_clusters);
-  IntegerVector cluster_counts(n_clusters);
+  // First, find the actual unique cluster IDs and create a mapping
+  std::set<int> unique_ids;
+  for (int i = 0; i < cluster_ids.size(); i++) {
+    unique_ids.insert(cluster_ids[i]);
+  }
   
-  // Create and run parallel worker
-  CentroidWorker worker(cluster_ids, data, coords, n_clusters,
-                        data_centroids, coord_centroids, cluster_counts);
+  // Create mapping from cluster ID to index
+  std::map<int, int> id_to_idx;
+  int idx = 0;
+  for (int id : unique_ids) {
+    id_to_idx[id] = idx++;
+  }
   
-  parallelFor(0, n_clusters, worker, grain_size);
+  int actual_n_clusters = unique_ids.size();
+  
+  // Preallocate output matrices based on actual number of clusters
+  NumericMatrix data_centroids(data.nrow(), actual_n_clusters);
+  NumericMatrix coord_centroids(coords.nrow(), actual_n_clusters);
+  IntegerVector cluster_counts(actual_n_clusters);
+  
+  // Sequential computation (safer for now to avoid parallel issues with mapping)
+  for (int k = 0; k < actual_n_clusters; k++) {
+    // Zero out this cluster's accumulators
+    for (int j = 0; j < data.nrow(); j++) {
+      data_centroids(j, k) = 0.0;
+    }
+    for (int j = 0; j < coords.nrow(); j++) {
+      coord_centroids(j, k) = 0.0;
+    }
+    cluster_counts[k] = 0;
+  }
+  
+  // Accumulate for each cluster
+  for (int i = 0; i < cluster_ids.size(); i++) {
+    int cluster_id = cluster_ids[i];
+    int cluster_idx = id_to_idx[cluster_id];
+    
+    cluster_counts[cluster_idx]++;
+    for (int j = 0; j < data.nrow(); j++) {
+      data_centroids(j, cluster_idx) += data(j, i);
+    }
+    for (int j = 0; j < coords.nrow(); j++) {
+      coord_centroids(j, cluster_idx) += coords(j, i);
+    }
+  }
+  
+  // Divide by count to get mean
+  for (int k = 0; k < actual_n_clusters; k++) {
+    if (cluster_counts[k] > 0) {
+      double inv_count = 1.0 / cluster_counts[k];
+      for (int j = 0; j < data.nrow(); j++) {
+        data_centroids(j, k) *= inv_count;
+      }
+      for (int j = 0; j < coords.nrow(); j++) {
+        coord_centroids(j, k) *= inv_count;
+      }
+    }
+  }
   
   return List::create(
     Named("centers") = data_centroids,

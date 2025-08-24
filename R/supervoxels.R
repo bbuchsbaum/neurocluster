@@ -219,7 +219,8 @@ supervoxel_cluster_fit <- function(feature_mat,
     
     # Use new fused operation that eliminates huge candlist allocation
     # This combines find_candidates and best_candidate in a single pass
-    if (parallel && nvox > 1000) {
+    # TODO: Debug parallel version - currently disabled due to hanging
+    if (FALSE && parallel && nvox > 1000) {
       newclus <- fused_assignment_parallel(neib$nn.index - 1, neib$nn.dist, curclus,
                                           t(coords), t(num_centroids), t(sp_centroids),
                                           feature_mat, dthresh, sigma1, sigma2, 
@@ -232,10 +233,14 @@ supervoxel_cluster_fit <- function(feature_mat,
     switches <- attr(newclus, "nswitches")
 
     if (switches > 0) {
-      # Use parallel centroid computation for larger datasets
-      if (parallel && nvox > 1000 && K > 50) {
-        cent_result <- compute_centroids_parallel(newclus, feature_mat, coords, K,
-                                                 grain_size = max(10, K / 10))
+      # Get actual number of unique clusters (may be less than K)
+      n_actual_clusters <- length(unique(newclus))
+      
+      # Temporarily disable parallel centroid computation until debugged
+      # TODO: Fix parallel centroid computation
+      if (FALSE && parallel && nvox > 1000 && n_actual_clusters > 50) {
+        cent_result <- compute_centroids_parallel(newclus, feature_mat, coords, n_actual_clusters,
+                                                 grain_size = max(10, n_actual_clusters / 10))
         num_centroids <- cent_result$centers
         sp_centroids <- cent_result$coord_centers
       } else {
