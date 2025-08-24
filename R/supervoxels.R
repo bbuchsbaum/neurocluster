@@ -111,35 +111,60 @@ supervoxel_cluster_fit <- function(feature_mat,
                                    initclus = NULL,
                                    use_gradient = TRUE,
                                    parallel = TRUE,
-                                   grain_size = 100) {
+                                   grain_size = 100,
+                                   verbose = FALSE,
+                                   converge_thresh = 0.001) {
 
   message("supervoxel_fit: sigma1 = ", sigma1, " sigma2 = ", sigma2)
 
+  # Early parameter validation
+  nvox <- nrow(coords)
+  if (nvox == 0) {
+    stop("No voxels to cluster (coords has 0 rows)")
+  }
+  
+  if (K <= 0) {
+    stop("K must be positive, got: ", K)
+  }
+  
+  if (K > nvox) {
+    stop(sprintf("Cannot create %d clusters from %d voxels. K must be <= number of voxels.", K, nvox))
+  }
+  
+  if (K == nvox) {
+    warning(sprintf("K equals number of voxels (%d). Each voxel will be its own cluster.", nvox))
+    return(list(
+      clusters = seq_len(nvox),
+      centers = t(feature_mat),
+      coord_centers = coords
+    ))
+  }
+  
   # Adjust connectivity based on number of voxels
-  max_connectivity <- min(connectivity, nrow(coords) - 1)
+  max_connectivity <- min(connectivity, nvox - 1)
   if (max_connectivity != connectivity) {
     warning(sprintf("Connectivity reduced from %d to %d due to limited voxels", connectivity, max_connectivity))
     connectivity <- max_connectivity
   }
   
-  assert_that(connectivity > 1 & connectivity <= 27)
+  # Ensure minimum connectivity
+  if (connectivity < 2) {
+    warning("Connectivity must be at least 2, setting to 2")
+    connectivity <- 2
+  }
+  
+  assert_that(connectivity <= 27)
   assert_that(alpha >= 0 && alpha <= 1)
+  assert_that(iterations > 0)
+  assert_that(converge_thresh > 0)
 
   # Center and scale the feature matrix
   feature_mat <- base::scale(feature_mat, center = TRUE, scale = TRUE)
 
-  nvox <- nrow(coords)
-  if (K >= nvox) {
-    if (nvox == 1) {
-      # Special case: only one voxel, return trivial result
-      return(list(
-        clusters = rep(1, nvox),
-        centers = matrix(feature_mat[, 1], ncol = 1),
-        coord_centers = matrix(coords[1, ], nrow = 1)
-      ))
-    }
-    warning("K is greater than or equal to the number of data points. Setting K = ", nvox - 1)
-    K <- nvox - 1
+  # Check for NA values after scaling
+  if (any(is.na(feature_mat))) {
+    warning("NA values in feature matrix after scaling, replacing with 0")
+    feature_mat[is.na(feature_mat)] <- 0
   }
 
   # If no initial clusters, do naive coordinate-based kmeans
@@ -181,32 +206,74 @@ supervoxel_cluster_fit <- function(feature_mat,
   switches <- 1
   iter.max <- iterations
   newclus <- curclus
+  prev_switches <- Inf
+  no_improvement_count <- 0
+  
+  # Use cheap-then-exact strategy: first 5 iterations spatial-only (alpha=0)
+  cheap_iters <- min(5, max(1, floor(iterations * 0.2)))
+  original_alpha <- alpha
 
   while (iter <= iter.max && switches > 0) {
-    # find candidate clusters for each voxel using neighborhood distance threshold
-    candlist <- find_candidates(neib$nn.index - 1, neib$nn.dist, curclus, dthresh)
-
-    # choose best among the candidate clusters for each voxel
-    # Use parallel version if requested and enough voxels to benefit
+    # Adjust alpha for cheap-then-exact strategy
+    current_alpha <- if (iter <= cheap_iters) 0 else original_alpha
+    
+    # Use new fused operation that eliminates huge candlist allocation
+    # This combines find_candidates and best_candidate in a single pass
     if (parallel && nvox > 1000) {
-      newclus <- best_candidate_parallel(candlist, curclus, t(coords), t(num_centroids),
-                                         t(sp_centroids), feature_mat, sigma1, sigma2, alpha,
-                                         grain_size)
+      newclus <- fused_assignment_parallel(neib$nn.index - 1, neib$nn.dist, curclus,
+                                          t(coords), t(num_centroids), t(sp_centroids),
+                                          feature_mat, dthresh, sigma1, sigma2, 
+                                          current_alpha, grain_size)
     } else {
-      newclus <- best_candidate_sequential(candlist, curclus, t(coords), t(num_centroids),
-                                           t(sp_centroids), feature_mat, sigma1, sigma2, alpha)
+      newclus <- fused_assignment(neib$nn.index - 1, neib$nn.dist, curclus,
+                                 t(coords), t(num_centroids), t(sp_centroids),
+                                 feature_mat, dthresh, sigma1, sigma2, current_alpha)
     }
     switches <- attr(newclus, "nswitches")
 
     if (switches > 0) {
-      # recompute centroids for updated assignment
-      centroids <- compute_centroids(feature_mat, coords, newclus, medoid = use_medoid)
-      sp_centroids <- do.call(rbind, centroids$centroid)
-      num_centroids <- do.call(rbind, centroids$center)
+      # Use parallel centroid computation for larger datasets
+      if (parallel && nvox > 1000 && K > 50) {
+        cent_result <- compute_centroids_parallel(newclus, feature_mat, coords, K,
+                                                 grain_size = max(10, K / 10))
+        num_centroids <- cent_result$centers
+        sp_centroids <- cent_result$coord_centers
+      } else {
+        # Fallback to sequential computation
+        centroids <- compute_centroids(feature_mat, coords, newclus, medoid = use_medoid)
+        sp_centroids <- do.call(rbind, centroids$centroid)
+        num_centroids <- do.call(rbind, centroids$center)
+      }
       curclus <- newclus
     }
 
-    message("supervoxels_fit: iter ", iter, " -- num switches = ", switches)
+    # Check for convergence
+    switch_ratio <- switches / nvox
+    if (verbose) {
+      message("supervoxels_fit: iter ", iter, " -- num switches = ", switches, 
+              " (", round(switch_ratio * 100, 2), "% of voxels)")
+    } else {
+      message("supervoxels_fit: iter ", iter, " -- num switches = ", switches)
+    }
+    
+    # Early convergence check
+    if (switch_ratio < converge_thresh) {
+      message("supervoxels_fit: converged at iteration ", iter, " (switch ratio < ", converge_thresh, ")")
+      break
+    }
+    
+    # Check if we're stuck (no improvement)
+    if (switches >= prev_switches) {
+      no_improvement_count <- no_improvement_count + 1
+      if (no_improvement_count >= 3) {
+        message("supervoxels_fit: stopping - no improvement for 3 iterations")
+        break
+      }
+    } else {
+      no_improvement_count <- 0
+    }
+    
+    prev_switches <- switches
     iter <- iter + 1
   }
 
@@ -283,6 +350,11 @@ knn_shrink <- function(bvec, mask, k = 5, connectivity = 27) {
 #'   Default is TRUE. Parallel processing is automatically disabled for small datasets (<1000 voxels).
 #' @param grain_size Integer; the minimum number of voxels to process per parallel task.
 #'   Default is 100. Smaller values provide better load balancing but increase overhead.
+#' @param verbose Logical; whether to print detailed progress messages including convergence
+#'   metrics. Default is FALSE.
+#' @param converge_thresh Numeric; convergence threshold as proportion of voxels switching
+#'   clusters. Algorithm stops when switch ratio falls below this value. Default is 0.001
+#'   (0.1% of voxels).
 #'
 #' @return A \code{list} (of class \code{cluster_result}) with elements:
 #'   \item{clusvol}{\code{ClusteredNeuroVol} containing the final clustering.}
@@ -371,11 +443,19 @@ supervoxels <- function(bvec, mask,
                         use_gradient = TRUE,
                         alpha = 0.5,
                         parallel = TRUE,
-                        grain_size = 100) {
+                        grain_size = 100,
+                        verbose = FALSE,
+                        converge_thresh = 0.001) {
 
   mask.idx <- which(mask > 0)
   if (length(mask.idx) == 0) {
     stop("No nonzero voxels in mask.")
+  }
+  
+  # Early check for K vs number of voxels
+  if (K > length(mask.idx)) {
+    stop(sprintf("Cannot create %d clusters from %d masked voxels. K must be <= number of masked voxels.", 
+                 K, length(mask.idx)))
   }
 
   # coordinate grid in mm units
@@ -392,7 +472,8 @@ supervoxels <- function(bvec, mask,
                                 iterations = iterations, connectivity = connectivity,
                                 use_medoid = use_medoid, alpha = alpha,
                                 initclus = clusinit, use_gradient = use_gradient,
-                                parallel = parallel, grain_size = grain_size)
+                                parallel = parallel, grain_size = grain_size,
+                                verbose = verbose, converge_thresh = converge_thresh)
 
   # build the final ClusteredNeuroVol with consistent logical mask (only positive values are TRUE)
   logical_mask <- mask > 0

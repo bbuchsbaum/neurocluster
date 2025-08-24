@@ -33,6 +33,18 @@ normalized_heat_kernel <- function(x1, x2, sigma) {
     .Call('_neurocluster_normalized_heat_kernel', PACKAGE = 'neurocluster', x1, x2, sigma)
 }
 
+fused_assignment <- function(nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, data, dthresh, sigma1, sigma2, alpha) {
+    .Call('_neurocluster_fused_assignment', PACKAGE = 'neurocluster', nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, data, dthresh, sigma1, sigma2, alpha)
+}
+
+fused_assignment_parallel <- function(nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, data, dthresh, sigma1, sigma2, alpha, grain_size = 100L) {
+    .Call('_neurocluster_fused_assignment_parallel', PACKAGE = 'neurocluster', nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, data, dthresh, sigma1, sigma2, alpha, grain_size)
+}
+
+compute_centroids_parallel <- function(cluster_ids, data, coords, n_clusters, grain_size = 10L) {
+    .Call('_neurocluster_compute_centroids_parallel', PACKAGE = 'neurocluster', cluster_ids, data, coords, n_clusters, grain_size)
+}
+
 slice_msf_runwise <- function(TS, mask, vol_dim, r = 12L, fh_scale = 0.32, min_size = 80L, nbhd = 8L, stitch_z = FALSE, theta_link = 0.85, min_contact = 1L, rows_are_time = TRUE, gamma = 1.5, voxel_dim = NULL, spatial_beta = 0.0, target_k_global = -1L, target_k_per_slice = -1L) {
     .Call('_neurocluster_slice_msf_runwise', PACKAGE = 'neurocluster', TS, mask, vol_dim, r, fh_scale, min_size, nbhd, stitch_z, theta_link, min_contact, rows_are_time, gamma, voxel_dim, spatial_beta, target_k_global, target_k_per_slice)
 }

@@ -23,8 +23,8 @@ double heat_kernel_internal(NumericVector x1, NumericVector x2, double sigma) {
     double diff = x1[i] - x2[i];
     dist_sq += diff * diff;
   }
-  double dist = std::sqrt(dist_sq);
-  return std::exp(-dist / (2.0 * sigma * sigma));
+  // Fixed: Use dist_sq directly in Gaussian kernel, not sqrt(dist_sq)
+  return std::exp(-dist_sq / (2.0 * sigma * sigma));
 }
 
 // Internal implementation - not exported to avoid duplicate symbols

@@ -16,7 +16,9 @@ supervoxels(
   use_gradient = TRUE,
   alpha = 0.5,
   parallel = TRUE,
-  grain_size = 100
+  grain_size = 100,
+  verbose = FALSE,
+  converge_thresh = 0.001
 )
 }
 \arguments{
@@ -46,6 +48,13 @@ Default is TRUE. Parallel processing is automatically disabled for small dataset
 
 \item{grain_size}{Integer; the minimum number of voxels to process per parallel task.
 Default is 100. Smaller values provide better load balancing but increase overhead.}
+
+\item{verbose}{Logical; whether to print detailed progress messages including convergence
+metrics. Default is FALSE.}
+
+\item{converge_thresh}{Numeric; convergence threshold as proportion of voxels switching
+clusters. Algorithm stops when switch ratio falls below this value. Default is 0.001
+(0.1% of voxels).}
 }
 \value{
 A \code{list} (of class \code{cluster_result}) with elements:

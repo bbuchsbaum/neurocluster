@@ -16,8 +16,8 @@ inline double heat_kernel_impl(const double* x1, const double* x2, int len, doub
     double diff = x1[i] - x2[i];
     dist_sq += diff * diff;
   }
-  double dist = std::sqrt(dist_sq);
-  return std::exp(-dist / (2.0 * sigma * sigma));
+  // Fixed: Use dist_sq directly in Gaussian kernel, not sqrt(dist_sq)
+  return std::exp(-dist_sq / (2.0 * sigma * sigma));
 }
 
 inline double normalized_heat_kernel_impl(const double* x1, const double* x2, int len, double sigma) {

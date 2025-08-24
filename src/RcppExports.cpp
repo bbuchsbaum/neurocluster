@@ -137,6 +137,64 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// fused_assignment
+IntegerVector fused_assignment(IntegerMatrix nn_index, NumericMatrix nn_dist, IntegerVector curclus, NumericMatrix coords, NumericMatrix data_centroids, NumericMatrix coord_centroids, NumericMatrix data, double dthresh, double sigma1, double sigma2, double alpha);
+RcppExport SEXP _neurocluster_fused_assignment(SEXP nn_indexSEXP, SEXP nn_distSEXP, SEXP curclusSEXP, SEXP coordsSEXP, SEXP data_centroidsSEXP, SEXP coord_centroidsSEXP, SEXP dataSEXP, SEXP dthreshSEXP, SEXP sigma1SEXP, SEXP sigma2SEXP, SEXP alphaSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerMatrix >::type nn_index(nn_indexSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type nn_dist(nn_distSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type curclus(curclusSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type coords(coordsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type data_centroids(data_centroidsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type coord_centroids(coord_centroidsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< double >::type dthresh(dthreshSEXP);
+    Rcpp::traits::input_parameter< double >::type sigma1(sigma1SEXP);
+    Rcpp::traits::input_parameter< double >::type sigma2(sigma2SEXP);
+    Rcpp::traits::input_parameter< double >::type alpha(alphaSEXP);
+    rcpp_result_gen = Rcpp::wrap(fused_assignment(nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, data, dthresh, sigma1, sigma2, alpha));
+    return rcpp_result_gen;
+END_RCPP
+}
+// fused_assignment_parallel
+IntegerVector fused_assignment_parallel(IntegerMatrix nn_index, NumericMatrix nn_dist, IntegerVector curclus, NumericMatrix coords, NumericMatrix data_centroids, NumericMatrix coord_centroids, NumericMatrix data, double dthresh, double sigma1, double sigma2, double alpha, int grain_size);
+RcppExport SEXP _neurocluster_fused_assignment_parallel(SEXP nn_indexSEXP, SEXP nn_distSEXP, SEXP curclusSEXP, SEXP coordsSEXP, SEXP data_centroidsSEXP, SEXP coord_centroidsSEXP, SEXP dataSEXP, SEXP dthreshSEXP, SEXP sigma1SEXP, SEXP sigma2SEXP, SEXP alphaSEXP, SEXP grain_sizeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerMatrix >::type nn_index(nn_indexSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type nn_dist(nn_distSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type curclus(curclusSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type coords(coordsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type data_centroids(data_centroidsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type coord_centroids(coord_centroidsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< double >::type dthresh(dthreshSEXP);
+    Rcpp::traits::input_parameter< double >::type sigma1(sigma1SEXP);
+    Rcpp::traits::input_parameter< double >::type sigma2(sigma2SEXP);
+    Rcpp::traits::input_parameter< double >::type alpha(alphaSEXP);
+    Rcpp::traits::input_parameter< int >::type grain_size(grain_sizeSEXP);
+    rcpp_result_gen = Rcpp::wrap(fused_assignment_parallel(nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, data, dthresh, sigma1, sigma2, alpha, grain_size));
+    return rcpp_result_gen;
+END_RCPP
+}
+// compute_centroids_parallel
+List compute_centroids_parallel(IntegerVector cluster_ids, NumericMatrix data, NumericMatrix coords, int n_clusters, int grain_size);
+RcppExport SEXP _neurocluster_compute_centroids_parallel(SEXP cluster_idsSEXP, SEXP dataSEXP, SEXP coordsSEXP, SEXP n_clustersSEXP, SEXP grain_sizeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerVector >::type cluster_ids(cluster_idsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type coords(coordsSEXP);
+    Rcpp::traits::input_parameter< int >::type n_clusters(n_clustersSEXP);
+    Rcpp::traits::input_parameter< int >::type grain_size(grain_sizeSEXP);
+    rcpp_result_gen = Rcpp::wrap(compute_centroids_parallel(cluster_ids, data, coords, n_clusters, grain_size));
+    return rcpp_result_gen;
+END_RCPP
+}
 // slice_msf_runwise
 Rcpp::List slice_msf_runwise(Rcpp::NumericMatrix TS, Rcpp::IntegerVector mask, Rcpp::IntegerVector vol_dim, int r, double fh_scale, int min_size, int nbhd, bool stitch_z, double theta_link, int min_contact, bool rows_are_time, double gamma, Rcpp::NumericVector voxel_dim, double spatial_beta, int target_k_global, int target_k_per_slice);
 RcppExport SEXP _neurocluster_slice_msf_runwise(SEXP TSSEXP, SEXP maskSEXP, SEXP vol_dimSEXP, SEXP rSEXP, SEXP fh_scaleSEXP, SEXP min_sizeSEXP, SEXP nbhdSEXP, SEXP stitch_zSEXP, SEXP theta_linkSEXP, SEXP min_contactSEXP, SEXP rows_are_timeSEXP, SEXP gammaSEXP, SEXP voxel_dimSEXP, SEXP spatial_betaSEXP, SEXP target_k_globalSEXP, SEXP target_k_per_sliceSEXP) {
@@ -255,6 +313,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_neurocluster_best_candidate_sequential", (DL_FUNC) &_neurocluster_best_candidate_sequential, 9},
     {"_neurocluster_heat_kernel", (DL_FUNC) &_neurocluster_heat_kernel, 3},
     {"_neurocluster_normalized_heat_kernel", (DL_FUNC) &_neurocluster_normalized_heat_kernel, 3},
+    {"_neurocluster_fused_assignment", (DL_FUNC) &_neurocluster_fused_assignment, 11},
+    {"_neurocluster_fused_assignment_parallel", (DL_FUNC) &_neurocluster_fused_assignment_parallel, 12},
+    {"_neurocluster_compute_centroids_parallel", (DL_FUNC) &_neurocluster_compute_centroids_parallel, 5},
     {"_neurocluster_slice_msf_runwise", (DL_FUNC) &_neurocluster_slice_msf_runwise, 16},
     {"_neurocluster_slice_fuse_consensus", (DL_FUNC) &_neurocluster_slice_fuse_consensus, 12},
     {"_neurocluster_update_centroid_online", (DL_FUNC) &_neurocluster_update_centroid_online, 3},
