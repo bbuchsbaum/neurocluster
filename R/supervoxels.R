@@ -173,10 +173,18 @@ supervoxel_cluster_fit <- function(feature_mat,
     kres <- stats::kmeans(coords, centers = init_centers, iter.max = 500)
 
     clusid <- sort(unique(kres$cluster))
-    curclus <- kres$cluster
+    
+    # CRITICAL FIX: Remap cluster IDs to be contiguous (1, 2, 3, ..., K)
+    # This ensures centroids can be indexed by cluster_id - 1 in C++
+    cluster_mapping <- setNames(1:length(clusid), clusid)
+    curclus <- cluster_mapping[as.character(kres$cluster)]
 
-    # seeds are the nearest grid points to the cluster centers
-    seeds <- FNN::get.knnx(coords, kres$centers)$nn.index[,1]
+    # Reorder centers to match the remapped cluster IDs
+    # kres$centers rows correspond to original cluster IDs, need to reorder
+    centers_reordered <- kres$centers[clusid, , drop = FALSE]
+    
+    # seeds are the nearest grid points to the reordered cluster centers
+    seeds <- FNN::get.knnx(coords, centers_reordered)$nn.index[,1]
     sp_centroids <- coords[seeds, , drop = FALSE]
 
     # feature_mat is (#observations x #features) if transposed, so check usage carefully
@@ -187,7 +195,11 @@ supervoxel_cluster_fit <- function(feature_mat,
     assert_that(length(initclus) == nvox)
     clusid <- sort(unique(initclus))
     assert_that(length(clusid) == K)
-    curclus <- initclus
+    
+    # CRITICAL FIX: Ensure user-supplied clusters are also contiguous
+    # This maintains consistency with the k-means initialization path
+    cluster_mapping <- setNames(1:length(clusid), clusid)
+    curclus <- cluster_mapping[as.character(initclus)]
 
     # compute_centroids is presumably your function returning
     # the numeric/data centroid and spatial centroid for each cluster
@@ -217,16 +229,23 @@ supervoxel_cluster_fit <- function(feature_mat,
     # Adjust alpha for cheap-then-exact strategy
     current_alpha <- if (iter <= cheap_iters) 0 else original_alpha
     
+    # Sanitize neighbor indices before passing to C++
+    nn_indices <- neib$nn.index - 1  # Convert to 0-based
+    if (any(nn_indices < 0 | nn_indices >= nvox, na.rm = TRUE)) {
+      warning("Invalid neighbor indices found. Coercing to valid range.")
+      nn_indices[is.na(nn_indices) | nn_indices < 0] <- 0
+      nn_indices[nn_indices >= nvox] <- nvox - 1
+    }
+    
     # Use new fused operation that eliminates huge candlist allocation
     # This combines find_candidates and best_candidate in a single pass
-    # TODO: Debug parallel version - currently disabled due to hanging
-    if (FALSE && parallel && nvox > 1000) {
-      newclus <- fused_assignment_parallel(neib$nn.index - 1, neib$nn.dist, curclus,
+    if (parallel && nvox > 1000) {
+      newclus <- fused_assignment_parallel(nn_indices, neib$nn.dist, curclus,
                                           t(coords), t(num_centroids), t(sp_centroids),
                                           feature_mat, dthresh, sigma1, sigma2, 
                                           current_alpha, grain_size)
     } else {
-      newclus <- fused_assignment(neib$nn.index - 1, neib$nn.dist, curclus,
+      newclus <- fused_assignment(nn_indices, neib$nn.dist, curclus,
                                  t(coords), t(num_centroids), t(sp_centroids),
                                  feature_mat, dthresh, sigma1, sigma2, current_alpha)
     }

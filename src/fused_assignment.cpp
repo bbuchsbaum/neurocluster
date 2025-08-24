@@ -46,6 +46,20 @@ IntegerVector fused_assignment(IntegerMatrix nn_index,
                                double sigma2,
                                double alpha) {
   int n = nn_index.nrow();
+  
+  // Input validation
+  if (n != curclus.size() || n != coords.ncol() || n != data.ncol()) {
+    Rcpp::stop("Matrix dimension mismatch: nn_index rows (%d) != curclus size (%d) or coords/data cols", 
+               n, curclus.size());
+  }
+  if (data_centroids.ncol() != coord_centroids.ncol()) {
+    Rcpp::stop("Centroid matrices must have same number of clusters");
+  }
+  if (sigma1 <= 0 || sigma2 <= 0 || alpha < 0 || alpha > 1 || dthresh < 0) {
+    Rcpp::stop("Invalid parameters: sigma1=%f, sigma2=%f, alpha=%f, dthresh=%f", 
+               sigma1, sigma2, alpha, dthresh);
+  }
+  
   IntegerVector out(n);
   int nswitches = 0;
   
@@ -60,8 +74,12 @@ IntegerVector fused_assignment(IntegerMatrix nn_index,
     
     for (int j = 0; j < D.size(); ++j) {
       if (D[j] < dthresh) {
-        int neighbor_label = curclus[ind[j]];
-        cand_set.insert(neighbor_label);
+        int neighbor_idx = ind[j];
+        // Bounds check for neighbor index
+        if (neighbor_idx >= 0 && neighbor_idx < curclus.size()) {
+          int neighbor_label = curclus[neighbor_idx];
+          cand_set.insert(neighbor_label);
+        }
       }
     }
     
@@ -80,6 +98,11 @@ IntegerVector fused_assignment(IntegerMatrix nn_index,
     
     for (int cid : cand_set) {
       int cluster_idx = cid - 1; // Convert to 0-based index
+      
+      // Bounds check for cluster index
+      if (cluster_idx < 0 || cluster_idx >= data_centroids.ncol()) {
+        continue; // Skip invalid cluster IDs
+      }
       
       // Compute data similarity
       NumericVector cluster_data = data_centroids(_, cluster_idx);
@@ -166,8 +189,11 @@ struct FusedAssignmentWorker : public Worker {
       for (int j = 0; j < nn_index.ncol(); ++j) {
         if (nn_dist(i, j) < dthresh) {
           int neighbor_idx = nn_index(i, j);
-          int neighbor_label = curclus[neighbor_idx];
-          cand_set.insert(neighbor_label);
+          // Bounds check for neighbor index
+          if (neighbor_idx >= 0 && neighbor_idx < curclus.size()) {
+            int neighbor_label = curclus[neighbor_idx];
+            cand_set.insert(neighbor_label);
+          }
         }
       }
       
@@ -183,6 +209,11 @@ struct FusedAssignmentWorker : public Worker {
       
       for (int cid : cand_set) {
         int cluster_idx = cid - 1; // Convert to 0-based index
+        
+        // Bounds check for cluster index
+        if (cluster_idx < 0 || cluster_idx >= data_centroids.ncol()) {
+          continue; // Skip invalid cluster IDs
+        }
         
         // Compute data similarity
         double c1 = normalized_heat_kernel_opt(
@@ -230,6 +261,18 @@ IntegerVector fused_assignment_parallel(IntegerMatrix nn_index,
                                        double alpha,
                                        int grain_size = 100) {
   int n = nn_index.nrow();
+  
+  // Input validation
+  if (n != curclus.size() || n != coords.ncol() || n != data.ncol()) {
+    Rcpp::stop("Matrix dimension mismatch in parallel version");
+  }
+  if (data_centroids.ncol() != coord_centroids.ncol()) {
+    Rcpp::stop("Centroid matrices must have same number of clusters");
+  }
+  if (sigma1 <= 0 || sigma2 <= 0 || alpha < 0 || alpha > 1 || dthresh < 0) {
+    Rcpp::stop("Invalid parameters in parallel version");
+  }
+  
   IntegerVector out(n);
   std::atomic<int> nswitches(0);
   
