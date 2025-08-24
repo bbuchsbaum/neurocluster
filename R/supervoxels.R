@@ -185,10 +185,14 @@ supervoxel_cluster_fit <- function(feature_mat,
     
     # seeds are the nearest grid points to the reordered cluster centers
     seeds <- FNN::get.knnx(coords, centers_reordered)$nn.index[,1]
-    sp_centroids <- coords[seeds, , drop = FALSE]
+    sp_centroids <- coords[seeds, , drop = FALSE]  # K x 3 matrix
 
-    # feature_mat is (#observations x #features) if transposed, so check usage carefully
-    num_centroids <- feature_mat[, seeds, drop = FALSE]
+    # feature_mat is (features x voxels), need to get centroids as (features x K)
+    num_centroids <- feature_mat[, seeds, drop = FALSE]  # features x K matrix
+    
+    # Transpose both to match C++ expectations: (dims x K) for both
+    sp_centroids <- t(sp_centroids)  # Now 3 x K
+    num_centroids <- num_centroids    # Already features x K, no transpose needed
 
   } else {
     # Use user-supplied initclus
@@ -204,8 +208,8 @@ supervoxel_cluster_fit <- function(feature_mat,
     # compute_centroids is presumably your function returning
     # the numeric/data centroid and spatial centroid for each cluster
     centroids <- compute_centroids(feature_mat, coords, curclus, medoid = use_medoid)
-    sp_centroids <- do.call(rbind, centroids$centroid)
-    num_centroids <- do.call(rbind, centroids$center)
+    sp_centroids <- t(do.call(rbind, centroids$centroid))  # Transpose to get 3 x K
+    num_centroids <- t(do.call(rbind, centroids$center))   # Transpose to get features x K
   }
 
   # Find connectivity-based neighbors
@@ -241,22 +245,23 @@ supervoxel_cluster_fit <- function(feature_mat,
     # This combines find_candidates and best_candidate in a single pass
     if (parallel && nvox > 1000) {
       newclus <- fused_assignment_parallel(nn_indices, neib$nn.dist, curclus,
-                                          t(coords), t(num_centroids), t(sp_centroids),
+                                          t(coords), num_centroids, sp_centroids,
                                           feature_mat, dthresh, sigma1, sigma2, 
                                           current_alpha, grain_size)
     } else {
       newclus <- fused_assignment(nn_indices, neib$nn.dist, curclus,
-                                 t(coords), t(num_centroids), t(sp_centroids),
+                                 t(coords), num_centroids, sp_centroids,
                                  feature_mat, dthresh, sigma1, sigma2, current_alpha)
     }
-    switches <- attr(newclus, "nswitches")
+    
+    # Compute switches in R to avoid atomic contention in parallel C++ code
+    switches <- sum(newclus != curclus)
 
     if (switches > 0) {
       # Get actual number of unique clusters (may be less than K)
       n_actual_clusters <- length(unique(newclus))
       
-      # Temporarily disable parallel centroid computation until debugged
-      # TODO: Fix parallel centroid computation
+      # Disable parallel centroid computation for now - has O(n*K) issue
       if (FALSE && parallel && nvox > 1000 && n_actual_clusters > 50) {
         cent_result <- compute_centroids_parallel(newclus, feature_mat, coords, n_actual_clusters,
                                                  grain_size = max(10, n_actual_clusters / 10))
@@ -265,8 +270,8 @@ supervoxel_cluster_fit <- function(feature_mat,
       } else {
         # Fallback to sequential computation
         centroids <- compute_centroids(feature_mat, coords, newclus, medoid = use_medoid)
-        sp_centroids <- do.call(rbind, centroids$centroid)
-        num_centroids <- do.call(rbind, centroids$center)
+        sp_centroids <- t(do.call(rbind, centroids$centroid))  # Transpose to 3 x K
+        num_centroids <- t(do.call(rbind, centroids$center))   # Transpose to features x K
       }
       curclus <- newclus
     }

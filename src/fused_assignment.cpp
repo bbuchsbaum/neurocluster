@@ -61,7 +61,6 @@ IntegerVector fused_assignment(IntegerMatrix nn_index,
   }
   
   IntegerVector out(n);
-  int nswitches = 0;
   
   for(int i = 0; i < n; ++i) {
     // Get neighbors for this voxel
@@ -123,12 +122,8 @@ IntegerVector fused_assignment(IntegerMatrix nn_index,
     }
     
     out[i] = best_cluster;
-    if (out[i] != curclus[i]) {
-      nswitches++;
-    }
   }
   
-  out.attr("nswitches") = nswitches;
   return out;
 }
 
@@ -149,7 +144,6 @@ struct FusedAssignmentWorker : public Worker {
   
   // Output
   RVector<int> out;
-  std::atomic<int>& nswitches;
   
   // Constructor
   FusedAssignmentWorker(const IntegerMatrix& nn_index_,
@@ -163,8 +157,7 @@ struct FusedAssignmentWorker : public Worker {
                        double sigma1_,
                        double sigma2_,
                        double alpha_,
-                       IntegerVector& out_,
-                       std::atomic<int>& nswitches_)
+                       IntegerVector& out_)
     : nn_index(nn_index_),
       nn_dist(nn_dist_),
       curclus(curclus_),
@@ -176,8 +169,7 @@ struct FusedAssignmentWorker : public Worker {
       sigma1(sigma1_),
       sigma2(sigma2_),
       alpha(alpha_),
-      out(out_),
-      nswitches(nswitches_) {}
+      out(out_) {}
   
   // Parallel operator
   void operator()(std::size_t begin, std::size_t end) {
@@ -240,9 +232,6 @@ struct FusedAssignmentWorker : public Worker {
       }
       
       out[i] = best_cluster;
-      if (out[i] != curclus[i]) {
-        nswitches.fetch_add(1);
-      }
     }
   }
 };
@@ -266,6 +255,9 @@ IntegerVector fused_assignment_parallel(IntegerMatrix nn_index,
   if (n != curclus.size() || n != coords.ncol() || n != data.ncol()) {
     Rcpp::stop("Matrix dimension mismatch in parallel version");
   }
+  if (nn_index.nrow() != nn_dist.nrow() || nn_index.ncol() != nn_dist.ncol()) {
+    Rcpp::stop("nn_index and nn_dist must have identical dimensions");
+  }
   if (data_centroids.ncol() != coord_centroids.ncol()) {
     Rcpp::stop("Centroid matrices must have same number of clusters");
   }
@@ -273,18 +265,22 @@ IntegerVector fused_assignment_parallel(IntegerMatrix nn_index,
     Rcpp::stop("Invalid parameters in parallel version");
   }
   
+  // Dynamic grain size calculation
+  // Estimate threads based on typical systems (4-8 cores)
+  int estimated_threads = 4;
+  int auto_grain = std::max(1000, (int)(n / (estimated_threads * 8)));
+  if (grain_size <= 0) grain_size = auto_grain;
+  
   IntegerVector out(n);
-  std::atomic<int> nswitches(0);
   
   // Create and run parallel worker
   FusedAssignmentWorker worker(nn_index, nn_dist, curclus, coords,
                                data_centroids, coord_centroids, data,
                                dthresh, sigma1, sigma2, alpha,
-                               out, nswitches);
+                               out);
   
   parallelFor(0, n, worker, grain_size);
   
-  out.attr("nswitches") = nswitches.load();
   return out;
 }
 
