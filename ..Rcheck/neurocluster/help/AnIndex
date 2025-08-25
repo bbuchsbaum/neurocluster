@@ -22,6 +22,8 @@ meta_clust.cluster_result	meta_clust.cluster_result
 preprocess_time_series	preprocess_time_series
 refine_voxel_boundaries	refine_voxel_boundaries
 run_louvain_clustering	run_louvain_clustering
+slic4d_grad_summary	slic4d_grad_summary
+slic4d_supervoxels	slic4d_supervoxels
 slice_msf	slice_msf
 slice_msf_consensus	slice_msf_consensus
 slice_msf_single	slice_msf_single
@@ -29,6 +31,7 @@ snic	snic
 spatial_gradient	spatial_gradient
 summarize_blocks	summarize_blocks
 supervoxels	supervoxels
+supervoxels_flash3d	supervoxels_flash3d
 supervoxel_cluster_surface	supervoxel_cluster_surface
 supervoxel_cluster_time	supervoxel_cluster_time
 tesselate	tesselate

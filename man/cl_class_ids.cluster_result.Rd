@@ -4,7 +4,7 @@
 \alias{cl_class_ids.cluster_result}
 \title{Extract Class IDs from Cluster Result}
 \usage{
-cl_class_ids.cluster_result(x)
+\method{cl_class_ids}{cluster_result}(x)
 }
 \arguments{
 \item{x}{A \code{cluster_result} object containing clustering information.}

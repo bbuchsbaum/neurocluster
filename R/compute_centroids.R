@@ -15,7 +15,15 @@
 #'         \item{centroid}{A matrix containing the centroids of each cluster.}
 #'
 #' @examples
+#' # Simple synthetic example
+#' feature_mat <- matrix(rnorm(100), nrow = 10, ncol = 10)
+#' grid <- cbind(x = runif(10), y = runif(10), z = runif(10))
+#' assignment <- rep(1:2, each = 5)
+#' centroids <- compute_centroids(feature_mat, grid, assignment)
+#' print(names(centroids))
+#' 
 #' \dontrun{
+#'   # Larger example with real neuroimaging data
 #'   # Assuming `feature_mat`, `grid`, and `assignment` are available
 #'   centroids <- compute_centroids(feature_mat, grid, assignment)
 #'   # To compute medoids instead of means

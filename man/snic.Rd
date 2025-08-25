@@ -86,6 +86,10 @@ that processes voxels in order of their distance from cluster centers.
 - **Slower than**: `slice_msf()` with parallel slices, `acsc()` with future backend
 - **More coherent than**: Methods without spatial priority (ensures connectivity)
 }
+\note{
+Consider using \code{\link{cluster4d}} with \code{method = "snic"} for a 
+standardized interface across all clustering methods.
+}
 \examples{
 mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
 vec <- replicate(10, NeuroVol(array(runif(202020), c(20,20,20)),

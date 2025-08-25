@@ -277,9 +277,9 @@ slice_msf <- function(vec, mask,
                       use_features = FALSE,
                       lambda = 0.7) {
   
-  # Validate inputs
-  assert_that(inherits(vec, "NeuroVec") || inherits(vec, "SparseNeuroVec"))
-  assert_that(inherits(mask, "NeuroVol"))
+  # Use common validation (target_k_global is the effective K)
+  effective_k <- if (target_k_global > 0) target_k_global else 100  # Default estimate
+  validate_cluster4d_inputs(vec, mask, effective_k, "slice_msf")
   assert_that(nbhd %in% c(4, 6, 8))
   assert_that(r >= 1)
   assert_that(num_runs >= 1)
@@ -399,7 +399,7 @@ slice_msf <- function(vec, mask,
   cluster_ids <- labels[mask.idx]
   
   # Compute cluster centers and spatial centroids
-  centers_info <- compute_cluster_centers(vec, mask, cluster_ids, mask.idx)
+  centers_info <- compute_slice_cluster_centers(vec, mask, cluster_ids, mask.idx)
   
   # Create ClusteredNeuroVol with consistent logical mask (only positive values are TRUE)
   logical_mask <- mask > 0
@@ -599,7 +599,7 @@ slice_msf_consensus <- function(run_results, mask,
 }
 
 # Helper function to compute cluster centers
-compute_cluster_centers <- function(vec, mask, cluster_ids, mask.idx) {
+compute_slice_cluster_centers <- function(vec, mask, cluster_ids, mask.idx) {
   unique_clusters <- sort(unique(cluster_ids[cluster_ids > 0]))
   n_clusters <- length(unique_clusters)
   

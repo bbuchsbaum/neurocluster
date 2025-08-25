@@ -8,6 +8,14 @@ int index_3d_to_1d(int i, int j, int k, const IntegerVector& dims) {
 
 // [[Rcpp::export]]
 NumericVector correlation_gradient_cpp(const NumericVector& img_4d, const NumericVector& brain_mask) {
+  // Safely get dimensions with error checking
+  if (!img_4d.hasAttribute("dim")) {
+    stop("img_4d must have dim attribute");
+  }
+  if (!brain_mask.hasAttribute("dim")) {
+    stop("brain_mask must have dim attribute");
+  }
+  
   IntegerVector img_4d_dims = img_4d.attr("dim");
   IntegerVector brain_mask_dims = brain_mask.attr("dim");
 

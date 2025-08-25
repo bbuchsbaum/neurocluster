@@ -9,10 +9,10 @@ Description: More about what it does (maybe more than one line)
 License: What license is it under?
 Encoding: UTF-8
 LazyData: true
-Imports: Rcpp (>= 0.11.3), RcppParallel, Matrix, FNN, assertthat, clue,
-        igraph, matrixStats, neighborweights, neuroim2, neurosurf,
-        purrr
+Imports: Rcpp (>= 0.11.3), RcppParallel, Matrix, FNN, RANN, assertthat,
+        clue, igraph, matrixStats, neighborweights, neuroim2,
+        neurosurf, purrr, future, future.apply
 LinkingTo: Rcpp, RcppParallel
 RoxygenNote: 7.3.2.9000
 Suggests: testthat
-Built: R 4.3.2; aarch64-apple-darwin20; 2025-08-18 22:31:31 UTC; unix
+Built: R 4.3.2; aarch64-apple-darwin20; 2025-08-24 15:42:06 UTC; unix

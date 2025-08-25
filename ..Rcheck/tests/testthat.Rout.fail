@@ -1,0 +1,217 @@
+
+R version 4.3.2 (2023-10-31) -- "Eye Holes"
+Copyright (C) 2023 The R Foundation for Statistical Computing
+Platform: aarch64-apple-darwin20 (64-bit)
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+> library(testthat)
+Warning message:
+package 'testthat' was built under R version 4.3.3 
+> library(neurocluster)
+Warning messages:
+1: replacing previous import 'FNN::knn' by 'igraph::knn' when loading 'neurocluster' 
+2: replacing previous import 'igraph::graph' by 'neurosurf::graph' when loading 'neurocluster' 
+3: replacing previous import 'igraph::vertices' by 'neurosurf::vertices' when loading 'neurocluster' 
+> 
+> test_check("neurocluster")
+Warning: stack imbalance in '<-', 108 then 121
+Warning: stack imbalance in '{', 104 then 117
+
+=== Small Data Benchmark (12x12x12, 30 timepoints, K= 8 ) ===
+Execution times (seconds):
+  FLASH-3D:     0.002 
+  Supervoxels:  0.014 
+  SNIC:         0.02 
+  SLIC4D:       0.002 
+
+Cluster counts:
+  FLASH-3D:     8 
+  Supervoxels:  
+  SNIC:         
+  SLIC4D:       
+
+Spatial compactness (lower is better):
+  FLASH-3D:     68.309 
+  Supervoxels:  48.047 
+  SNIC:         17.276 
+  SLIC4D:       23.915 
+
+Temporal coherence (higher is better):
+  FLASH-3D:     0.319 
+  Supervoxels:  0.675 
+  SNIC:         0.9 
+  SLIC4D:       0.979 
+
+=== FLASH-3D Parameter Sensitivity ===
+Bit width comparison:
+  64-bit coherence:   0.274 
+  128-bit coherence:  0.274 
+
+Lambda weighting:
+  Spatial-weighted compactness:   55.714 
+  Temporal-weighted compactness:  55.809 
+  Spatial-weighted coherence:     0.281 
+  Temporal-weighted coherence:    0.274 
+
+=== Structured Data Recovery ===
+Temporal coherence (should be high for structured data):
+  FLASH-3D:     0.43 
+  Supervoxels:  -0.001 
+  SNIC:         0.802 
+  SLIC4D:       0.998 
+Performance baseline: 0.00 ± 0.00 seconds
+Natural clustering found 9 clusters
+[ FAIL 17 | WARN 37 | SKIP 17 | PASS 820 ]
+
+══ Skipped tests (17) ══════════════════════════════════════════════════════════
+• Commute clustering cannot handle perfectly correlated signals (1):
+  'test_numerical_stability.R:358:5'
+• NaN handling in DCT computation not yet implemented (1):
+  'test_numerical_stability.R:159:7'
+• On CRAN (13): 'test_acsc_comprehensive.R:478:3',
+  'test_flash3d_benchmark.R:234:3', 'test_memory_threadSafety.R:8:3',
+  'test_memory_threadSafety.R:63:3', 'test_memory_threadSafety.R:114:3',
+  'test_memory_threadSafety.R:164:3', 'test_memory_threadSafety.R:227:3',
+  'test_memory_threadSafety.R:344:3', 'test_performance_scalability.R:8:3',
+  'test_performance_scalability.R:101:3',
+  'test_performance_scalability.R:172:3',
+  'test_performance_scalability.R:262:3',
+  'test_performance_scalability.R:341:3'
+• Skipping stress tests (set RUN_STRESS_TESTS=TRUE to run) (1):
+  'test_slice_msf_stress.R:7:3'
+• empty test (1): 'test_supervoxels_robustness.R:137:1'
+
+══ Failed tests ════════════════════════════════════════════════════════════════
+── Failure ('test_acsc_comprehensive.R:48:3'): ACSC basic functionality ────────
+`acsc_result <- acsc(vec, mask, K = 4, ann_k = 5, alpha = 0.5)` produced warnings.
+── Error ('test_clustering.R:29:3'): can run supervoxels on a NeuroVec ─────────
+<Rcpp::exception/C++Error/error/condition>
+Error: coords must be 3 x n
+Backtrace:
+    ▆
+ 1. └─neurocluster::supervoxels(...) at test_clustering.R:29:3
+ 2.   └─neurocluster:::supervoxel_cluster_fit(...)
+ 3.     └─neurocluster:::compute_centroids_parallel_fast(...)
+── Error ('test_clustering.R:55:3'): can run meta_clust on cluster result ──────
+<Rcpp::exception/C++Error/error/condition>
+Error: coords must be 3 x n
+Backtrace:
+    ▆
+ 1. └─neurocluster::supervoxels(bvec, mask, K = 50, iterations = 5) at test_clustering.R:55:3
+ 2.   └─neurocluster:::supervoxel_cluster_fit(...)
+ 3.     └─neurocluster:::compute_centroids_parallel_fast(...)
+── Failure ('test_flash3d_benchmark.R:409:3'): Algorithms handle structured data correctly ──
+all(...) is not TRUE
+
+`actual`:   FALSE
+`expected`: TRUE 
+── Failure ('test_neuroimaging_workflows.R:455:3'): high temporal resolution workflow ──
+`... <- NULL` produced warnings.
+── Failure ('test_neuroimaging_workflows.R:468:3'): high temporal resolution workflow ──
+n_clusters >= 2 && n_clusters <= 8 is not TRUE
+
+`actual`:   FALSE
+`expected`: TRUE 
+High TR data should find 2-8 clusters, found 1
+── Failure ('test_snic.R:187:3'): snic produces spatially coherent clusters ────
+left_mode == right_mode is not FALSE
+
+`actual`:   TRUE 
+`expected`: FALSE
+── Failure ('test_supervoxels_parallel.R:27:3'): parallel supervoxels produces same results as sequential ──
+res_seq$cluster not equal to res_par$cluster.
+2937/3375 mismatches (average diff: 6.13)
+[1]  15 - 16 == -1
+[2]  15 - 16 == -1
+[3]  15 - 16 == -1
+[4]  15 - 11 ==  4
+[9]  16 -  6 == 10
+[10] 16 - 11 ==  5
+[11] 16 - 11 ==  5
+[12] 16 -  6 == 10
+[13] 16 - 12 ==  4
+...
+── Failure ('test_supervoxels_parallel.R:28:3'): parallel supervoxels produces same results as sequential ──
+res_seq$centers not equal to res_par$centers.
+Lengths differ: 170 is not 210
+── Failure ('test_supervoxels_parallel.R:29:3'): parallel supervoxels produces same results as sequential ──
+res_seq$coord_centers not equal to res_par$coord_centers.
+Lengths differ: 51 is not 63
+── Failure ('test_supervoxels_parallel.R:53:3'): parallel supervoxels works with different grain sizes ──
+res1$cluster not equal to res2$cluster.
+3258/4000 mismatches (average diff: 10.3)
+[2]  27 - 29 ==  -2
+[4]   0 -  4 ==  -4
+[5]  17 -  5 ==  12
+[9]  25 - 19 ==   6
+[10]  0 - 21 == -21
+[12] 20 - 21 ==  -1
+[15] 12 - 21 ==  -9
+[16] 20 - 10 ==  10
+[17]  8 - 21 == -13
+...
+── Failure ('test_supervoxels_parallel.R:72:3'): parallel supervoxels handles edge cases ──
+length(unique(res$cluster)) not equal to 5.
+1/1 mismatches
+[1] 4 - 5 == -1
+── Failure ('test_supervoxels_parallel.R:73:3'): parallel supervoxels handles edge cases ──
+nrow(res$centers) not equal to 5.
+1/1 mismatches
+[1] 4 - 5 == -1
+── Error ('test_supervoxels_parallel.R:97:5'): parallel performance is better than sequential for large data ──
+<Rcpp::exception/C++Error/error/condition>
+Error: coords must be 3 x n
+Backtrace:
+    ▆
+ 1. ├─base::system.time(...) at test_supervoxels_parallel.R:96:3
+ 2. └─neurocluster::supervoxels(...) at test_supervoxels_parallel.R:97:5
+ 3.   └─neurocluster:::supervoxel_cluster_fit(...)
+ 4.     └─neurocluster:::compute_centroids_parallel_fast(...)
+── Error ('test_supervoxels_robustness.R:169:3'): supervoxels handles edge cases gracefully ──
+<purrr_error_indexed/rlang_error/error/condition>
+Error in `purrr::map(csplit, function(id) {
+    mat <- feature_mat[, id, drop = FALSE]
+    coords <- grid[id, , drop = FALSE]
+    list(center = rowMeans(mat), centroid = colMeans(coords))
+})`: ℹ In index: 1.
+ℹ With name: 1.
+Caused by error in `feature_mat[, id, drop = FALSE]`:
+! subscript out of bounds
+Backtrace:
+     ▆
+  1. ├─neurocluster::supervoxels(...) at test_supervoxels_robustness.R:169:3
+  2. │ └─neurocluster:::supervoxel_cluster_fit(...)
+  3. │   └─neurocluster::compute_centroids(...)
+  4. │     ├─purrr::transpose(...)
+  5. │     └─purrr::map(...)
+  6. │       └─purrr:::map_("list", .x, .f, ..., .progress = .progress)
+  7. │         ├─purrr:::with_indexed_errors(...)
+  8. │         │ └─base::withCallingHandlers(...)
+  9. │         ├─purrr:::call_with_cleanup(...)
+ 10. │         └─neurocluster (local) .f(.x[[i]], ...)
+ 11. └─purrr (local) `<fn>`(`<sbscOOBE>`)
+ 12.   └─cli::cli_abort(...)
+ 13.     └─rlang::abort(...)
+── Failure ('test_supervoxels_simple.R:24:3'): basic supervoxels works without parallel ──
+nrow(res$centers) not equal to 10.
+1/1 mismatches
+[1] 9 - 10 == -1
+── Failure ('test_supervoxels_simple.R:25:3'): basic supervoxels works without parallel ──
+nrow(res$coord_centers) not equal to 10.
+1/1 mismatches
+[1] 9 - 10 == -1
+
+[ FAIL 17 | WARN 37 | SKIP 17 | PASS 820 ]
+Error: Test failures
+Execution halted

@@ -241,17 +241,25 @@ supervoxel_cluster_fit <- function(feature_mat,
       nn_indices[nn_indices >= nvox] <- nvox - 1
     }
     
-    # Use new fused operation that eliminates huge candlist allocation
-    # This combines find_candidates and best_candidate in a single pass
+    # Use spatially-binned assignment for efficient candidate selection
     if (parallel && nvox > 1000) {
-      newclus <- fused_assignment_parallel(nn_indices, neib$nn.dist, curclus,
-                                          t(coords), num_centroids, sp_centroids,
-                                          feature_mat, dthresh, sigma1, sigma2, 
-                                          current_alpha, grain_size)
+      newclus <- fused_assignment_parallel_binned(
+        nn_indices, neib$nn.dist, curclus,
+        t(coords), num_centroids, sp_centroids, feature_mat,
+        dthresh, sigma1, sigma2, current_alpha,
+        grain_size = max(1024L, as.integer(nvox / 32L)),
+        window_factor = 2.0,     # ~2S spatial radius
+        bin_expand = 1L          # visit ±1 neighbor cells
+      )
     } else {
-      newclus <- fused_assignment(nn_indices, neib$nn.dist, curclus,
-                                 t(coords), num_centroids, sp_centroids,
-                                 feature_mat, dthresh, sigma1, sigma2, current_alpha)
+      # Even sequential mode benefits from spatial binning
+      newclus <- fused_assignment_binned(
+        nn_indices, neib$nn.dist, curclus,
+        t(coords), num_centroids, sp_centroids, feature_mat,
+        dthresh, sigma1, sigma2, current_alpha,
+        window_factor = 2.0,
+        bin_expand = 1L
+      )
     }
     
     # Compute switches in R to avoid atomic contention in parallel C++ code
@@ -261,14 +269,15 @@ supervoxel_cluster_fit <- function(feature_mat,
       # Get actual number of unique clusters (may be less than K)
       n_actual_clusters <- length(unique(newclus))
       
-      # Disable parallel centroid computation for now - has O(n*K) issue
-      if (FALSE && parallel && nvox > 1000 && n_actual_clusters > 50) {
-        cent_result <- compute_centroids_parallel(newclus, feature_mat, coords, n_actual_clusters,
-                                                 grain_size = max(10, n_actual_clusters / 10))
+      # Use fast parallel centroid computation
+      if (parallel && nvox > 1000 && n_actual_clusters > 50) {
+        cent_result <- compute_centroids_parallel_fast(
+          newclus, feature_mat, coords, n_actual_clusters
+        )
         num_centroids <- cent_result$centers
         sp_centroids <- cent_result$coord_centers
       } else {
-        # Fallback to sequential computation
+        # Fallback to sequential computation for small problems
         centroids <- compute_centroids(feature_mat, coords, newclus, medoid = use_medoid)
         sp_centroids <- t(do.call(rbind, centroids$centroid))  # Transpose to 3 x K
         num_centroids <- t(do.call(rbind, centroids$center))   # Transpose to features x K
@@ -363,6 +372,9 @@ knn_shrink <- function(bvec, mask, k = 5, connectivity = 27) {
 #' Supervoxel Clustering (3D volumes)
 #'
 #' Cluster a \code{NeuroVec} instance into a set of spatially constrained clusters.
+#'
+#' @note Consider using \code{\link{cluster4d}} with \code{method = "supervoxels"} for a 
+#' standardized interface across all clustering methods.
 #'
 #' @param bvec A \code{\linkS4class{NeuroVec}} instance supplying the data to cluster.
 #' @param mask A \code{\linkS4class{NeuroVol}} mask defining the voxels to include. If numeric, nonzero = included.
@@ -508,16 +520,45 @@ supervoxels <- function(bvec, mask,
   logical_mask <- mask > 0
   kvol <- ClusteredNeuroVol(logical_mask, clusters = ret$clusters)
 
-  # Return a structured list
-  structure(
-    list(
-      clusvol = kvol,
-      cluster = ret$clusters,
-      centers = ret$centers,        # <-- corrected (was ret$center in original)
+  # Prepare data for standardized result
+  data_prep <- list(
+    features = feature_mat,
+    coords = coords,
+    mask_idx = mask.idx,
+    n_voxels = length(mask.idx),
+    dims = dim(mask),
+    spacing = spacing(mask)
+  )
+  
+  # Create standardized result
+  result <- create_cluster4d_result(
+    labels = ret$clusters,
+    mask = mask,
+    data_prep = data_prep,
+    method = "supervoxels",
+    parameters = list(
+      K = K,
+      sigma1 = sigma1,
+      sigma2 = sigma2,
+      iterations = iterations,
+      connectivity = connectivity,
+      use_medoid = use_medoid,
+      use_gradient = use_gradient,
+      alpha = alpha,
+      parallel = parallel,
+      grain_size = grain_size,
+      converge_thresh = converge_thresh
+    ),
+    metadata = list(
+      centers = ret$centers,
       coord_centers = ret$coord_centers
     ),
-    class = c("cluster_result", "list")
+    compute_centers = FALSE  # Already computed
   )
+  
+  # Ensure backward compatibility with old class
+  class(result) <- c("cluster_result", "list")
+  result
 }
 
 

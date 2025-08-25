@@ -180,6 +180,7 @@ merge_clus.cluster_result_time <- function(x, ...) {
 #' @return An integer vector of cluster assignments, one for each data point.
 #'
 #' @seealso \code{\link[clue]{cl_class_ids}} for the generic function.
+#' @method cl_class_ids cluster_result
 #' @export
 cl_class_ids.cluster_result <- function(x) {
   x$cluster
@@ -198,6 +199,7 @@ cl_class_ids.cluster_result <- function(x) {
 #' @return \code{TRUE}, indicating that cluster results are always valid partitions.
 #'
 #' @seealso \code{\link[clue]{is.cl_partition}} for the generic function.
+#' @method is.cl_partition cluster_result
 #' @export
 is.cl_partition.cluster_result <- function(x) {
   TRUE

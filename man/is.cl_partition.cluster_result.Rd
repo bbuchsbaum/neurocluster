@@ -4,7 +4,7 @@
 \alias{is.cl_partition.cluster_result}
 \title{Test if Object is a Partition}
 \usage{
-is.cl_partition.cluster_result(x)
+\method{is.cl_partition}{cluster_result}(x)
 }
 \arguments{
 \item{x}{A \code{cluster_result} object.}

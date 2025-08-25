@@ -124,6 +124,10 @@ cluster assignment updates in parallel across multiple CPU cores.
 - **Memory considerations**: Parallel version uses slightly more RAM
 - **Disable for debugging**: Set `parallel = FALSE` for reproducible debugging
 }
+\note{
+Consider using \code{\link{cluster4d}} with \code{method = "supervoxels"} for a 
+standardized interface across all clustering methods.
+}
 \examples{
 mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
 bvec <- replicate(10,

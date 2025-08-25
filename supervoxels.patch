@@ -1,0 +1,69 @@
+*** a/supervoxels.R
+--- b/supervoxels.R
+***************
+*** 1,12 ****
+--- 1,12 ----
+  #' Tesselate a Mask Volume into K Clusters using K-means
+  #'
+  #' This function tesselates a given mask volume into K clusters using k-means
+  #' clustering applied to spatial coordinates. It returns a clustered mask volume object.
+  #'
+  #' @param mask A \code{NeuroVol} object representing the mask volume.
+  #' @param K An integer value specifying the number of clusters (default: 100).
+  #'
+  #' If \code{K} exceeds the number of nonzero voxels, a warning is issued and \code{K}
+  #' is set to the number of nonzero voxels.
+  #'
+  #' @return An instance of \code{ClusteredNeuroVol} representing the clustered mask volume.
+***************
+*** 200,232 ****
+      # Use new fused operation that eliminates huge candlist allocation
+      # This combines find_candidates and best_candidate in a single pass
+-     if (parallel && nvox > 1000) {
+-       newclus <- fused_assignment_parallel(nn_indices, neib$nn.dist, curclus,
+-                                           t(coords), num_centroids, sp_centroids,
+-                                           feature_mat, dthresh, sigma1, sigma2, 
+-                                           current_alpha, grain_size)
+-     } else {
+-       newclus <- fused_assignment(nn_indices, neib$nn.dist, curclus,
+-                                  t(coords), num_centroids, sp_centroids,
+-                                  feature_mat, dthresh, sigma1, sigma2, current_alpha)
+-     }
++     if (parallel && nvox > 1000) {
++       # Spatially-binned parallel assignment (bounded candidate set)
++       if (exists("fused_assignment_parallel_binned")) {
++         newclus <- fused_assignment_parallel_binned(
++           nn_indices, neib$nn.dist, curclus,
++           t(coords), num_centroids, sp_centroids, feature_mat,
++           dthresh, sigma1, sigma2, current_alpha,
++           grain_size = max(1024L, as.integer(nvox / 32L)),
++           window_factor = 2.0,     # ~2S spatial radius
++           bin_expand = 1L          # visit ±1 neighbor cells
++         )
++       } else {
++         newclus <- fused_assignment_parallel(
++           nn_indices, neib$nn.dist, curclus,
++           t(coords), num_centroids, sp_centroids, feature_mat,
++           dthresh, sigma1, sigma2, current_alpha, grain_size
++         )
++       }
++     } else {
++       # Even in sequential mode, the binned version is significantly faster.
++       if (exists("fused_assignment_binned")) {
++         newclus <- fused_assignment_binned(
++           nn_indices, neib$nn.dist, curclus,
++           t(coords), num_centroids, sp_centroids, feature_mat,
++           dthresh, sigma1, sigma2, current_alpha,
++           window_factor = 2.0, bin_expand = 1L
++         )
++       } else {
++         newclus <- fused_assignment(
++           nn_indices, neib$nn.dist, curclus,
++           t(coords), num_centroids, sp_centroids, feature_mat,
++           dthresh, sigma1, sigma2, current_alpha
++         )
++       }
++     }
+  
+      # Compute switches in R to avoid atomic contention in parallel C++ code
+      switches <- sum(newclus != curclus)

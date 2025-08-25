@@ -3,6 +3,9 @@
 #' Performs spatially-constrained clustering using Fast Low-rank Approximate 
 #' Superclusters for Hemodynamics (FLASH-3D). This algorithm uses DCT-based 
 #' temporal hashing and 3D jump-flood propagation for efficient clustering.
+#' 
+#' @note Consider using \code{\link{cluster4d}} with \code{method = "flash3d"} for a 
+#' standardized interface across all clustering methods.
 #'
 #' @param vec A \code{NeuroVec} instance supplying the 4D data to cluster
 #' @param mask A \code{NeuroVol} mask defining the voxels to include in the clustering result.
@@ -76,14 +79,10 @@ supervoxels_flash3d <- function(vec, mask, K,
                                barrier = NULL,
                                verbose = FALSE) {
   
-  # Validate inputs
-  if (!inherits(vec, "NeuroVec")) {
-    stop("vec must be a NeuroVec object")
-  }
-  if (!inherits(mask, "NeuroVol")) {
-    stop("mask must be a NeuroVol object")
-  }
-  stopifnot(K > 0)
+  # Use common validation
+  validate_cluster4d_inputs(vec, mask, K, "supervoxels_flash3d")
+  
+  # Additional FLASH-specific validation
   stopifnot(bits %in% c(64, 128))
   stopifnot(dctM >= 4 && dctM <= 32)
   stopifnot(rounds >= 1)
@@ -117,18 +116,35 @@ supervoxels_flash3d <- function(vec, mask, K,
   
   if (K == nmask) {
     warning("K equals number of voxels, returning trivial clustering")
-    clusvol <- ClusteredNeuroVol(mask, rep(1:K, length.out = nmask))
+    labels <- rep(1:K, length.out = nmask)
+    clusvol <- ClusteredNeuroVol(mask, labels)
     coords <- index_to_coord(mask, mask_idx)
     ts_matrix <- series(vec, mask_idx)
+    
+    # Compute proper centers for each cluster
+    centers <- matrix(0, nrow = K, ncol = nrow(ts_matrix))
+    coord_centers <- matrix(0, nrow = K, ncol = 3)
+    
+    for (k in 1:K) {
+      cluster_mask <- labels == k
+      if (sum(cluster_mask) == 1) {
+        centers[k, ] <- ts_matrix[, cluster_mask]
+        coord_centers[k, ] <- coords[cluster_mask, ]
+      } else if (sum(cluster_mask) > 1) {
+        centers[k, ] <- rowMeans(ts_matrix[, cluster_mask, drop = FALSE])
+        coord_centers[k, ] <- colMeans(coords[cluster_mask, , drop = FALSE])
+      }
+    }
     
     return(structure(
       list(
         clusvol = clusvol,
-        cluster = rep(1:K, length.out = nmask),
-        centers = ts_matrix,
-        coord_centers = coords,
+        cluster = labels,
+        centers = centers,
+        coord_centers = coord_centers,
         K = K,
-        method = "FLASH-3D"
+        n_clusters = K,
+        method = "flash3d"
       ),
       class = c("cluster_result", "list")
     ))
@@ -212,16 +228,42 @@ supervoxels_flash3d <- function(vec, mask, K,
     }
   }
   
-  # Return cluster_result object
-  structure(
-    list(
-      clusvol = clusvol,
-      cluster = labels_mask,
+  # Prepare data for standardized result
+  data_prep <- list(
+    features = t(ts_matrix),  # Convert T x N to N x T
+    coords = coords,
+    mask_idx = mask_idx,
+    n_voxels = nmask,
+    dims = c(nx, ny, nz),
+    spacing = vox_scale
+  )
+  
+  # Create standardized result
+  result <- create_cluster4d_result(
+    labels = labels_mask,
+    mask = mask,
+    data_prep = data_prep,
+    method = "flash3d",
+    parameters = list(
+      K = K,
+      lambda_s = lambda_s,
+      lambda_t = lambda_t,
+      lambda_g = lambda_g,
+      rounds = rounds,
+      bits = bits,
+      dctM = dctM,
+      vox_scale = vox_scale
+    ),
+    metadata = list(
       centers = centers,
       coord_centers = coord_centers,
-      K = n_clusters,
-      method = "FLASH-3D"
+      n_clusters = n_clusters
     ),
-    class = c("cluster_result", "flash3d_result", "list")
+    compute_centers = FALSE  # Already computed
   )
+  
+  # Add FLASH-specific class and ensure backward compatibility
+  class(result) <- c("cluster_result", "flash3d_result", "list")
+  result$K <- n_clusters  # Keep for backward compatibility
+  result
 }

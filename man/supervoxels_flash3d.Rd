@@ -76,6 +76,10 @@ The algorithm is particularly efficient for large-scale fMRI data, offering
 significant speed improvements over iterative methods while maintaining
 clustering quality.
 }
+\note{
+Consider using \code{\link{cluster4d}} with \code{method = "flash3d"} for a 
+standardized interface across all clustering methods.
+}
 \examples{
 \dontrun{
   # Basic usage

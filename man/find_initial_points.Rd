@@ -2,7 +2,7 @@
 % Please edit documentation in R/snic.R
 \name{find_initial_points}
 \alias{find_initial_points}
-\title{Find Initial Cluster Centers for Supervoxel Algorithm}
+\title{Find Initial Cluster Centers for Supervoxel Algorithm (Deprecated)}
 \usage{
 find_initial_points(cds, grad, K = 100)
 }
@@ -19,8 +19,14 @@ A list containing two elements:
         coords - a matrix or data frame with the spatial coordinates of the initial cluster centers.
 }
 \description{
+\strong{Deprecated:} This function is now available as \code{find_gradient_seeds()} 
+in \code{cluster4d_init.R}. This version is maintained for backward compatibility.
+
 This function finds the initial cluster centers for a supervoxel algorithm.
 Supervoxels are used to partition 3D image data into volumetric regions,
 grouping similar voxels together. The initial cluster centers are crucial for
 the performance and quality of the final supervoxels.
+}
+\seealso{
+\code{\link{find_gradient_seeds}}, \code{\link{initialize_clusters}}
 }

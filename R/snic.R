@@ -1,4 +1,8 @@
-#' Find Initial Cluster Centers for Supervoxel Algorithm
+#' Find Initial Cluster Centers for Supervoxel Algorithm (Deprecated)
+#'
+#' @description
+#' \strong{Deprecated:} This function is now available as \code{find_gradient_seeds()} 
+#' in \code{cluster4d_init.R}. This version is maintained for backward compatibility.
 #'
 #' This function finds the initial cluster centers for a supervoxel algorithm.
 #' Supervoxels are used to partition 3D image data into volumetric regions,
@@ -11,51 +15,11 @@
 #' @return A list containing two elements:
 #'         selected - a vector of the selected indices corresponding to the initial cluster centers,
 #'         coords - a matrix or data frame with the spatial coordinates of the initial cluster centers.
+#' @seealso \code{\link{find_gradient_seeds}}, \code{\link{initialize_clusters}}
 find_initial_points <- function(cds, grad, K=100) {
-  # Validate inputs
-  if (K > nrow(cds)) {
-    warning("K larger than available points, using all available points")
-    return(list(selected = 1:nrow(cds), coords = cds))
-  }
-  
-  nfound=0
-  batchsize=min(10, K)  # Don't exceed K
-  sample_size=1000
-  cds_cand <- cds
-  sel <- c()
-  iter <- 1
-  sample_size <- min(sample_size, nrow(cds_cand))
-  while (nfound < K) {
-
-    cand <- sort(sample(1:nrow(cds_cand), sample_size))
-    gvals <- grad[cds[cand,]]
-    gvals <- (gvals - min(gvals))/ diff(range(gvals))
-    if (iter == 1) {
-      d <- RANN::nn2(cds_cand[cand,])
-      ord <- order(d$nn.dists[,2] * (1-gvals), decreasing=TRUE)
-      selected <- cand[ord[1:batchsize]]
-    } else {
-
-      d <- RANN::nn2(rbind(cds_cand[cand,], cds[sel,]), cds_cand[cand,])
-      ord <- order(d$nn.dists[,2] * (1-gvals), decreasing=TRUE)
-
-      selected <- cand[ord[1:batchsize]]
-    }
-
-    sel <- c(sel, selected)
-    nfound <- length(sel)
-    
-    # Prevent selection of more points than needed
-    if (nfound >= K) {
-      sel <- sel[1:K]
-      break
-    }
-    
-    iter <- iter+1
-  }
-
-  list(selected=sel[1:min(K, length(sel))], coords=cds[sel[1:min(K, length(sel))],])
-
+  # Call the new implementation and return in expected format
+  seeds <- find_gradient_seeds(coords = cds, grad_vals = grad, K = K)
+  list(selected = seeds, coords = cds[seeds, , drop = FALSE])
 }
 
 
@@ -63,6 +27,9 @@ find_initial_points <- function(cds, grad, K=100) {
 #'
 #' The SNIC function performs a spatially constrained clustering on a \code{NeuroVec} instance
 #' using the Simple Non-Iterative Clustering (SNIC) algorithm.
+#' 
+#' @note Consider using \code{\link{cluster4d}} with \code{method = "snic"} for a 
+#' standardized interface across all clustering methods.
 #'
 #' @param vec A \code{NeuroVec} instance supplying the data to cluster.
 #' @param mask A \code{NeuroVol} mask defining the voxels to include in the clustering result.
@@ -149,10 +116,8 @@ find_initial_points <- function(cds, grad, K=100) {
 #'
 #' @export
 snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
-  # Validate inputs
-  if (K <= 0) {
-    stop("K must be positive (K > 0), got: ", K)
-  }
+  # Use common validation
+  validate_cluster4d_inputs(vec, mask, K, "snic")
   
   mask.idx <- which(mask>0)
   valid_coords <- index_to_grid(mask, mask.idx)
@@ -164,7 +129,7 @@ snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
 
   vecmat <- series(vec, mask.idx)
   vecmat <- base::scale(vecmat)
-  sam <- sample(1:ncol(vecmat), .05*ncol(vecmat))
+  sam <- sample(1:ncol(vecmat), min(.05*ncol(vecmat), 100))
   sf <- mean(as.vector(dist(t(vecmat[,sam])))^2)
   #vecmat <- vecmat/sf
 
@@ -200,13 +165,37 @@ snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
   kvol <- ClusteredNeuroVol(logical_mask, clusters=ret[mask.idx])
 
 
-  structure(
-    list(clusvol=kvol,
-         gradvol=grad,
-         cluster=ret[mask.idx],
-         centers=NULL,  # SNIC doesn't compute explicit centers
-         coord_centers=NULL),  # SNIC doesn't compute explicit centers
-    class=c("snic_cluster_result", "cluster_result", "list"))
+  # Prepare data for center computation
+  data_prep <- list(
+    features = t(vecmat),  # Transpose to N x T for compute_cluster_centers
+    coords = valid_coords,
+    mask_idx = mask.idx,
+    n_voxels = length(mask.idx),
+    dims = dim(mask),
+    spacing = spacing(mask)
+  )
+  
+  # Create standardized result using common infrastructure
+  result <- create_cluster4d_result(
+    labels = ret[mask.idx],
+    mask = mask,
+    data_prep = data_prep,
+    method = "snic",
+    parameters = list(
+      K = K,
+      compactness = compactness,
+      max_iter = max_iter
+    ),
+    metadata = list(
+      gradvol = grad
+    ),
+    compute_centers = TRUE,
+    center_method = "mean"
+  )
+  
+  # Add SNIC-specific class
+  class(result) <- c("snic_cluster_result", class(result))
+  result
 
 }
 

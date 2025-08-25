@@ -5,7 +5,6 @@ using C++ compiler: ‘Homebrew clang version 20.1.8’
 using C++17
 using SDK: ‘MacOSX14.2.sdk’
 make: Nothing to be done for `all'.
-make: `symbols.rds' is up to date.
 installing to /Users/bbuchsbaum/code/neurocluster/..Rcheck/00LOCK-neurocluster/00new/neurocluster/libs
 ** R
 ** byte-compile and prepare package for lazy loading
@@ -14,6 +13,12 @@ Warning: replacing previous import ‘igraph::graph’ by ‘neurosurf::graph’
 Warning: replacing previous import ‘igraph::vertices’ by ‘neurosurf::vertices’ when loading ‘neurocluster’
 Note: possible error in 'slice_fuse_consensus(run_results = run_results, ': unused arguments (k_fuse = k_fuse, min_size_fuse = min_size_fuse) 
 ** help
+Warning: supervoxels.Rd:59: unexpected section header '\value'
+Warning: supervoxels.Rd:66: unexpected section header '\description'
+Warning: supervoxels.Rd:69: unexpected section header '\details'
+Warning: supervoxels.Rd:127: unexpected section header '\examples'
+Warning: supervoxels.Rd:137: unexpected END_OF_INPUT '
+'
 *** installing help indices
 ** building package indices
 ** testing if installed package can be loaded from temporary location

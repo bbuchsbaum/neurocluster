@@ -26,20 +26,42 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Core Functionality
 This is an R package for spatially constrained clustering of neuroimaging data. The package provides multiple clustering algorithms designed to respect spatial structure in 3D brain volumes.
 
+### Unified Interface: cluster4d Framework
+The package provides a unified `cluster4d()` interface (`R/cluster4d.R`) that standardizes access to all clustering methods:
+- Single entry point with `method` parameter selection
+- Standardized parameters across all methods
+- Consistent result structure (`cluster4d_result` class)
+- Backward compatibility with original function interfaces
+
 ### Key Clustering Algorithms
 
-1. **Supervoxels** (`supervoxels()` in `R/supervoxels.R`)
+1. **Supervoxels** (`method = "supervoxels"` in cluster4d, or `supervoxels()` in `R/supervoxels.R`)
    - Primary algorithm for spatially constrained clustering
    - Iterative algorithm balancing feature similarity and spatial proximity
    - Uses heat kernels with bandwidths `sigma1` (features) and `sigma2` (coordinates)
-   - Alpha parameter weights data vs spatial similarity
+   - Parallelized for performance
 
-2. **SNIC** (`snic()` in `R/snic.R`) 
+2. **SNIC** (`method = "snic"` in cluster4d, or `snic()` in `R/snic.R`) 
    - Simple Non-Iterative Clustering algorithm
    - Uses priority queue approach with compactness parameter
-   - Gradient-based initialization via `find_initial_points()`
+   - Sequential processing (not parallelized due to algorithm design)
 
-3. **Meta-clustering** (`meta_clust()` in `R/meta_clust.R`)
+3. **SLIC** (`method = "slic"` in cluster4d, or via `R/slic4d.R`)
+   - Simple Linear Iterative Clustering with 4D support
+   - Preserves cluster count with local search windows
+   - Parallelized implementation
+
+4. **Slice-MSF** (`method = "slice_msf"` in cluster4d, or `slice_msf()` in `R/slice_cluster.R`)
+   - Processes 2D slices independently then merges
+   - Consensus clustering option for stability
+   - Parallelized across slices
+
+5. **FLASH-3D** (`method = "flash3d"` in cluster4d, or `supervoxels_flash3d()` in `R/flash3d.R`)
+   - Fast clustering using DCT compression
+   - Temporal coherence preservation
+   - Parallelized implementation
+
+6. **Meta-clustering** (`meta_clust()` in `R/meta_clust.R`)
    - Hierarchical clustering of cluster results
    - Consensus clustering via `merge_clus()` functions
 
@@ -57,11 +79,14 @@ This is an R package for spatially constrained clustering of neuroimaging data. 
 - All C++ functions exported via `RcppExports.cpp`
 
 ### Cluster Result Structure
-All clustering functions return `cluster_result` objects with:
+All clustering functions return standardized `cluster4d_result` objects (inheriting from `cluster_result`) with:
 - `clusvol`: `ClusteredNeuroVol` with spatial cluster assignments
 - `cluster`: Integer vector of cluster IDs
 - `centers`: Feature space centroids
 - `coord_centers`: Spatial coordinate centroids
+- `n_clusters`: Actual number of clusters found
+- `method`: Method used for clustering
+- `parameters`: List of parameters used
 
 ### Experimental Features
 `experimental/` directory contains developmental algorithms:

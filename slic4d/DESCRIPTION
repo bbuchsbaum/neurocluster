@@ -1,0 +1,13 @@
+Package: slic4d
+Type: Package
+Title: Fast 4D SLIC Supervoxels for Neuroimaging (mask-aware, gradient relocation, preserve-K)
+Version: 0.3.0
+Authors@R: person(given = "Your", family = "Name", role = c("aut", "cre"), email = "you@example.com")
+Description: A fast SLIC-style supervoxel algorithm for 4D neuroimaging volumes (x,y,z,time), with mask-aware seeding (maskSLIC-style), strict connectivity, gradient-based seed relocation, and an option to preserve exactly K labels.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Depends: R (>= 4.0)
+Imports: Rcpp (>= 1.0.6), RcppParallel (>= 5.1.7), methods
+LinkingTo: Rcpp, RcppParallel
+Suggests: neuroim2, neighborweights, irlba
