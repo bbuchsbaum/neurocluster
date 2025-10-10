@@ -1,4 +1,0 @@
-useDynLib(slic4d, .registration = TRUE)
-importFrom(Rcpp, sourceCpp)
-export(slic4d_supervoxels)
-export(slic4d_grad_summary)
