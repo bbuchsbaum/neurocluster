@@ -26,10 +26,11 @@ static inline uint32_t popcount64(uint64_t x) {
 #elif defined(__GNUC__) || defined(__clang__)
   return (uint32_t)__builtin_popcountll((unsigned long long)x);
 #else
-  // portable fallback
-  uint32_t c = 0;
-  while (x) { x &= (x - 1); ++c; }
-  return c;
+  // Optimized SWAR (SIMD Within A Register) algorithm for portable performance
+  x -= (x >> 1) & 0x5555555555555555ULL;
+  x = (x & 0x3333333333333333ULL) + ((x >> 2) & 0x3333333333333333ULL);
+  x = (x + (x >> 4)) & 0x0f0f0f0f0f0f0f0fULL;
+  return (uint32_t)((x * 0x0101010101010101ULL) >> 56);
 #endif
 }
 
@@ -215,10 +216,168 @@ static void seed_blue_noise(const std::vector<int> &mask_lin, // Nmask, 0-based 
   }
 }
 
+// ----- Parallel centroid reduction worker -----------------------------------
+struct ParallelCentroidWorker : public Worker {
+  const std::vector<int> &labels;
+  const uint8_t *is_mask;
+  const uint64_t *hashA, *hashB;
+  const int nx, ny;
+  const int K;
+  const int bits;
+
+  // Accumulator structure for each cluster
+  struct CentroidAccum {
+    double sx, sy, sz;
+    int64_t count;
+    uint32_t bitcA[64];
+    uint32_t bitcB[64];
+    CentroidAccum() : sx(0), sy(0), sz(0), count(0) {
+      memset(bitcA, 0, sizeof(bitcA));
+      memset(bitcB, 0, sizeof(bitcB));
+    }
+  };
+
+  std::vector<CentroidAccum> acc;  // Per-thread accumulator
+
+  ParallelCentroidWorker(const std::vector<int> &lbl, const uint8_t *msk,
+                         const uint64_t *ha, const uint64_t *hb,
+                         int nx_, int ny_, int K_, int bits_)
+    : labels(lbl), is_mask(msk), hashA(ha), hashB(hb),
+      nx(nx_), ny(ny_), K(K_), bits(bits_) {
+    acc.resize(K);
+  }
+
+  // Split constructor for RcppParallel
+  ParallelCentroidWorker(const ParallelCentroidWorker& other, Split)
+    : labels(other.labels), is_mask(other.is_mask),
+      hashA(other.hashA), hashB(other.hashB),
+      nx(other.nx), ny(other.ny), K(other.K), bits(other.bits) {
+    acc.resize(K);
+  }
+
+  void operator()(std::size_t begin, std::size_t end) {
+    // OPTIMIZED: Use incremental coordinates like RelaxWorker
+    int temp = (int)begin;
+    int zc = temp / (nx * ny);
+    temp %= (nx * ny);
+    int yc = temp / nx;
+    int xc = temp % nx;
+
+    for (std::size_t i = begin; i < end; ++i) {
+      int lab = labels[i];
+      if (is_mask[i] && lab >= 0 && lab < K) {
+        CentroidAccum &a = acc[lab];
+        a.sx += xc;
+        a.sy += yc;
+        a.sz += zc;
+        a.count++;
+
+        // Bit voting for hash majority
+        uint64_t h = hashA[i];
+        for (int b = 0; b < 64; ++b) {
+          if ((h >> b) & 1) a.bitcA[b]++;
+        }
+
+        if (bits > 64) {
+          h = hashB[i];
+          for (int b = 0; b < 64; ++b) {
+            if ((h >> b) & 1) a.bitcB[b]++;
+          }
+        }
+      }
+
+      // Increment coordinates
+      xc++;
+      if (xc == nx) {
+        xc = 0;
+        yc++;
+        if (yc == ny) {
+          yc = 0;
+          zc++;
+        }
+      }
+    }
+  }
+
+  // Join operation to merge thread-local accumulators
+  void join(const ParallelCentroidWorker& rhs) {
+    for (int k = 0; k < K; ++k) {
+      acc[k].sx += rhs.acc[k].sx;
+      acc[k].sy += rhs.acc[k].sy;
+      acc[k].sz += rhs.acc[k].sz;
+      acc[k].count += rhs.acc[k].count;
+
+      for (int b = 0; b < 64; ++b) {
+        acc[k].bitcA[b] += rhs.acc[k].bitcA[b];
+      }
+
+      if (bits > 64) {
+        for (int b = 0; b < 64; ++b) {
+          acc[k].bitcB[b] += rhs.acc[k].bitcB[b];
+        }
+      }
+    }
+  }
+};
+
+// ----- Exact feature center computation worker ------------------------------
+struct ExactFeatureWorker : public Worker {
+  const RMatrix<double> ts_mat;  // T x Nmask time series matrix
+  const int *mask_lin;            // Mapping: mask index -> grid index
+  const int *grid_labels;         // Grid labels (full grid size)
+  const int Nmask, T, K;
+
+  // Thread-local accumulators: K x T sums + K counts
+  std::vector<double> local_sums;
+  std::vector<int> local_counts;
+
+  ExactFeatureWorker(const NumericMatrix &ts, const int *mlin, const int *glbl,
+                     int Nm, int t, int k)
+    : ts_mat(ts), mask_lin(mlin), grid_labels(glbl),
+      Nmask(Nm), T(t), K(k) {
+    local_sums.assign((size_t)K * T, 0.0);
+    local_counts.assign(K, 0);
+  }
+
+  // Split constructor
+  ExactFeatureWorker(const ExactFeatureWorker& other, Split)
+    : ts_mat(other.ts_mat), mask_lin(other.mask_lin), grid_labels(other.grid_labels),
+      Nmask(other.Nmask), T(other.T), K(other.K) {
+    local_sums.assign((size_t)K * T, 0.0);
+    local_counts.assign(K, 0);
+  }
+
+  void operator()(std::size_t begin, std::size_t end) {
+    for (std::size_t i = begin; i < end; ++i) {
+      int grid_idx = mask_lin[i];
+      int lbl = grid_labels[grid_idx];
+
+      if (lbl >= 0 && lbl < K) {
+        local_counts[lbl]++;
+        // Access column i of ts_mat (T x Nmask, column-major)
+        double *dest = &local_sums[(size_t)lbl * T];
+        for (int t = 0; t < T; ++t) {
+          dest[t] += ts_mat(t, (int)i);
+        }
+      }
+    }
+  }
+
+  // Join operation
+  void join(const ExactFeatureWorker& rhs) {
+    for (int k = 0; k < K; ++k) {
+      local_counts[k] += rhs.local_counts[k];
+      for (int t = 0; t < T; ++t) {
+        local_sums[(size_t)k * T + t] += rhs.local_sums[(size_t)k * T + t];
+      }
+    }
+  }
+};
+
 // ----- FLASH-3D clustering core ---------------------------------------------
 
 // [[Rcpp::export]]
-IntegerVector flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for masked voxels)
+List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for masked voxels)
                                       IntegerVector mask_lin0, // Nmask linear indices (1-based from R)
                                       IntegerVector dims,      // c(nx,ny,nz)
                                       int K,
@@ -386,14 +545,10 @@ IntegerVector flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time s
       return hd;
     }
 
-    inline float score_vox(int vIdx, int siteId) const {
+    // OPTIMIZED: Pass coordinates directly to avoid expensive div/mod operations
+    inline float score_vox(int vIdx, int xc, int yc, int zc, int siteId) const {
       if (siteId < 0) return std::numeric_limits<float>::infinity();
       const Site &s = sites[(size_t)siteId];
-      // coords
-      int zc = vIdx / (nx*ny);
-      int rem = vIdx - zc*(nx*ny);
-      int yc = rem / nx;
-      int xc = rem - yc*nx;
 
       double dx = ((double)xc - (double)s.x) * vx_sx;
       double dy = ((double)yc - (double)s.y) * vx_sy;
@@ -408,43 +563,64 @@ IntegerVector flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time s
     }
 
     void operator()(std::size_t begin, std::size_t end) {
-      const size_t plane = (size_t)nx * (size_t)ny;
+      // OPTIMIZED: Compute coordinates once for 'begin', then increment
+      int temp = (int)begin;
+      int zc = temp / (nx * ny);
+      temp %= (nx * ny);
+      int yc = temp / nx;
+      int xc = temp % nx;
+
       for (size_t idx = begin; idx < end; ++idx) {
         if (!is_mask[idx]) {
           best_write[idx] = best_read[idx];
           label_write[idx] = label_read[idx];
           carry_write[idx] = carry_read[idx];
-          continue;
-        }
-        float b = best_read[idx];
-        int lab = label_read[idx];
-        int car = carry_read[idx];
+        } else {
+          float b = best_read[idx];
+          int lab = label_read[idx];
+          int car = carry_read[idx];
 
-        int id = (int)idx;
-        int zc = id / (nx*ny);
-        int rem = id - zc*(nx*ny);
-        int yc = rem / nx;
-        int xc = rem - yc*nx;
+          // Check 26 neighbors using current coordinates
+          for (int dz = -1; dz <= 1; ++dz) {
+            int zn = zc + dz * step;
+            if (zn < 0 || zn >= nz) continue;
 
-        for (int dz = -1; dz <= 1; ++dz) {
-          int zn = zc + dz * step; if (zn < 0 || zn >= nz) continue;
-          for (int dy = -1; dy <= 1; ++dy) {
-            int yn = yc + dy * step; if (yn < 0 || yn >= ny) continue;
-            for (int dx = -1; dx <= 1; ++dx) {
-              if (dx==0 && dy==0 && dz==0) continue;
-              int xn = xc + dx * step; if (xn < 0 || xn >= nx) continue;
-              size_t nb = (size_t)(zn * (nx*ny) + yn * nx + xn);
-              if (!is_mask[nb]) continue;
-              int cand = carry_read[nb];
-              if (cand < 0) continue;
-              float sc = score_vox((int)idx, cand);
-              if (sc < b) { b = sc; lab = cand; car = cand; }
+            for (int dy = -1; dy <= 1; ++dy) {
+              int yn = yc + dy * step;
+              if (yn < 0 || yn >= ny) continue;
+
+              for (int dx = -1; dx <= 1; ++dx) {
+                if (dx==0 && dy==0 && dz==0) continue;
+                int xn = xc + dx * step;
+                if (xn < 0 || xn >= nx) continue;
+
+                size_t nb = (size_t)(zn * (nx*ny) + yn * nx + xn);
+                if (!is_mask[nb]) continue;
+
+                int cand = carry_read[nb];
+                if (cand < 0) continue;
+
+                // Pass current coordinates to avoid div/mod in score_vox
+                float sc = score_vox((int)idx, xc, yc, zc, cand);
+                if (sc < b) { b = sc; lab = cand; car = cand; }
+              }
             }
           }
+          best_write[idx]  = b;
+          label_write[idx] = lab;
+          carry_write[idx] = car;
         }
-        best_write[idx]  = b;
-        label_write[idx] = lab;
-        carry_write[idx] = car;
+
+        // OPTIMIZED: Increment coordinates for next voxel
+        xc++;
+        if (xc == nx) {
+          xc = 0;
+          yc++;
+          if (yc == ny) {
+            yc = 0;
+            zc++;
+          }
+        }
       }
     }
   };
@@ -465,34 +641,8 @@ IntegerVector flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time s
 
 
   double lambda_s_current = lambda_s0;
-  auto score_vox = [&](int vIdx, int siteId)->float {
-    if (siteId < 0) return inf;
-    const Site &s = sites[(size_t)siteId];
-    // coords
-    int zc = vIdx / (nx*ny);
-    int rem = vIdx - zc*(nx*ny);
-    int yc = rem / nx;
-    int xc = rem - yc*nx;
 
-    double dx = ((double)xc - (double)s.x) * (double)vox_scale[0];
-    double dy = ((double)yc - (double)s.y) * (double)vox_scale[1];
-    double dz = ((double)zc - (double)s.z) * (double)vox_scale[2];
-    double sd2 = dx*dx + dy*dy + dz*dz;
-    // hamming
-    uint64_t ha = gridHashA[(size_t)vIdx] ^ s.ha;
-    uint32_t hd = popcount64(ha);
-    if (bits == 128) {
-      uint64_t hb = gridHashB[(size_t)vIdx] ^ s.hb;
-      hd += popcount64(hb);
-    }
-
-    double sc = lambda_s_current * (sd2 / S2) + lambda_t * ((double)hd / (double)bits);
-    if (use_barrier) sc += lambda_g * barrier[(size_t)vIdx];
-    return (float)sc;
-  };
-
-  // Create a worker class for parallel relaxation
-  
+  // Helper lambda for power-of-2 ceiling
   auto ceil_pow2 = [](int v)->int {
     int p = 1; while (p < v) p <<= 1; return p;
   };
@@ -537,58 +687,51 @@ IntegerVector flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time s
       }
     }
 
-    // ----- recenter sites (parallel reduction) -----
-    struct Accum {
-      double sx, sy, sz;
-      int64_t count;
-      uint32_t bitcA[64];
-      uint32_t bitcB[64];
-      Accum() : sx(0),sy(0),sz(0),count(0) { memset(bitcA,0,sizeof(bitcA)); memset(bitcB,0,sizeof(bitcB)); }
-    };
-    std::vector<Accum> acc((size_t)K);
-
-    // Sequential accumulation to avoid race conditions
-    // (parallel reduction would need thread-local accumulators and merging)
-    for (size_t i = 0; i < Ngrid; ++i) {
-      int lab = label[i];
-      if (lab < 0 || lab >= K) continue;
-      if (!is_mask[i]) continue;
-      // coords
-      int id = (int)i;
-      int zc = id / (nx*ny);
-      int rem = id - zc*(nx*ny);
-      int yc = rem / nx;
-      int xc = rem - yc*nx;
-      Accum &A = acc[(size_t)lab];
-      A.sx += (double)xc; A.sy += (double)yc; A.sz += (double)zc; A.count++;
-      uint64_t ha = gridHashA[i];
-      for (int b=0;b<64;b++) if (ha & (1ull<<b)) A.bitcA[b]++;
-      if (bits==128) {
-        uint64_t hb = gridHashB[i];
-        for (int b=0;b<64;b++) if (hb & (1ull<<b)) A.bitcB[b]++;
-      }
-    }
+    // ----- recenter sites (OPTIMIZED: parallel reduction) -----
+    ParallelCentroidWorker centroid_worker(
+      label,
+      is_mask.data(),
+      gridHashA.data(),
+      (bits == 128) ? gridHashB.data() : nullptr,
+      nx, ny, K, bits
+    );
+    parallelReduce(0, Ngrid, centroid_worker);
 
     // update sites (handle empties by stealing from biggest cluster center)
     // find biggest cluster
     int big_k = 0; int64_t big_c = 0;
-    for (int k=0;k<K;k++) if (acc[(size_t)k].count > big_c) { big_c=acc[(size_t)k].count; big_k=k; }
+    for (int k=0;k<K;k++) {
+      if (centroid_worker.acc[(size_t)k].count > big_c) {
+        big_c = centroid_worker.acc[(size_t)k].count;
+        big_k = k;
+      }
+    }
 
     for (int k = 0; k < K; ++k) {
-      if (acc[(size_t)k].count == 0) {
+      if (centroid_worker.acc[(size_t)k].count == 0) {
         // steal: perturb the biggest cluster center slightly
         Site s = sites[(size_t)big_k];
         s.x += 0.5f; s.y -= 0.5f; // tiny shift
         sites[(size_t)k] = s;
         continue;
       }
-      double inv = 1.0 / (double)acc[(size_t)k].count;
-      double x = acc[(size_t)k].sx * inv;
-      double y = acc[(size_t)k].sy * inv;
-      double z = acc[(size_t)k].sz * inv;
+      double inv = 1.0 / (double)centroid_worker.acc[(size_t)k].count;
+      double x = centroid_worker.acc[(size_t)k].sx * inv;
+      double y = centroid_worker.acc[(size_t)k].sy * inv;
+      double z = centroid_worker.acc[(size_t)k].sz * inv;
       uint64_t ha = 0ull, hb = 0ull;
-      for (int b=0;b<64;b++) if (acc[(size_t)k].bitcA[b] * 2 >= acc[(size_t)k].count) ha |= (1ull<<b);
-      if (bits==128) for (int b=0;b<64;b++) if (acc[(size_t)k].bitcB[b] * 2 >= acc[(size_t)k].count) hb |= (1ull<<b);
+      for (int b=0;b<64;b++) {
+        if (centroid_worker.acc[(size_t)k].bitcA[b] * 2 >= centroid_worker.acc[(size_t)k].count) {
+          ha |= (1ull<<b);
+        }
+      }
+      if (bits==128) {
+        for (int b=0;b<64;b++) {
+          if (centroid_worker.acc[(size_t)k].bitcB[b] * 2 >= centroid_worker.acc[(size_t)k].count) {
+            hb |= (1ull<<b);
+          }
+        }
+      }
       sites[(size_t)k] = Site{ (float)x, (float)y, (float)z, ha, hb };
     }
 
@@ -603,5 +746,42 @@ IntegerVector flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time s
     int lab = label[(size_t)idx];
     lab_mask[i] = (lab >= 0) ? (lab + 1) : NA_INTEGER;
   }
-  return lab_mask;
+
+  // ----- OPTIMIZED: Compute exact feature centers in C++ (Phase 3) -----
+  if (verbose) Rcpp::Rcout << "[FLASH-3D] Computing final feature centers in C++...\n";
+
+  ExactFeatureWorker feature_worker(ts, mask_lin.data(), label.data(), Nmask, T, K);
+  parallelReduce(0, (size_t)Nmask, feature_worker);
+
+  // Build output matrices
+  NumericMatrix centers(K, T);
+  NumericMatrix coords(K, 3);
+
+  for (int k = 0; k < K; ++k) {
+    double c = (double)feature_worker.local_counts[k];
+    if (c > 0) {
+      // Feature space centers (average time series)
+      for (int t = 0; t < T; ++t) {
+        centers(k, t) = feature_worker.local_sums[(size_t)k * T + t] / c;
+      }
+    } else {
+      // Empty cluster - fill with zeros or NAs
+      for (int t = 0; t < T; ++t) {
+        centers(k, t) = NA_REAL;
+      }
+    }
+
+    // Spatial coordinates (already computed in sites)
+    coords(k, 0) = sites[(size_t)k].x;
+    coords(k, 1) = sites[(size_t)k].y;
+    coords(k, 2) = sites[(size_t)k].z;
+  }
+
+  // Return List with labels, centers, and coords
+  return List::create(
+    Named("labels") = lab_mask,
+    Named("centers") = centers,
+    Named("coords") = coords,
+    Named("K") = K
+  );
 }

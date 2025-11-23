@@ -8,7 +8,7 @@ cluster4d(
   vec,
   mask,
   n_clusters = 100,
-  method = c("supervoxels", "snic", "slic", "slice_msf", "flash3d"),
+  method = c("supervoxels", "snic", "slic", "slice_msf", "flash3d", "g3s", "rena"),
   spatial_weight = 0.5,
   max_iterations = 10,
   connectivity = 26,
@@ -29,21 +29,23 @@ may produce slightly different numbers of clusters due to algorithmic constraint
 
 \item{method}{Clustering algorithm to use. Options:
 \itemize{
-  \item \code{"supervoxels"}: Iterative heat kernel-based clustering (default)
-  \item \code{"snic"}: Simple Non-Iterative Clustering
-  \item \code{"slic"}: SLIC superpixels extended to 4D
-  \item \code{"slice_msf"}: Slice-wise Minimum Spanning Forest (fast but may show z-artifacts)
-  \item \code{"flash3d"}: Fast Low-rank Approximate Superclusters
+\item \code{"supervoxels"}: Iterative heat kernel-based clustering (default)
+\item \code{"snic"}: Simple Non-Iterative Clustering
+\item \code{"slic"}: SLIC superpixels extended to 4D
+\item \code{"slice_msf"}: Slice-wise Minimum Spanning Forest (fast but may show z-artifacts)
+\item \code{"flash3d"}: Fast Low-rank Approximate Superclusters
+\item \code{"g3s"}: Gradient-Guided Geodesic Supervoxels (NEW - recommended for best quality/speed)
+\item \code{"rena"}: Recursive Nearest Agglomeration (fast, balanced, topology-aware)
 }}
 
 \item{spatial_weight}{Balance between spatial and feature similarity (0-1).
 Higher values emphasize spatial compactness. Default 0.5.
 Maps to method-specific parameters:
 \itemize{
-  \item supervoxels: \code{alpha = 1 - spatial_weight} (0 = all spatial, 1 = all feature)
-  \item snic/slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
-  \item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
-  \item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
+\item supervoxels: \code{alpha = 1 - spatial_weight} (0 = all spatial, 1 = all feature)
+\item snic/slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
+\item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
+\item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
 }}
 
 \item{max_iterations}{Maximum iterations for iterative methods. Default 10.
@@ -61,15 +63,15 @@ Maps to: \code{iterations} (supervoxels), \code{max_iter} (snic/slic),
 }
 \value{
 A \code{cluster4d_result} object (also inherits from \code{cluster_result})
-  containing:
-  \item{clusvol}{A \code{ClusteredNeuroVol} with cluster assignments}
-  \item{cluster}{Integer vector of cluster assignments for each masked voxel}
-  \item{centers}{Matrix of cluster centers in feature space (n_clusters x timepoints)}
-  \item{coord_centers}{Matrix of cluster spatial centers (n_clusters x 3)}
-  \item{n_clusters}{Actual number of clusters produced}
-  \item{method}{Clustering method used}
-  \item{parameters}{List of all parameters used}
-  \item{metadata}{Method-specific additional information}
+containing:
+\item{clusvol}{A \code{ClusteredNeuroVol} with cluster assignments}
+\item{cluster}{Integer vector of cluster assignments for each masked voxel}
+\item{centers}{Matrix of cluster centers in feature space (n_clusters x timepoints)}
+\item{coord_centers}{Matrix of cluster spatial centers (n_clusters x 3)}
+\item{n_clusters}{Actual number of clusters produced}
+\item{method}{Clustering method used}
+\item{parameters}{List of all parameters used}
+\item{metadata}{Method-specific additional information}
 }
 \description{
 Performs spatially-constrained clustering on 4D neuroimaging data using
@@ -80,12 +82,13 @@ in the neurocluster package.
 
 
 \tabular{lllllll}{
-  \strong{Method} \tab \strong{Speed} \tab \strong{3D Continuity} \tab \strong{Memory} \tab \strong{Parallel} \tab \strong{Best For} \cr
-  supervoxels \tab Slow \tab Excellent \tab High \tab Yes \tab Small-medium data, smooth parcels \cr
-  snic \tab Fast \tab Good \tab Low \tab No \tab Large data, non-iterative \cr
-  slic \tab Fast \tab Good \tab Medium \tab Yes \tab Balanced speed/quality \cr
-  slice_msf \tab Very Fast \tab Moderate \tab Low \tab Yes \tab High-res data, accept z-artifacts \cr
-  flash3d \tab Fast \tab Good \tab Medium \tab Partial \tab Large data, hash-based \cr
+\strong{Method} \tab \strong{Speed} \tab \strong{3D Continuity} \tab \strong{Memory} \tab \strong{Parallel} \tab \strong{Best For} \cr
+supervoxels \tab Slow \tab Excellent \tab High \tab Yes \tab Small-medium data, smooth parcels \cr
+snic \tab Fast \tab Good \tab Low \tab No \tab Large data, non-iterative \cr
+slic \tab Fast \tab Good \tab Medium \tab Yes \tab Balanced speed/quality \cr
+slice_msf \tab Very Fast \tab Moderate \tab Low \tab Yes \tab High-res data, accept z-artifacts \cr
+flash3d \tab Fast \tab Good \tab Medium \tab Partial \tab Large data, hash-based \cr
+rena \tab Fast \tab Excellent \tab Low \tab No \tab Balanced clusters, topology-aware \cr
 }
 }
 
@@ -94,34 +97,36 @@ in the neurocluster package.
 
 \strong{For whole-brain parcellation:}
 \itemize{
-  \item n_clusters: 100-1000 depending on desired granularity
-  \item spatial_weight: 0.4-0.6 for balanced clustering
-  \item connectivity: 26 for smoother boundaries
+\item n_clusters: 100-1000 depending on desired granularity
+\item spatial_weight: 0.4-0.6 for balanced clustering
+\item connectivity: 26 for smoother boundaries
 }
 
 \strong{For ROI analysis:}
 \itemize{
-  \item n_clusters: 10-100 depending on ROI size
-  \item spatial_weight: 0.2-0.4 to emphasize functional similarity
-  \item connectivity: 6 for more discrete parcels
+\item n_clusters: 10-100 depending on ROI size
+\item spatial_weight: 0.2-0.4 to emphasize functional similarity
+\item connectivity: 6 for more discrete parcels
 }
 
 \strong{For high-resolution data (< 2mm):}
 \itemize{
-  \item method: "slice_msf" or "flash3d" for speed
-  \item n_clusters: Scale with voxel count (roughly n_voxels/200)
+\item method: "slice_msf" or "flash3d" for speed
+\item n_clusters: Scale with voxel count (roughly n_voxels/200)
 }
 }
 
 \examples{
+\dontrun{
 # Simple synthetic example (runs quickly for testing)
 library(neuroim2)
 mask <- NeuroVol(array(1, c(4,4,4)), NeuroSpace(c(4,4,4)))
 vec <- NeuroVec(array(rnorm(4*4*4*10), c(4,4,4,10)), 
                 NeuroSpace(c(4,4,4,10)))
-result <- cluster4d(vec, mask, n_clusters = 3, method = "snic", 
+result <- cluster4d(vec, mask, n_clusters = 3, method = "g3s", 
                    max_iterations = 1)
 print(result$n_clusters)
+}
 
 \dontrun{
 # More realistic examples with larger data
@@ -133,8 +138,8 @@ vec <- do.call(concat, vec)
 # Basic usage with default supervoxels method
 result <- cluster4d(vec, mask, n_clusters = 100)
 
-# Fast clustering with SNIC
-result <- cluster4d(vec, mask, n_clusters = 100, method = "snic")
+# Fast clustering with FLASH-3D (hash-based)
+result <- cluster4d(vec, mask, n_clusters = 100, method = "flash3d")
 
 # Emphasize spatial compactness
 result <- cluster4d(vec, mask, n_clusters = 100, spatial_weight = 0.8)
@@ -153,10 +158,9 @@ result <- cluster4d(vec, mask,
                    n_clusters = params$n_clusters,
                    method = params$recommended_method)
 }
-
 }
 \seealso{
-Method-specific functions: \code{\link{cluster4d_supervoxels}}, 
+Method-specific functions: \code{\link{cluster4d_supervoxels}},
 \code{\link{cluster4d_snic}}, \code{\link{cluster4d_slic}},
 \code{\link{cluster4d_slice_msf}}, \code{\link{cluster4d_flash3d}}
 

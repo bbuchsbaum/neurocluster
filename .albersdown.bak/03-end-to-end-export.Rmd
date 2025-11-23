@@ -1,0 +1,89 @@
+---
+title: 'End-to-end: From NIfTI to clusters'
+name: end-to-end-export
+description: Load data, cluster, visualize, and export results.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+params:
+  family: teal
+  base_size: 13
+  content_width: 72
+vignette: |
+  %\VignetteIndexEntry{End-to-end: From NIfTI to clusters} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+css: albers.css
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <link rel="stylesheet" href="albers.css" />
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
+  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  message = FALSE, warning = FALSE
+)
+set.seed(123); options(pillar.sigfig = 7, width = 80)
+suppressWarnings(suppressPackageStartupMessages({
+  library(neurocluster)
+  library(neuroim2)
+}))
+if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+```{r albers_inject, echo=FALSE, results='asis'}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+# I/O and setup {#io}
+```r
+# Example with synthetic data (safe to run)
+mask <- NeuroVol(array(1, c(6,6,6)), NeuroSpace(c(6,6,6)))
+vec  <- NeuroVec(array(rnorm(6*6*6*12), c(6,6,6,12)), NeuroSpace(c(6,6,6,12)))
+
+# Real data (uncomment and supply paths)
+# mask <- read_vol("brain_mask.nii")
+# vec  <- read_vec("fmri_data.nii.gz")
+```
+
+# Cluster {#cluster}
+```r
+res <- cluster4d(vec, mask, n_clusters = 5, method = "slic", max_iterations = 5)
+```
+
+# Inspect and visualize {#inspect}
+```r
+print(res)
+summary(res)
+plot(res)
+```
+
+# Export NIfTI {#export}
+```r
+writeVol(res$clusvol, "clusters.nii.gz")
+```
+
+# Next steps {#next-steps}
+- Tune parameters: articles/choose-parameters.html#suggestions
+- Compare methods: articles/compare-methods.html#run-methods
+- Validate results: articles/validate-compare.html#checks

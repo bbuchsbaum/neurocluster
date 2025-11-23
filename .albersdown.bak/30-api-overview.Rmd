@@ -1,0 +1,74 @@
+---
+title: API overview
+name: api-overview
+description: Group exported functions by task and link to details.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+params:
+  family: red
+  base_size: 13
+  content_width: 72
+vignette: |
+  %\VignetteIndexEntry{API overview} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+css: albers.css
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
+  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  message = FALSE, warning = FALSE
+)
+set.seed(123); options(pillar.sigfig = 7, width = 80)
+if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+  css_file <- system.file("pkgdown/assets/albers.css", package = "albersdown")
+  if (file.exists(css_file)) {
+    cat(sprintf("<style>\n%s\n</style>", paste(readLines(css_file, warn = FALSE), collapse = "\n")))
+  }
+}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+```{r albers_inject, echo=FALSE, results='asis'}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+# Interfaces {#interfaces}
+- Unified entry: `cluster4d()`
+- Wrappers: `cluster4d_supervoxels`, `cluster4d_snic`, `cluster4d_slic`, `cluster4d_slice_msf`, `cluster4d_flash3d`
+
+# Algorithms {#algorithms}
+- Legacy cores: `supervoxels`, `snic`, `slic4d_supervoxels`, `slice_msf`, `supervoxels_flash3d`
+
+# Utilities {#utilities}
+- Validation & comparison: `validate_cluster4d`, `compare_cluster4d`
+- Helpers: `compute_centroids`, `knn_shrink`, `spatial_gradient`, `tesselate`
+
+# Variants {#variants}
+- Surfaces: `supervoxel_cluster_surface`
+- Time: `supervoxel_cluster_time`
+includes:
+  in_header: |-
+    <link rel="stylesheet" href="albers.css" />
+    <script src="albers.js"></script>

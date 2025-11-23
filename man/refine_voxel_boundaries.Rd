@@ -2,9 +2,18 @@
 % Please edit documentation in R/acsc.R
 \name{refine_voxel_boundaries}
 \alias{refine_voxel_boundaries}
-\title{Refine voxel boundaries using cached cluster centroids}
+\title{Refine voxel boundaries using C++ or R implementation}
 \usage{
-refine_voxel_boundaries(voxel_labels, feature_mat, coords, max_iter)
+refine_voxel_boundaries(
+  voxel_labels,
+  feature_mat,
+  coords,
+  max_iter,
+  use_cpp = TRUE
+)
+}
+\arguments{
+\item{use_cpp}{Logical; if TRUE, use C++ accelerated version (default)}
 }
 \description{
 For each boundary voxel, compare correlation with each neighboring cluster's

@@ -15,10 +15,11 @@ See \code{\link[clue]{cl_consensus}} for available methods.}
 \item{...}{Additional clustering results to be merged.}
 }
 \value{
-A \code{\linkS4class{ClusteredNeuroVol}} instance.
+A \code{\linkS4class{ClusteredNeuroVol}} instance representing the consensus partition.
 }
 \description{
-This method of merge_clus is specifically designed to merge clustering results for \code{ClusteredNeuroVol} objects.
+This method of merge_clus is specifically designed to merge clustering results for \code{ClusteredNeuroVol} objects
+by performing consensus clustering across multiple clustering results.
 }
 \seealso{
 \code{\link[clue]{cl_consensus}}, \code{\link[clue]{as.cl_hard_partition}}, \code{\link[clue]{cl_ensemble}}

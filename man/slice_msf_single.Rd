@@ -14,7 +14,8 @@ slice_msf_single(
   stitch_z = TRUE,
   theta_link = 0.85,
   min_contact = 1,
-  gamma = 1.5
+  gamma = 1.5,
+  z_mult = 0
 )
 }
 \arguments{
@@ -46,20 +47,23 @@ stitching two clusters. Only used if stitch_z=TRUE. Default is 1.}
 
 \item{gamma}{Reliability weighting exponent based on split-half correlations. Higher
 values give more weight to reliable voxels. Default is 1.5.}
+
+\item{z_mult}{Z-smoothing factor (0-1). Values > 0 blend slice sketches prior to
+clustering to reduce boundary artifacts. Default is 0.0.}
 }
 \value{
 A list with the following components:
 \describe{
-  \item{labels}{Integer vector of cluster labels for each voxel}
-  \item{weights}{Numeric vector of reliability weights for each voxel}
-  \item{sketch}{Matrix of DCT coefficients (r × n_voxels)}
-  \item{params}{List of parameters used in the segmentation}
+\item{labels}{Integer vector of cluster labels for each voxel}
+\item{weights}{Numeric vector of reliability weights for each voxel}
+\item{sketch}{Matrix of DCT coefficients (r × n_voxels)}
+\item{params}{List of parameters used in the segmentation}
 }
 }
 \description{
 Lower-level function that performs a single run of SLiCE-MSF segmentation without
 consensus fusion. This function is useful for testing parameters or when you need
-direct access to the DCT sketch and reliability weights. Most users should use 
+direct access to the DCT sketch and reliability weights. Most users should use
 \code{slice_msf} instead for better stability through consensus.
 }
 \details{

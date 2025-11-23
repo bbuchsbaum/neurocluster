@@ -50,26 +50,26 @@ of included voxels.}
 \value{
 A \code{list} of class \code{cluster_result} with the following elements:
 \describe{
-  \item{clusvol}{An instance of type \linkS4class{ClusteredNeuroVol}}
-  \item{cluster}{An integer vector of cluster assignments for each voxel in mask}
-  \item{centers}{A matrix of cluster centers in feature space (K x T)}
-  \item{coord_centers}{A matrix of spatial coordinates of cluster centers (K x 3)}
-  \item{K}{The number of clusters}
-  \item{method}{A character string indicating the method used ("FLASH-3D")}
+\item{clusvol}{An instance of type \linkS4class{ClusteredNeuroVol}}
+\item{cluster}{An integer vector of cluster assignments for each voxel in mask}
+\item{centers}{A matrix of cluster centers in feature space (K x T)}
+\item{coord_centers}{A matrix of spatial coordinates of cluster centers (K x 3)}
+\item{K}{The number of clusters}
+\item{method}{A character string indicating the method used ("FLASH-3D")}
 }
 }
 \description{
-Performs spatially-constrained clustering using Fast Low-rank Approximate 
-Superclusters for Hemodynamics (FLASH-3D). This algorithm uses DCT-based 
+Performs spatially-constrained clustering using Fast Low-rank Approximate
+Superclusters for Hemodynamics (FLASH-3D). This algorithm uses DCT-based
 temporal hashing and 3D jump-flood propagation for efficient clustering.
 }
 \details{
 FLASH-3D uses a novel approach combining:
 \itemize{
-  \item DCT-based temporal feature hashing for fast similarity computation
-  \item Jump-flood algorithm for efficient spatial propagation
-  \item Blue-noise seeding for optimal initial cluster placement
-  \item Annealing of spatial weights to encourage compact clusters
+\item DCT-based temporal feature hashing for fast similarity computation
+\item Jump-flood algorithm for efficient spatial propagation
+\item Blue-noise seeding for optimal initial cluster placement
+\item Annealing of spatial weights to encourage compact clusters
 }
 
 The algorithm is particularly efficient for large-scale fMRI data, offering
@@ -77,7 +77,7 @@ significant speed improvements over iterative methods while maintaining
 clustering quality.
 }
 \note{
-Consider using \code{\link{cluster4d}} with \code{method = "flash3d"} for a 
+Consider using \code{\link{cluster4d}} with \code{method = "flash3d"} for a
 standardized interface across all clustering methods.
 }
 \examples{

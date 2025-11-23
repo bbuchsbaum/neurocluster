@@ -1,8 +1,6 @@
 #' S3 Methods for cluster4d_result Objects
 #'
 #' Methods for printing, summarizing, and plotting cluster4d results.
-#'
-#' @name cluster4d_methods
 
 #' Print cluster4d result
 #'
@@ -169,9 +167,13 @@ summary.cluster4d_result <- function(object, ...) {
 plot.cluster4d_result <- function(x, slice = NULL, view = "all", 
                                  colors = NULL, ...) {
   
-  # Get the clustered volume
+  # Get the clustered volume and materialize label array
   clusvol <- x$clusvol
   dims <- dim(clusvol)
+  mask <- clusvol@mask
+  mask_idx <- which(mask > 0)
+  label_arr <- array(NA_integer_, dim = dims)
+  label_arr[mask_idx] <- clusvol@clusters
   
   # Determine slices to show
   if (is.null(slice)) {
@@ -212,20 +214,20 @@ plot.cluster4d_result <- function(x, slice = NULL, view = "all",
   # Plot each view
   for (v in views_to_plot) {
     if (v == "axial") {
-      # Extract axial slice
-      slice_data <- as.matrix(clusvol[, , slice_z])
+      # Extract axial slice (x-y plane at fixed z)
+      slice_data <- label_arr[, , slice_z, drop = FALSE][, , 1]
       main_title <- paste("Axial slice z =", slice_z)
       xlab <- "X"
       ylab <- "Y"
     } else if (v == "sagittal") {
-      # Extract sagittal slice
-      slice_data <- as.matrix(clusvol[slice_x, , ])
+      # Extract sagittal slice (y-z plane at fixed x)
+      slice_data <- label_arr[slice_x, , , drop = FALSE][1, , ]
       main_title <- paste("Sagittal slice x =", slice_x)
       xlab <- "Y"
       ylab <- "Z"
     } else if (v == "coronal") {
-      # Extract coronal slice
-      slice_data <- as.matrix(clusvol[, slice_y, ])
+      # Extract coronal slice (x-z plane at fixed y)
+      slice_data <- label_arr[, slice_y, , drop = FALSE][, 1, ]
       main_title <- paste("Coronal slice y =", slice_y)
       xlab <- "X"
       ylab <- "Z"

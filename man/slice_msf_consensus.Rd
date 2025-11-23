@@ -42,8 +42,8 @@ label agreement, lower values (0.3-0.6) emphasize features. Default is 0.7.}
 \value{
 A list with the following components:
 \describe{
-  \item{labels}{Integer vector of consensus cluster labels}
-  \item{params}{List of parameters used in consensus fusion}
+\item{labels}{Integer vector of consensus cluster labels}
+\item{params}{List of parameters used in consensus fusion}
 }
 }
 \description{

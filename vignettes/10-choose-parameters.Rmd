@@ -1,0 +1,138 @@
+---
+title: Choose parameters for your data
+name: choose-parameters
+description: Use suggestions and tune K, spatial weighting, and connectivity.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+params:
+  family: ochre
+  base_size: 13
+  content_width: 72
+vignette: |
+  %\VignetteIndexEntry{Choose parameters for your data} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+css: albers.css
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
+  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  message = FALSE, warning = FALSE
+)
+set.seed(123); options(pillar.sigfig = 7, width = 80)
+suppressWarnings(suppressPackageStartupMessages({
+  library(neurocluster)
+  library(neuroim2)
+}))
+if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+```{r albers_inject, echo=FALSE, results='asis'}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+# Heuristics {#heuristics}
+The package’s helper `suggest_cluster4d_params()` derives a baseline K as `n_voxels / 250` (see source in `cluster4d_common.R`) and adjusts by priority. This is a starting point; actual K depends on analysis goals and mask size.
+
+# Suggestions {#suggestions}
+```r
+n_vox <- 50000
+n_time <- 200
+params <- suggest_cluster4d_params(n_vox, n_time, priority = "balanced")
+params$recommended_method
+params$n_clusters
+```
+
+# Tradeoffs {#tradeoffs}
+- Quality: increase iterations; methods with iterative refinement (e.g., `supervoxels()`, `cluster4d_slic()`); consider higher K.
+- Speed: `slice_msf` (slice-wise) or `flash3d` (hash/DCT) with fewer iterations and lower K.
+- Memory: `snic()` (single pass), `slice_msf` with fewer coefficients.
+
+# Recipes {#recipes}
+- Whole-brain (2–3 mm): start from `n_voxels/250`, `spatial_weight` around 0.4–0.6, connectivity 26.
+- ROI: smaller K (e.g., 10–100), lower `spatial_weight` (0.2–0.4), connectivity 6.
+
+# Toy data for illustrations {#toy-data}
+To make parameter effects concrete, we call `generate_synthetic_volume()` to
+create a tiny 4D volume where the true clusters form a clear 2D 2×3 grid on a
+single axial slice. Voxels within each grid cell share a similar time course
+(high correlation), so a well‑tuned clustering should recover these blocks. This
+runs quickly and deterministically.
+
+```{r toy-data, echo=FALSE}
+toy <- generate_synthetic_volume(
+  scenario = "checkerboard",
+  dims = c(12, 12, 1),
+  n_clusters = 6,
+  n_time = 16,
+  seed = 99
+)
+```
+
+# Effect of K (number of clusters) {#fig-k}
+Larger K produces finer partitions. The toy volume below is clustered with the same method and weights, varying only K.
+
+```{r fig-k, fig.cap='Effect of K on a toy axial view (default method).', fig.alt='Three panels showing axial slices clustered with K=3, K=6, and K=9.'}
+par(mfrow = c(1, 3))
+res_k3 <- cluster4d(toy$vec, toy$mask, n_clusters = 3)
+plot(res_k3, slice = c(1, 1, 1), view = "axial"); title("K = 3")
+res_k6 <- cluster4d(toy$vec, toy$mask, n_clusters = 6)
+plot(res_k6, slice = c(1, 1, 1), view = "axial"); title("K = 6")
+res_k9 <- cluster4d(toy$vec, toy$mask, n_clusters = 9)
+plot(res_k9, slice = c(1, 1, 1), view = "axial"); title("K = 9")
+par(mfrow = c(1,1))
+```
+
+# Effect of spatial_weight {#fig-spatial-weight}
+Higher `spatial_weight` emphasizes spatial compactness relative to feature similarity.
+
+```{r fig-sw, fig.cap='Effect of spatial_weight on a toy axial view (K=6).', fig.alt='Three panels with spatial_weight 0.2, 0.5, 0.8.'}
+par(mfrow = c(1, 3))
+res_sw02 <- cluster4d(toy$vec, toy$mask, n_clusters = 6, spatial_weight = 0.2)
+plot(res_sw02, slice = c(1, 1, 1), view = "axial"); title("spatial_weight = 0.2")
+res_sw05 <- cluster4d(toy$vec, toy$mask, n_clusters = 6, spatial_weight = 0.5)
+plot(res_sw05, slice = c(1, 1, 1), view = "axial"); title("spatial_weight = 0.5")
+res_sw08 <- cluster4d(toy$vec, toy$mask, n_clusters = 6, spatial_weight = 0.8)
+plot(res_sw08, slice = c(1, 1, 1), view = "axial"); title("spatial_weight = 0.8")
+par(mfrow = c(1,1))
+```
+
+# Effect of connectivity {#fig-connectivity}
+Connectivity controls the local neighborhood (6 = faces; 26 = faces/edges/corners). Higher connectivity typically yields smoother boundaries.
+
+```{r fig-connectivity, fig.cap='Effect of connectivity on a toy axial view (K=6, spatial_weight=0.5).', fig.alt='Two panels: connectivity 6 and connectivity 26.'}
+par(mfrow = c(1, 2))
+res_c6  <- cluster4d(toy$vec, toy$mask, n_clusters = 6, spatial_weight = 0.5, connectivity = 6)
+plot(res_c6, slice = c(1, 1, 1), view = "axial"); title("connectivity = 6")
+res_c26 <- cluster4d(toy$vec, toy$mask, n_clusters = 6, spatial_weight = 0.5, connectivity = 26)
+plot(res_c26, slice = c(1, 1, 1), view = "axial"); title("connectivity = 26")
+par(mfrow = c(1,1))
+```
+includes:
+  in_header: |-
+    <link rel="stylesheet" href="albers.css" />
+    <script src="albers.js"></script>

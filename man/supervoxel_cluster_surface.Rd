@@ -32,11 +32,11 @@ supervoxel_cluster_surface(
 \value{
 A \code{list} with:
 \describe{
-  \item{clusvol}{A \code{NeuroSurface} storing the final clustering result.}
-  \item{clusters}{Integer vector of cluster assignments (one per vertex).}
-  \item{centers}{Matrix of cluster centers.}
-  \item{coord_centers}{Matrix of spatial centroid coordinates.}
-  \item{index_sets}{List of vertex indices for each cluster.}
+\item{clusvol}{A \code{NeuroSurface} storing the final clustering result.}
+\item{clusters}{Integer vector of cluster assignments (one per vertex).}
+\item{centers}{Matrix of cluster centers.}
+\item{coord_centers}{Matrix of spatial centroid coordinates.}
+\item{index_sets}{List of vertex indices for each cluster.}
 }
 }
 \description{

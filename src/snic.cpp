@@ -2,7 +2,103 @@
 #include <queue>
 #include <vector>
 #include <algorithm>
+#include <cmath>
 using namespace Rcpp;
+
+// =============================================================================
+// OPTIMIZED IMPLEMENTATION: Lightweight structs for performance
+// =============================================================================
+
+// Lightweight struct for priority queue - avoids Rcpp::List overhead
+struct QueueElement {
+    int x, y, z;          // 3D coordinates
+    int voxel_idx;        // Linear index in feature matrix
+    int k_label;          // Cluster label
+    double distance;      // Distance metric for priority
+
+    // Priority queue orders by largest, so reverse for smallest distance
+    bool operator>(const QueueElement& other) const {
+        return distance > other.distance;
+    }
+};
+
+// Lightweight struct for centroids with in-place updates
+struct Centroid {
+    std::vector<double> sum_c;   // Sum of feature vectors
+    double sum_x, sum_y, sum_z;  // Sum of coordinates
+    int count;
+
+    // Cached averages (updated after each addition)
+    std::vector<double> avg_c;
+    double avg_x, avg_y, avg_z;
+
+    Centroid(int n_features, double x, double y, double z, const double* c_init)
+        : sum_x(x), sum_y(y), sum_z(z), count(1),
+          avg_x(x), avg_y(y), avg_z(z) {
+        sum_c.resize(n_features);
+        avg_c.resize(n_features);
+        for(int i = 0; i < n_features; ++i) {
+            sum_c[i] = c_init[i];
+            avg_c[i] = c_init[i];
+        }
+    }
+
+    // In-place update - no allocations
+    void add_pixel(double x, double y, double z, const double* features, int n_features) {
+        count++;
+        sum_x += x;
+        sum_y += y;
+        sum_z += z;
+
+        avg_x = sum_x / count;
+        avg_y = sum_y / count;
+        avg_z = sum_z / count;
+
+        // Update features and normalize (for fMRI correlation-based distance)
+        double sq_norm = 0.0;
+        for(int i = 0; i < n_features; ++i) {
+            sum_c[i] += features[i];
+            avg_c[i] = sum_c[i] / count;
+            sq_norm += avg_c[i] * avg_c[i];
+        }
+
+        // Re-normalize to unit length (appropriate for fMRI time series)
+        if (sq_norm > 0) {
+            double norm = std::sqrt(sq_norm);
+            for(int i = 0; i < n_features; ++i) {
+                avg_c[i] /= norm;
+            }
+        }
+    }
+};
+
+// Inline distance computation - no allocations, pure C++
+inline double compute_dist_cpp(double ck_x, double ck_y, double ck_z,
+                               const std::vector<double>& ck_c,
+                               double ni_x, double ni_y, double ni_z,
+                               const double* ni_c,
+                               int n_features, double s, double compactness) {
+
+    // Spatial distance
+    double dx = ck_x - ni_x;
+    double dy = ck_y - ni_y;
+    double dz = ck_z - ni_z;
+    double ds = dx*dx + dy*dy + dz*dz;
+
+    // Feature distance
+    double dc = 0.0;
+    for(int i = 0; i < n_features; ++i) {
+        double diff = ck_c[i] - ni_c[i];
+        dc += diff * diff;
+    }
+
+    // Combined distance metric
+    return std::sqrt((ds / s) + (dc / compactness));
+}
+
+// =============================================================================
+// OLD IMPLEMENTATION: Kept for backward compatibility
+// =============================================================================
 
 class IntegerArray3D {
 public:
@@ -206,6 +302,9 @@ IntegerVector snic_main(IntegerVector L_data, const IntegerVector& mask,
       for (int i = 0; i < neighbors.nrow(); ++i) {
         IntegerVector x_j = neighbors(i, _);
         int neighb_idx = mask_lookup(x_j(0), x_j(1), x_j(2));
+        if (neighb_idx < 0) {
+          continue;
+        }
         if (L(x_j(0), x_j(1), x_j(2)) != 0) {
           continue;
         }
@@ -229,6 +328,161 @@ IntegerVector snic_main(IntegerVector L_data, const IntegerVector& mask,
 
 }
 
+// =============================================================================
+// OPTIMIZED SNIC IMPLEMENTATION
+// =============================================================================
+
+// [[Rcpp::export]]
+IntegerVector snic_main_optimized(IntegerVector L_data,
+                                  const IntegerVector& mask,
+                                  const NumericMatrix centroids,
+                                  const IntegerVector centroid_idx,
+                                  const IntegerMatrix valid_coords,
+                                  const NumericMatrix norm_coords,
+                                  const NumericMatrix& vecmat,
+                                  int K, double s, double compactness,
+                                  IntegerVector mask_lookup_data) {
+
+    // Setup dimensions - store as plain ints for fast access
+    IntegerVector mask_dims = mask.attr("dim");
+    int dim_x = mask_dims[0];
+    int dim_y = mask_dims[1];
+    int dim_z = mask_dims[2];
+
+    // Direct pointer access for fastest array operations
+    int* L_ptr = L_data.begin();
+    const int* mask_lookup_ptr = mask_lookup_data.begin();
+
+    int nvoxels = vecmat.ncol();
+    int n_features = vecmat.nrow();
+    int coord_rows = valid_coords.nrow();
+    int norm_rows = norm_coords.nrow();
+    int mask_lookup_size = mask_lookup_data.size();
+
+    if (coord_rows != nvoxels || norm_rows != nvoxels) {
+        Rcpp::stop("SNIC internal error: coordinate matrices do not match voxel count");
+    }
+    if (mask_lookup_size != dim_x * dim_y * dim_z) {
+        Rcpp::stop("SNIC internal error: mask lookup size mismatch");
+    }
+
+    // Priority queue with lightweight struct
+    std::priority_queue<QueueElement, std::vector<QueueElement>, std::greater<QueueElement>> Q;
+
+    // Initialize centroids
+    std::vector<Centroid> C_store;
+    C_store.reserve(K);
+
+    // Initialization: create initial centroids and queue elements
+    for (int k = 0; k < K; ++k) {
+        int idx = centroid_idx[k];  // 0-based index from R
+        if (idx < 0 || idx >= nvoxels) {
+            Rcpp::stop("SNIC internal error: centroid index out of bounds");
+        }
+
+        // Get spatial coordinates
+        int vx = valid_coords(idx, 0);
+        int vy = valid_coords(idx, 1);
+        int vz = valid_coords(idx, 2);
+
+        // Get normalized coordinates
+        double nx = norm_coords(idx, 0);
+        double ny = norm_coords(idx, 1);
+        double nz = norm_coords(idx, 2);
+
+        // Get feature vector - access column in matrix
+        // NumericMatrix is column-major, so column idx starts at &vecmat[0] + idx * n_features
+        const double* c_init = &vecmat[0] + idx * n_features;
+
+        // Create centroid
+        C_store.emplace_back(n_features, nx, ny, nz, c_init);
+
+        // Add to queue with tie-breaking distance
+        double dist = (double)k / (K + 1);
+        Q.push({vx, vy, vz, idx, k + 1, dist});
+    }
+
+    int nassigned = 0;
+
+    // Main loop - process voxels in priority order
+    while (!Q.empty()) {
+        // Check for user interrupts periodically
+        if (nassigned % 1000 == 0) {
+            Rcpp::checkUserInterrupt();
+        }
+
+        QueueElement e = Q.top();
+        Q.pop();
+
+        // Calculate linear index for 3D volume
+        int l_index = e.x + dim_x * (e.y + dim_y * e.z);
+
+        // Check if already labeled
+        if (L_ptr[l_index] == 0) {
+            // Assign label
+            L_ptr[l_index] = e.k_label;
+            nassigned++;
+
+            // Update centroid in-place
+            const double* feat_ptr = &vecmat[0] + e.voxel_idx * n_features;
+            double nx = norm_coords(e.voxel_idx, 0);
+            double ny = norm_coords(e.voxel_idx, 1);
+            double nz = norm_coords(e.voxel_idx, 2);
+
+            Centroid& ck = C_store[e.k_label - 1];
+            ck.add_pixel(nx, ny, nz, feat_ptr, n_features);
+
+            // Check 26-connected neighbors - inlined for performance
+            for (int dz = -1; dz <= 1; ++dz) {
+                int nz_pos = e.z + dz;
+                if (nz_pos < 0 || nz_pos >= dim_z) continue;
+
+                for (int dy = -1; dy <= 1; ++dy) {
+                    int ny_pos = e.y + dy;
+                    if (ny_pos < 0 || ny_pos >= dim_y) continue;
+
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        // Skip center voxel
+                        if (dx == 0 && dy == 0 && dz == 0) continue;
+
+                        int nx_pos = e.x + dx;
+                        if (nx_pos < 0 || nx_pos >= dim_x) continue;
+
+                        // Linear index for neighbor
+                        int n_l_index = nx_pos + dim_x * (ny_pos + dim_y * nz_pos);
+
+                        // Check if already labeled
+                        if (L_ptr[n_l_index] != 0) continue;
+
+                        // Get neighbor voxel index from lookup
+                        int neigh_idx = mask_lookup_ptr[n_l_index];
+
+                        if (neigh_idx < 0) continue;
+                        if (neigh_idx >= nvoxels) {
+                            Rcpp::stop("SNIC internal error: neighbor index out of bounds");
+                        }
+
+                        // Get neighbor features and coordinates
+                        const double* n_feat_ptr = &vecmat[0] + neigh_idx * n_features;
+                        double nnx = norm_coords(neigh_idx, 0);
+                        double nny = norm_coords(neigh_idx, 1);
+                        double nnz = norm_coords(neigh_idx, 2);
+
+                        // Compute distance
+                        double d = compute_dist_cpp(ck.avg_x, ck.avg_y, ck.avg_z, ck.avg_c,
+                                                    nnx, nny, nnz, n_feat_ptr,
+                                                    n_features, s, compactness);
+
+                        // Add to queue
+                        Q.push({nx_pos, ny_pos, nz_pos, neigh_idx, e.k_label, d});
+                    }
+                }
+            }
+        }
+    }
+
+    return L_data;
+}
 
 // [[Rcpp::export]]
 IntegerVector compute_boundaryscore_3d_cpp(IntegerVector volume, IntegerVector mask) {
@@ -293,7 +547,4 @@ IntegerVector detect_boundaries_2d_cpp(IntegerVector volume, IntegerVector mask)
   }
   return boundaries_array.toRVector();
 }
-
-
-
 

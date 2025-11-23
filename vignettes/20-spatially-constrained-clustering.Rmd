@@ -1,0 +1,68 @@
+---
+title: Spatially constrained clustering
+name: spatially-constrained-clustering
+description: 'Concepts: spatial vs. feature weighting, connectivity, and artifacts.'
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+params:
+  family: violet
+  base_size: 13
+  content_width: 72
+vignette: |
+  %\VignetteIndexEntry{Spatially constrained clustering} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+css: albers.css
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+# Intuition {#intuition}
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
+  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  message = FALSE, warning = FALSE
+)
+set.seed(123); options(pillar.sigfig = 7, width = 80)
+if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+```{r albers_inject, echo=FALSE, results='asis'}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+Spatially constrained clustering balances data similarity (time series) with spatial proximity to produce contiguous parcels.
+
+# Alpha vs. compactness {#alpha-vs-compactness}
+- Supervoxels: `alpha` controls the relative weight of feature similarity; in `cluster4d_supervoxels()`, `spatial_weight` is mapped as `alpha = 1 - spatial_weight`.
+- SNIC/SLIC: use a `compactness` term in their native interfaces; via `cluster4d()`, set `spatial_weight` which the wrappers map to the appropriate compactness scale.
+
+# Connectivity {#connectivity}
+- Use 6 for face-adjacency; 26 adds edges/corners. In `cluster4d()`, `connectivity` is passed through to the chosen method (where applicable).
+
+# Artifacts {#artifacts}
+- Slice-wise methods can exhibit z‑plane seams; stitch or increase spatial weighting.
+includes:
+  in_header: |-
+    <link rel="stylesheet" href="albers.css" />
+    <script src="albers.js"></script>

@@ -19,8 +19,8 @@ of means for cluster centers and centroids. Default is FALSE.}
 }
 \value{
 A list containing two elements:
-        \item{center}{A matrix containing the centers of each cluster.}
-        \item{centroid}{A matrix containing the centroids of each cluster.}
+\item{center}{A matrix containing the centers of each cluster.}
+\item{centroid}{A matrix containing the centroids of each cluster.}
 }
 \description{
 The compute_centroids function calculates the center and centroid of each cluster

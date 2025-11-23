@@ -1,0 +1,81 @@
+---
+title: Validate and compare clusterings
+name: validate-compare
+description: Quality checks, cluster sizes, and basic overlaps.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+params:
+  family: red
+  base_size: 13
+  content_width: 72
+vignette: |
+  %\VignetteIndexEntry{Validate and compare clusterings} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+css: albers.css
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <link rel="stylesheet" href="albers.css" />
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
+  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  message = FALSE, warning = FALSE
+)
+set.seed(123); options(pillar.sigfig = 7, width = 80)
+suppressWarnings(suppressPackageStartupMessages({
+  library(neurocluster)
+  library(neuroim2)
+}))
+if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+mask <- NeuroVol(array(1, c(4,4,4)), NeuroSpace(c(4,4,4)))
+vec  <- NeuroVec(array(rnorm(4*4*4*10), c(4,4,4,10)), NeuroSpace(c(4,4,4,10)))
+res1 <- cluster4d(vec, mask, n_clusters = 3, method = "snic", max_iterations = 1)
+res2 <- cluster4d(vec, mask, n_clusters = 3, method = "slic", max_iterations = 3)
+```
+
+```{r albers_inject, echo=FALSE, results='asis'}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+# Checks {#checks}
+```r
+val <- validate_cluster4d(res1)
+val
+```
+
+# Sizes {#sizes}
+```r
+table(res1$cluster)
+table(res2$cluster)
+```
+
+# Compare {#compare}
+```r
+compare_cluster4d(res1, res2)
+```
+
+# Report {#report}
+- Flag tiny clusters for potential merging.
+- Note between-cluster correlations for interpretability.

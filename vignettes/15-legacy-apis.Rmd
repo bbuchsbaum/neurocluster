@@ -1,0 +1,74 @@
+---
+title: Legacy APIs and backward compatibility
+name: legacy-apis
+description: Map old interfaces to the unified cluster4d entry point.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+params:
+  family: ochre
+  base_size: 13
+  content_width: 72
+vignette: |
+  %\VignetteIndexEntry{Legacy APIs and backward compatibility} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+css: albers.css
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+# Map old to new {#map}
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
+  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  message = FALSE, warning = FALSE
+)
+set.seed(123); options(pillar.sigfig = 7, width = 80)
+if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+```{r albers_inject, echo=FALSE, results='asis'}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+- `supervoxels(vec, mask, K, alpha, ...)` → `cluster4d(vec, mask, n_clusters=K, method="supervoxels", spatial_weight=1-alpha, ...)`
+- `snic(vec, mask, K, compactness, ...)` → `cluster4d(..., method="snic", spatial_weight=compactness/10, ...)`
+- `slic4d_supervoxels(...)` → `cluster4d(..., method="slic", ...)`
+- `slice_msf(...)` → `cluster4d(..., method="slice_msf", ...)`
+- `supervoxels_flash3d(...)` → `cluster4d(..., method="flash3d", ...)`
+
+# Examples {#examples}
+```r
+# Old
+# res <- supervoxels(vec, mask, K = 100, alpha = 0.3)
+
+# New
+# res <- cluster4d(vec, mask, n_clusters = 100, method = "supervoxels", spatial_weight = 0.7)
+```
+
+# Deprecations {#deprecations}
+- Prefer `cluster4d()` for consistency and shared validation.
+includes:
+  in_header: |-
+    <link rel="stylesheet" href="albers.css" />
+    <script src="albers.js"></script>

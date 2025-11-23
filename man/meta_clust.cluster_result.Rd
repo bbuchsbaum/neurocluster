@@ -4,90 +4,112 @@
 \alias{meta_clust.cluster_result}
 \title{Meta Clustering for Cluster Results}
 \usage{
-\method{meta_clust}{cluster_result}(x, cuts = min(as.integer(length(x$centers)/2), 2), ...)
+\method{meta_clust}{cluster_result}(x, cuts = NULL, ...)
 }
 \arguments{
 \item{x}{A clustering result, typically an object of class \code{"cluster_result"}.}
 
-\item{cuts}{The number of cluster cuts to consider. Default is the minimum
-of half the number of centers and 2.}
+\item{cuts}{Integer vector specifying the number of cluster cuts to consider.
+Default is \code{NULL}, which generates cuts at 2, 5, and 10 clusters
+(or fewer depending on the number of input clusters).}
 
 \item{...}{Additional arguments:
 \describe{
-  \item{algo}{A character string indicating the clustering algorithm to use.
-              Default is "hclust" (hierarchical clustering).}
-  \item{hclust_method}{A character string specifying the agglomeration method
-                       to use for hierarchical clustering. Default is "ward.D".}
+\item{algo}{A character string indicating the clustering algorithm to use.
+Default is "hclust" (hierarchical clustering).}
+\item{dist_method}{Character string: "correlation" (default) or "euclidean"
+for distance calculation between cluster centers.}
+\item{hclust_method}{A character string specifying the agglomeration method
+to use for hierarchical clustering. Default is "ward.D".}
 }}
 }
 \value{
 A list containing:
-        \item{cvols}{A list of \code{\linkS4class{ClusteredNeuroVol}} instances.}
-        \item{cuts}{The number of cluster cuts.}
-        \item{cutmat}{A matrix representing the cluster assignments for each cut.}
-        \item{hclus}{The hierarchical clustering result.}
+\item{cvols}{A list of \code{\linkS4class{ClusteredNeuroVol}} instances.}
+\item{cuts}{The number of cluster cuts.}
+\item{cutmat}{A matrix representing the cluster assignments for each cut.}
+\item{hclus}{The hierarchical clustering result.}
+\item{original_result}{The original clustering result (optional reference).}
 }
 \description{
 The meta_clust function performs meta clustering on a given clustering result
-by applying hierarchical clustering or other clustering algorithms.
+by applying hierarchical clustering on the cluster centers.
 }
 \details{
-## Parallelization Status
+\subsection{Parallelization Status}{
 
-**Currently NOT parallelized.** Meta-clustering performs hierarchical clustering
+\strong{Currently NOT parallelized.} Meta-clustering performs hierarchical clustering
 on cluster centers using sequential R functions.
+\subsection{Sequential Operations:}{
+\enumerate{
+\item \strong{Distance Matrix Computation}:
+\itemize{
+\item Computes correlation distance (1 - cor) between all cluster centers
+\item O(K²) pairwise correlations where K = number of input clusters
+\item Sequential double loop in base R
+}
+\item \strong{Hierarchical Clustering}: \code{hclust()}
+\itemize{
+\item Standard hierarchical agglomeration (Ward.D by default)
+\item Sequential merging of closest clusters
+\item O(K² log K) complexity
+}
+\item \strong{Tree Cutting}: \code{cutree()}
+\itemize{
+\item Cuts dendrogram at multiple heights
+\item Creates nested cluster assignments
+\item Linear in number of clusters
+}
+}
+}
 
-### Sequential Operations:
+\subsection{Why Not Parallelized:}{
+\itemize{
+\item \strong{Small scale}: Usually operates on hundreds of clusters, not thousands of voxels
+\item \strong{R built-ins}: Uses standard \code{hclust()} which is sequential
+\item \strong{Fast enough}: Typically completes in seconds even for large K
+\item \strong{Memory efficient}: Only stores K×K distance matrix
+}
+}
 
-1. **Distance Matrix Computation**: 
-   - Computes correlation distance (1 - cor) between all cluster centers
-   - O(K²) pairwise correlations where K = number of input clusters
-   - Sequential double loop in base R
+\subsection{Potential for Parallelization:}{
+\itemize{
+\item Distance matrix computation could use parallel correlation
+\item Some hierarchical clustering variants support parallelization
+\item Multiple cuts could be computed in parallel
+}
+}
 
-2. **Hierarchical Clustering**: `hclust()`
-   - Standard hierarchical agglomeration (Ward.D by default)
-   - Sequential merging of closest clusters
-   - O(K² log K) complexity
+\subsection{Performance Characteristics:}{
+\itemize{
+\item \strong{Input size}: K clusters from initial clustering (typically 100-1000)
+\item \strong{Complexity}: O(K²) for distances, O(K² log K) for clustering
+\item \strong{Memory}: O(K²) for distance matrix
+\item \strong{Speed}: Usually < 1 second for K < 500
+}
+}
 
-3. **Tree Cutting**: `cutree()`
-   - Cuts dendrogram at multiple heights
-   - Creates nested cluster assignments
-   - Linear in number of clusters
+\subsection{Performance Tips:}{
+\itemize{
+\item \strong{Pre-reduce clusters}: Start with fewer initial clusters if meta-clustering is slow
+\item \strong{Use appropriate linkage}: Ward.D is slower but often gives better results
+\item \strong{Limit cuts}: Fewer cut levels = faster processing
+\item \strong{Alternative}: Use consensus clustering (\code{merge_clus()}) for different approach
+}
+}
 
-### Why Not Parallelized:
-
-- **Small scale**: Usually operates on hundreds of clusters, not thousands of voxels
-- **R built-ins**: Uses standard `hclust()` which is sequential
-- **Fast enough**: Typically completes in seconds even for large K
-- **Memory efficient**: Only stores K×K distance matrix
-
-### Potential for Parallelization:
-
-- Distance matrix computation could use parallel correlation
-- Some hierarchical clustering variants support parallelization
-- Multiple cuts could be computed in parallel
-
-### Performance Characteristics:
-
-- **Input size**: K clusters from initial clustering (typically 100-1000)
-- **Complexity**: O(K²) for distances, O(K² log K) for clustering
-- **Memory**: O(K²) for distance matrix
-- **Speed**: Usually < 1 second for K < 500
-
-### Performance Tips:
-
-- **Pre-reduce clusters**: Start with fewer initial clusters if meta-clustering is slow
-- **Use appropriate linkage**: Ward.D is slower but often gives better results
-- **Limit cuts**: Fewer cut levels = faster processing
-- **Alternative**: Use consensus clustering (`merge_clus()`) for different approach
-
-### Use Cases:
+\subsection{Use Cases:}{
 
 Meta-clustering is useful for:
-- Creating multi-resolution parcellations
-- Hierarchical organization of functional regions
-- Reducing large numbers of clusters to interpretable groups
-- Finding stable cluster boundaries across scales
+\itemize{
+\item Creating multi-resolution parcellations
+\item Hierarchical organization of functional regions
+\item Reducing large numbers of clusters to interpretable groups
+\item Finding stable cluster boundaries across scales
+}
+}
+
+}
 }
 \seealso{
 \code{\link[stats]{hclust}}, \code{\link[stats]{cutree}}

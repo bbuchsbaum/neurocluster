@@ -4,7 +4,7 @@
 \alias{find_gradient_seeds}
 \title{Find gradient-based seed points}
 \usage{
-find_gradient_seeds(coords, grad_vals, K)
+find_gradient_seeds(coords, grad_vals, K, min_separation_factor = 1.5)
 }
 \arguments{
 \item{coords}{Coordinate matrix}

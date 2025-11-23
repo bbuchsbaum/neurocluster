@@ -14,10 +14,10 @@ compare_cluster4d(
 
 \item{metrics}{Comparison metrics to compute. Options:
 \itemize{
-  \item "summary": Basic statistics
-  \item "spatial_coherence": Spatial compactness measure
-  \item "temporal_coherence": Feature similarity within clusters
-  \item "overlap": Dice coefficient between methods (requires exactly 2 results)
+\item "summary": Basic statistics
+\item "spatial_coherence": Spatial compactness measure
+\item "temporal_coherence": Feature similarity within clusters
+\item "overlap": Dice coefficient between methods (requires exactly 2 results)
 }}
 }
 \value{

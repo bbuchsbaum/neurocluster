@@ -17,6 +17,8 @@
 #'     \item \code{"slic"}: SLIC superpixels extended to 4D
 #'     \item \code{"slice_msf"}: Slice-wise Minimum Spanning Forest (fast but may show z-artifacts)
 #'     \item \code{"flash3d"}: Fast Low-rank Approximate Superclusters
+#'     \item \code{"g3s"}: Gradient-Guided Geodesic Supervoxels (NEW - recommended for best quality/speed)
+#'     \item \code{"rena"}: Recursive Nearest Agglomeration (fast, balanced, topology-aware)
 #'   }
 #' @param spatial_weight Balance between spatial and feature similarity (0-1).
 #'   Higher values emphasize spatial compactness. Default 0.5.
@@ -48,7 +50,7 @@
 #'   \item{metadata}{Method-specific additional information}
 #'
 #' @section Algorithm Comparison:
-#' 
+#'
 #' \tabular{lllllll}{
 #'   \strong{Method} \tab \strong{Speed} \tab \strong{3D Continuity} \tab \strong{Memory} \tab \strong{Parallel} \tab \strong{Best For} \cr
 #'   supervoxels \tab Slow \tab Excellent \tab High \tab Yes \tab Small-medium data, smooth parcels \cr
@@ -56,6 +58,7 @@
 #'   slic \tab Fast \tab Good \tab Medium \tab Yes \tab Balanced speed/quality \cr
 #'   slice_msf \tab Very Fast \tab Moderate \tab Low \tab Yes \tab High-res data, accept z-artifacts \cr
 #'   flash3d \tab Fast \tab Good \tab Medium \tab Partial \tab Large data, hash-based \cr
+#'   rena \tab Fast \tab Excellent \tab Low \tab No \tab Balanced clusters, topology-aware \cr
 #' }
 #'
 #' @section Parameter Guidelines:
@@ -81,15 +84,17 @@
 #' }
 #'
 #' @examples
+#' \dontrun{
 #' # Simple synthetic example (runs quickly for testing)
 #' library(neuroim2)
 #' mask <- NeuroVol(array(1, c(4,4,4)), NeuroSpace(c(4,4,4)))
 #' vec <- NeuroVec(array(rnorm(4*4*4*10), c(4,4,4,10)), 
 #'                 NeuroSpace(c(4,4,4,10)))
-#' result <- cluster4d(vec, mask, n_clusters = 3, method = "snic", 
+#' result <- cluster4d(vec, mask, n_clusters = 3, method = "g3s", 
 #'                    max_iterations = 1)
 #' print(result$n_clusters)
-#' 
+#' }
+#'
 #' \dontrun{
 #' # More realistic examples with larger data
 #' mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
@@ -100,8 +105,8 @@
 #' # Basic usage with default supervoxels method
 #' result <- cluster4d(vec, mask, n_clusters = 100)
 #' 
-#' # Fast clustering with SNIC
-#' result <- cluster4d(vec, mask, n_clusters = 100, method = "snic")
+#' # Fast clustering with FLASH-3D (hash-based)
+#' result <- cluster4d(vec, mask, n_clusters = 100, method = "flash3d")
 #' 
 #' # Emphasize spatial compactness
 #' result <- cluster4d(vec, mask, n_clusters = 100, spatial_weight = 0.8)
@@ -120,7 +125,6 @@
 #'                    n_clusters = params$n_clusters,
 #'                    method = params$recommended_method)
 #' }
-#'
 #' @seealso 
 #' Method-specific functions: \code{\link{cluster4d_supervoxels}}, 
 #' \code{\link{cluster4d_snic}}, \code{\link{cluster4d_slic}},
@@ -131,16 +135,16 @@
 #'
 #' @export
 #' @importFrom neuroim2 NeuroVec NeuroVol ClusteredNeuroVol series index_to_coord spacing
-cluster4d <- function(vec, mask, 
+cluster4d <- function(vec, mask,
                      n_clusters = 100,
-                     method = c("supervoxels", "snic", "slic", "slice_msf", "flash3d"),
+                     method = c("supervoxels", "snic", "slic", "slice_msf", "flash3d", "g3s", "rena", "rena_plus"),
                      spatial_weight = 0.5,
                      max_iterations = 10,
                      connectivity = 26,
                      parallel = TRUE,
                      verbose = FALSE,
                      ...) {
-  
+
   method <- match.arg(method)
   
   # Validate common inputs
@@ -152,8 +156,8 @@ cluster4d <- function(vec, mask,
   }
   
   # Validate connectivity
-  if (!connectivity %in% c(6, 26, 27)) {
-    stop("connectivity must be 6, 26, or 27")
+  if (!connectivity %in% c(6, 18, 26, 27)) {
+    stop("connectivity must be 6, 18, 26, or 27")
   }
   
   # Store original parameters
@@ -169,17 +173,27 @@ cluster4d <- function(vec, mask,
   
   # Dispatch to method-specific implementation
   result <- switch(method,
-    supervoxels = cluster4d_supervoxels(vec, mask, n_clusters, spatial_weight, 
-                                        max_iterations, connectivity, parallel, 
+    supervoxels = cluster4d_supervoxels(vec, mask, n_clusters, spatial_weight,
+                                        max_iterations, connectivity, parallel,
                                         verbose, ...),
-    snic = cluster4d_snic(vec, mask, n_clusters, spatial_weight, 
+    snic = cluster4d_snic(vec, mask, n_clusters, spatial_weight,
                          max_iterations, verbose, ...),
-    slic = cluster4d_slic(vec, mask, n_clusters, spatial_weight, 
+    slic = cluster4d_slic(vec, mask, n_clusters, spatial_weight,
                          max_iterations, connectivity, parallel, verbose, ...),
-    slice_msf = cluster4d_slice_msf(vec, mask, n_clusters, spatial_weight, 
+    slice_msf = cluster4d_slice_msf(vec, mask, n_clusters, spatial_weight,
                                    connectivity, parallel, verbose, ...),
-    flash3d = cluster4d_flash3d(vec, mask, n_clusters, spatial_weight, 
-                               max_iterations, verbose, ...)
+    flash3d = cluster4d_flash3d(vec, mask, n_clusters, spatial_weight,
+                               max_iterations, verbose, ...),
+    g3s = cluster4d_g3s(vec, mask, n_clusters,
+                       alpha = 1 - spatial_weight,  # Convert to feature weight
+                       max_refinement_iter = max_iterations,
+                       verbose = verbose, ...),
+    rena = cluster4d_rena(vec, mask, n_clusters, spatial_weight,
+                         max_iterations, connectivity, verbose, ...),
+    rena_plus = cluster4d_rena_plus(vec, mask, n_clusters, spatial_weight,
+                                    connectivity = connectivity,
+                                    max_iterations = max_iterations,
+                                    verbose = verbose, ...)
   )
   
   # Ensure result has cluster4d_result class
@@ -460,6 +474,12 @@ cluster4d_slice_msf <- function(vec, mask, n_clusters = 100,
   # Add method info
   result$method <- "slice_msf"
   result$n_clusters <- length(unique(result$cluster[!is.na(result$cluster)]))
+  if (!is.null(result$centers)) {
+    if (nrow(result$centers) != result$n_clusters &&
+        ncol(result$centers) == result$n_clusters) {
+      result$centers <- t(result$centers)
+    }
+  }
   
   # Store all parameters including those passed through ...
   dots <- list(...)

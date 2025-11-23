@@ -4,7 +4,7 @@
 \alias{compute_cluster_centroids}
 \title{Compute centroids of each cluster}
 \usage{
-compute_cluster_centroids(voxel_labels, feature_mat)
+compute_cluster_centroids(labels, feature_mat)
 }
 \description{
 Compute centroids of each cluster

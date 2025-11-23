@@ -11,6 +11,7 @@
 #include <unordered_set>
 #include <queue>
 #include <limits>
+#include <cstring>
 
 using namespace Rcpp;
 using namespace RcppParallel;
@@ -42,9 +43,8 @@ inline void counting_sort_edges(std::vector<Edge> &edges) {
 }
 
 inline uint16_t quantize16(double d) {
-  if (d < 0.0) d = 0.0;
-  if (d > 2.0) d = 2.0;
-  return static_cast<uint16_t>(std::lround((d/2.0)*65535.0));
+  d = (d < 0.0) ? 0.0 : (d > 2.0 ? 2.0 : d);
+  return static_cast<uint16_t>(d * 32767.5); // 65535 / 2
 }
 
 // ---------------------------------------------------------------
@@ -201,6 +201,46 @@ struct SliceSketchWorker : public Worker {
   }
 };
 
+// Optional z-smoothing across slices to reduce boundary seams
+struct ZSmoothWorker : public Worker {
+  NumericMatrix &U;
+  const IntegerVector mask;
+  const int nx, ny, nz, r;
+  const double factor;
+
+  ZSmoothWorker(NumericMatrix &U_, const IntegerVector &mask_,
+                int nx_, int ny_, int nz_, int r_, double factor_)
+    : U(U_), mask(mask_), nx(nx_), ny(ny_), nz(nz_), r(r_), factor(factor_) {}
+
+  void operator()(std::size_t k0, std::size_t k1) {
+    if (factor <= 0.0) return;
+    const double c_mid = 1.0 - factor;
+    const double c_side = factor * 0.5;
+    std::vector<double> col_buf(nz);
+
+    for (std::size_t k = k0; k < k1; ++k) {
+      for (int y = 0; y < ny; ++y) {
+        for (int x = 0; x < nx; ++x) {
+          // copy column into buffer for stability
+          for (int z = 0; z < nz; ++z) {
+            int g = idx3d(x, y, z, nx, ny);
+            col_buf[z] = mask[g] ? U((int)k, g) : 0.0;
+          }
+          // apply smoothing with reflected boundary
+          for (int z = 0; z < nz; ++z) {
+            int g = idx3d(x, y, z, nx, ny);
+            if (!mask[g]) continue;
+            double val = col_buf[z] * c_mid;
+            val += (z > 0 ? col_buf[z - 1] : col_buf[z]) * c_side;
+            val += (z < nz - 1 ? col_buf[z + 1] : col_buf[z]) * c_side;
+            U((int)k, g) = val;
+          }
+        }
+      }
+    }
+  }
+};
+
 // ---------------------------------------------------------------
 // Build in-slice edges with reliability-aware distance
 // d_ij = 1 - (w_i w_j) * (U_i . U_j)  (clamped to [0,2])
@@ -214,45 +254,62 @@ inline void build_slice_edges(
   const NumericVector &voxdim, double spatial_beta,
   std::vector<int> &gids, std::vector<int> &loc_of_plane, std::vector<Edge> &edges
 ) {
-  gids.clear(); edges.clear(); loc_of_plane.assign(nx*ny, -1);
+  gids.clear();
+  edges.clear();
+  loc_of_plane.assign(nx*ny, -1);
 
-  for (int y=0;y<ny;++y) for (int x=0;x<nx;++x) {
-    int g = idx3d(x,y,z,nx,ny);
-    if (mask[g]) { int plane = x + nx*y; loc_of_plane[plane] = (int)gids.size(); gids.push_back(g); }
+  for (int y = 0; y < ny; ++y) {
+    for (int x = 0; x < nx; ++x) {
+      int g = idx3d(x, y, z, nx, ny);
+      if (!mask[g]) continue;
+      int plane = x + nx * y;
+      loc_of_plane[plane] = (int)gids.size();
+      gids.push_back(g);
+    }
   }
   if (gids.empty()) return;
 
-  std::vector<std::pair<int,int>> offs;
-  offs.emplace_back(1,0); offs.emplace_back(0,1);        // 4-conn
-  if (nbhd==8) { offs.emplace_back(1,1); offs.emplace_back(1,-1); }
+  struct Off { int dx; int dy; double pen; };
+  std::vector<Off> offs;
+  offs.push_back({1, 0, 1.0});
+  offs.push_back({0, 1, 1.0});
+  if (nbhd == 8) {
+    const double dx = voxdim.size() >= 1 ? (double)voxdim[0] : 1.0;
+    const double dy = voxdim.size() >= 2 ? (double)voxdim[1] : 1.0;
+    const double minlen = std::max(1e-6, std::min(dx, dy));
+    const double ddiag = std::sqrt(dx * dx + dy * dy) / minlen;
+    const double pen = 1.0 + spatial_beta * (ddiag - 1.0);
+    offs.push_back({1, 1, pen});
+    offs.push_back({1, -1, pen});
+  }
 
-  const double dx = voxdim.size()>=1 ? (double)voxdim[0] : 1.0;
-  const double dy = voxdim.size()>=2 ? (double)voxdim[1] : 1.0;
-  const double minlen = std::min(dx,dy);
+  for (int y = 0; y < ny; ++y) {
+    for (int x = 0; x < nx; ++x) {
+      int i = loc_of_plane[x + nx * y];
+      if (i < 0) continue;
+      int gi = gids[i];
+      for (const auto &p : offs) {
+        int xn = x + p.dx;
+        int yn = y + p.dy;
+        if (xn < 0 || xn >= nx || yn < 0 || yn >= ny) continue;
+        int j = loc_of_plane[xn + nx * yn];
+        if (j < 0) continue;
+        int gj = gids[j];
 
-  for (int y=0;y<ny;++y) for (int x=0;x<nx;++x) {
-    int i = loc_of_plane[x + nx*y];
-    if (i < 0) continue;
-    int gi = gids[i];
-    for (auto &p : offs) {
-      int xn=x+p.first, yn=y+p.second;
-      if (xn<0||xn>=nx||yn<0||yn>=ny) continue;
-      int j = loc_of_plane[xn + nx*yn];
-      if (j<0) continue;
-      int gj = gids[j];
+        double wprod = std::max(0.0, (double)W[gi] * (double)W[gj]);
+        double sim = (wprod > 0.0) ? dot_col(U, gi, gj, r) : 0.0;
+        sim = std::max(-1.0, std::min(1.0, sim));
+        double d = 1.0 - (wprod * sim);
+        if (p.pen > 1.0) d *= p.pen;
+        d = std::max(0.0, std::min(2.0, d));
 
-      double wprod = W[gi]*W[gj];
-      double sim   = (wprod>0.0) ? dot_col(U, gi, gj, r) : 0.0;
-      double d     = 1.0 - (wprod * sim);               // safer than dividing by wprod
-      d = std::max(0.0, std::min(2.0, d));
-
-      // mild spatial penalty for longer diagonals (optional)
-      double len = std::sqrt((p.first?dx*dx:0.0) + (p.second?dy*dy:0.0));
-      double factor = 1.0 + spatial_beta*(len/minlen - 1.0);
-      d *= factor;
-
-      Edge e; e.a=i; e.b=j; e.w=(float)d; e.wq=quantize16(d);
-      edges.push_back(e);
+        Edge e;
+        e.a = i;
+        e.b = j;
+        e.w = (float)d;
+        e.wq = quantize16(d);
+        edges.push_back(e);
+      }
     }
   }
 }
@@ -392,73 +449,108 @@ inline void build_adjacency_pairs(
   }
 }
 
-// Agglomerate to exact target K (global).
-// Inputs: initial groups 0..G-1, with size[] and sumU(:,g), and adjacency pairs.
-// Returns a mapping group_root -> final_group_root (via uf).
+// Agglomerate to exact target K (global) using centroid unit vectors
 inline void rag_agglomerate_to_K_global(
-  int G, int targetK, const std::unordered_set<std::pair<int,int>, PairHash> &pairs,
+  int G, int targetK, const std::unordered_set<std::pair<int,int>, PairHash> &pairs_set,
   NumericMatrix &sumU, std::vector<int> &sz, UF &uf
 ) {
-  if (targetK <= 0) return;
-  uf.init(G);
-
-  // Active roots set
-  std::vector<char> active(G, 0);
-  int nActive = 0;
-  for (int g=0; g<G; ++g) { active[g]=1; nActive++; }
-
-  // Neighbor sets (for updates)
-  std::vector< std::unordered_set<int> > nbr(G);
-  for (const auto &p : pairs) { nbr[p.first].insert(p.second); nbr[p.second].insert(p.first); }
-
-  // Priority queue of edges by distance
-  std::priority_queue<PQItem> pq;
-  for (const auto &p : pairs) {
-    double c = cos_mean(p.first, p.second, sumU, sz);
-    float d = (float)(1.0 - std::max(-1.0, std::min(1.0, c)));
-    pq.push({p.first, p.second, d});
+  if (targetK <= 0 || G <= targetK) {
+    uf.init(G);
+    return;
   }
 
+  uf.init(G);
+  const int r = sumU.nrow();
+
+  // Normalize centroids to unit vectors to avoid repeated sqrt per edge
+  std::vector< std::vector<float> > unitU((size_t)G, std::vector<float>(r, 0.0f));
+  for (int c = 0; c < G; ++c) {
+    double norm = 0.0;
+    for (int k = 0; k < r; ++k) {
+      double val = sumU(k, c);
+      unitU[(size_t)c][k] = (float)val;
+      norm += val * val;
+    }
+    if (norm > 1e-9) {
+      float inv = 1.0f / (float)std::sqrt(norm);
+      for (int k = 0; k < r; ++k) unitU[(size_t)c][k] *= inv;
+    }
+  }
+
+  auto calc_dist = [&](int u, int v) {
+    float dot = 0.0f;
+    for (int k = 0; k < r; ++k) dot += unitU[(size_t)u][k] * unitU[(size_t)v][k];
+    double clamped = std::max(-1.0, std::min(1.0, (double)dot));
+    return (float)(1.0 - clamped);
+  };
+
+  std::vector< std::unordered_map<int, float> > adj((size_t)G);
+  std::priority_queue<PQItem> pq;
+  for (const auto &p : pairs_set) {
+    int u = p.first;
+    int v = p.second;
+    if (u == v) continue;
+    float d = calc_dist(u, v);
+    adj[(size_t)u][v] = d;
+    adj[(size_t)v][u] = d;
+    pq.push({std::min(u, v), std::max(u, v), d});
+  }
+
+  std::vector<bool> active((size_t)G, true);
+  int nActive = G;
+
   while (nActive > targetK && !pq.empty()) {
-    PQItem it = pq.top(); pq.pop();
-    int a = uf.find(it.a), b = uf.find(it.b);
-    if (a==b || !active[a] || !active[b]) continue;
+    PQItem top = pq.top(); pq.pop();
+    int u = uf.find(top.a);
+    int v = uf.find(top.b);
+    if (u == v || !active[(size_t)u] || !active[(size_t)v]) continue;
 
-    // Check still neighbors
-    if (!nbr[a].count(b)) continue;
+    auto it = adj[(size_t)u].find(v);
+    if (it == adj[(size_t)u].end() || std::fabs(it->second - top.d) > 1e-5f) continue;
 
-    // Recompute distance with current means (lazy-key strategy)
-    double ccur = cos_mean(a, b, sumU, sz);
-    float dcur = (float)(1.0 - std::max(-1.0, std::min(1.0, ccur)));
-    if (dcur > it.d && pq.size()>0) {
-      // Push updated key and skip this stale one
-      pq.push({a,b,dcur});
-      continue;
+    float sz_u = (float)uf.sz[u];
+    float sz_v = (float)uf.sz[v];
+    int root = uf.unite(u, v, top.d);
+    int child = (root == u) ? v : u;
+    float kept_sz = (root == u) ? sz_u : sz_v;
+    float add_sz  = (root == u) ? sz_v : sz_u;
+
+    // Update centroid of root using weighted sum, then renormalize
+    double norm = 0.0;
+    for (int k = 0; k < r; ++k) {
+      float val = unitU[(size_t)root][k] * kept_sz + unitU[(size_t)child][k] * add_sz;
+      unitU[(size_t)root][k] = val;
+      norm += val * val;
+    }
+    if (norm > 1e-9) {
+      float inv = 1.0f / (float)std::sqrt(norm);
+      for (int k = 0; k < r; ++k) unitU[(size_t)root][k] *= inv;
     }
 
-    // Merge b into a (choose larger root as receiver to reduce map ops)
-    if (sz[a] < sz[b]) std::swap(a,b);
-    int rnew = uf.unite(a,b,0.0f); // union-find
-    (void)rnew; // rnew == a
+    for (int k = 0; k < r; ++k) sumU(k, root) += sumU(k, child);
+    sz[root] += sz[child];
+    sz[child] = 0;
 
-    // Update sums and size
-    int rA = a, rB = b;
-    for (int k=0;k<sumU.nrow();++k) sumU(k,rA) += sumU(k,rB);
-    sz[rA] += sz[rB];
+    // Collect neighbors to update distances
+    std::unordered_set<int> neighbor_set;
+    for (const auto &kv : adj[(size_t)root]) neighbor_set.insert(kv.first);
+    for (const auto &kv : adj[(size_t)child]) neighbor_set.insert(kv.first);
+    neighbor_set.erase(root);
+    neighbor_set.erase(child);
 
-    // Update neighbor sets: N = (Na ∪ Nb) \ {a,b}
-    for (int n : nbr[rB]) { if (n!=rA) { nbr[rA].insert(n); nbr[n].erase(rB); nbr[n].insert(rA); } }
-    nbr[rA].erase(rA); nbr[rA].erase(rB);
-    nbr[rB].clear();
-
-    // Push new edges
-    for (int n : nbr[rA]) {
-      double c = cos_mean(rA, n, sumU, sz);
-      float d = (float)(1.0 - std::max(-1.0, std::min(1.0, c)));
-      pq.push({rA, n, d});
+    for (int nb : neighbor_set) {
+      adj[(size_t)nb].erase(child);
+      if (!active[(size_t)nb]) continue;
+      float new_d = calc_dist(root, nb);
+      adj[(size_t)root][nb] = new_d;
+      adj[(size_t)nb][root] = new_d;
+      pq.push({std::min(root, nb), std::max(root, nb), new_d});
     }
 
-    active[rB]=0; nActive--;
+    adj[(size_t)root].erase(root);
+    adj[(size_t)child].clear();
+    active[(size_t)child] = false;
+    --nActive;
   }
 }
 
@@ -592,7 +684,8 @@ Rcpp::List slice_msf_runwise(
     Rcpp::NumericVector voxel_dim = R_NilValue, // c(dx,dy,dz)
     double spatial_beta = 0.0,
     int target_k_global = -1,   // exact-K across volume (2-D if !stitch_z, else 3-D)
-    int target_k_per_slice = -1 // exact-K per slice (ignored if stitch_z==TRUE)
+    int target_k_per_slice = -1, // exact-K per slice (ignored if stitch_z==TRUE)
+    double z_mult = 0.0
 ) {
   if (vol_dim.size()!=3) stop("vol_dim must be c(nx,ny,nz)");
   const int nx=vol_dim[0], ny=vol_dim[1], nz=vol_dim[2];
@@ -616,14 +709,23 @@ Rcpp::List slice_msf_runwise(
   SliceSketchWorker skw(TS, mask, phi, nx, ny, nz, T, r, rows_are_time, gamma, U, W);
   parallelFor(0, nz, skw);
 
+  if (z_mult > 0.0) {
+    double f = std::max(0.0, std::min(1.0, z_mult));
+    ZSmoothWorker zsw(U, mask, nx, ny, nz, r, f);
+    parallelFor(0, r, zsw);
+  }
+
   // --- per-slice FH segmentation ---
   std::vector< std::vector<int> > slice_gids(nz);
   std::vector< std::vector<int> > slice_labs(nz);
   std::vector<int> slice_maxlab(nz,0);
 
+  std::vector<int> loc_of_plane(nx * ny);
+  std::vector<Edge> edges;
+  edges.reserve(nx * ny * (nbhd == 8 ? 4 : 2));
+
   for (int z=0; z<nz; ++z) {
-    std::vector<int> gids, loc_of_plane, labs_local;
-    std::vector<Edge> edges;
+    std::vector<int> gids, labs_local;
     build_slice_edges(z, mask, U, W, nx, ny, r, nbhd, voxdim, spatial_beta,
                       gids, loc_of_plane, edges);
     int ns = (int)gids.size();
@@ -662,23 +764,68 @@ Rcpp::List slice_msf_runwise(
   // --- optional 3-D stitching across slices (vertical contact) ---
   UF ufC(total_comps);
   if (stitch_z && total_comps>0) {
-    std::unordered_map<std::pair<int,int>, int, PairHash> contact;
-    contact.reserve((size_t)N/10 + 1);
+    struct Contact { int u; int v; double score; int count; };
+    std::vector<Contact> contacts;
+    contacts.reserve(std::max<size_t>(1, (size_t)N / 10));
+
     for (int z=0; z<nz-1; ++z) {
-      for (int y=0;y<ny;++y) for (int x=0;x<nx;++x) {
-        int g0=idx3d(x,y,z,nx,ny), g1=idx3d(x,y,z+1,nx,ny);
-        if (!mask[g0]||!mask[g1]) continue;
-        int c0=voxel2comp[g0], c1=voxel2comp[g1];
-        if (c0<0 || c1<0 || c0==c1) continue;
-        int u=std::min(c0,c1), v=std::max(c0,c1);
-        contact[{u,v}]++;
+      for (int y=0;y<ny;++y) {
+        for (int x=0;x<nx;++x) {
+          int g0=idx3d(x,y,z,nx,ny);
+          int g1=idx3d(x,y,z+1,nx,ny);
+          if (!mask[g0]||!mask[g1]) continue;
+          int c0=voxel2comp[g0], c1=voxel2comp[g1];
+          if (c0<0 || c1<0 || c0==c1) continue;
+          int u=std::min(c0,c1), v=std::max(c0,c1);
+          double sim = dot_col(U, g0, g1, r);
+          contacts.push_back({u, v, sim, 1});
+        }
       }
     }
-    for (const auto &kv : contact) {
-      int c0=kv.first.first, c1=kv.first.second, cnt=kv.second;
-      if (cnt < min_contact) continue;
-      double c = cos_mean(c0, c1, comp_sum, comp_sz); // use centroid cosine
-      if (c >= theta_link) ufC.unite(c0,c1,0.0f);
+
+    auto centroid_cos = [&](int a, int b) {
+      double dot=0.0, n0=0.0, n1=0.0;
+      for (int k=0;k<r;++k) {
+        double v0 = comp_sum(k,a);
+        double v1 = comp_sum(k,b);
+        dot += v0 * v1;
+        n0 += v0 * v0;
+        n1 += v1 * v1;
+      }
+      return (n0>0.0 && n1>0.0) ? dot / (std::sqrt(n0)*std::sqrt(n1)) : 0.0;
+    };
+
+    if (!contacts.empty()) {
+      std::sort(contacts.begin(), contacts.end(), [](const Contact &a, const Contact &b){
+        return (a.u < b.u) || (a.u == b.u && a.v < b.v);
+      });
+
+      int cur_u = contacts[0].u;
+      int cur_v = contacts[0].v;
+      double cur_sum = 0.0;
+      int cur_cnt = 0;
+
+      auto flush_pair = [&]() {
+        if (cur_cnt < min_contact) return;
+        double avg_sim = cur_sum / cur_cnt;
+        double gsim = centroid_cos(cur_u, cur_v);
+        if (avg_sim >= theta_link && gsim >= (theta_link - 0.1)) {
+          ufC.unite(cur_u, cur_v, 0.0f);
+        }
+      };
+
+      for (const auto &ct : contacts) {
+        if (ct.u != cur_u || ct.v != cur_v) {
+          flush_pair();
+          cur_u = ct.u;
+          cur_v = ct.v;
+          cur_sum = 0.0;
+          cur_cnt = 0;
+        }
+        cur_sum += ct.score;
+        cur_cnt += ct.count;
+      }
+      flush_pair();
     }
   }
 
@@ -743,7 +890,8 @@ Rcpp::List slice_msf_runwise(
     _["params"]  = List::create(
       _["r"]=r, _["fh_scale"]=fh_scale, _["min_size"]=min_size, _["nbhd"]=nbhd,
       _["stitch_z"]=stitch_z, _["theta_link"]=theta_link, _["min_contact"]=min_contact,
-      _["gamma"]=gamma, _["target_k_global"]=target_k_global, _["target_k_per_slice"]=target_k_per_slice
+      _["gamma"]=gamma, _["target_k_global"]=target_k_global, _["target_k_per_slice"]=target_k_per_slice,
+      _["z_mult"] = z_mult
     )
   );
 }
@@ -899,6 +1047,16 @@ Rcpp::List slice_fuse_consensus(
       if (!one.containsElementNamed("sketch")) stop("use_features=TRUE requires 'sketch' in each run");
       NumericMatrix U = one["sketch"]; if ((int)U.ncol()!=N) stop("sketch ncol mismatch");
       if (r < 0) r = U.nrow(); if (U.nrow()!=r) stop("sketch rank mismatch across runs");
+      for (int v = 0; v < N; ++v) {
+        double n2 = 0.0;
+        for (int k0 = 0; k0 < r; ++k0) {
+          double val = U(k0, v);
+          n2 += val * val;
+        }
+        if (n2 <= 1e-12) continue;
+        double inv = 1.0 / std::sqrt(n2);
+        for (int k0 = 0; k0 < r; ++k0) U(k0, v) *= inv;
+      }
       Us.emplace_back(U);
     } else {
       NumericMatrix empty(0,0); Us.emplace_back(empty);

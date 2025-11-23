@@ -1,15 +1,18 @@
 #' Meta Clustering for Cluster Results
 #'
 #' The meta_clust function performs meta clustering on a given clustering result
-#' by applying hierarchical clustering or other clustering algorithms.
+#' by applying hierarchical clustering on the cluster centers.
 #'
 #' @param x A clustering result, typically an object of class \code{"cluster_result"}.
-#' @param cuts The number of cluster cuts to consider. Default is the minimum
-#'             of half the number of centers and 2.
+#' @param cuts Integer vector specifying the number of cluster cuts to consider.
+#'             Default is \code{NULL}, which generates cuts at 2, 5, and 10 clusters
+#'             (or fewer depending on the number of input clusters).
 #' @param ... Additional arguments:
 #'   \describe{
 #'     \item{algo}{A character string indicating the clustering algorithm to use.
 #'                 Default is "hclust" (hierarchical clustering).}
+#'     \item{dist_method}{Character string: "correlation" (default) or "euclidean"
+#'                        for distance calculation between cluster centers.}
 #'     \item{hclust_method}{A character string specifying the agglomeration method
 #'                          to use for hierarchical clustering. Default is "ward.D".}
 #'   }
@@ -19,6 +22,7 @@
 #'         \item{cuts}{The number of cluster cuts.}
 #'         \item{cutmat}{A matrix representing the cluster assignments for each cut.}
 #'         \item{hclus}{The hierarchical clustering result.}
+#'         \item{original_result}{The original clustering result (optional reference).}
 #'
 #' @details
 #' ## Parallelization Status
@@ -80,93 +84,139 @@
 #'
 #' @seealso \code{\link[stats]{hclust}}, \code{\link[stats]{cutree}}
 #' @export
-meta_clust.cluster_result <- function(x, cuts=min(as.integer(length(x$centers)/2),2), ...) {
+meta_clust.cluster_result <- function(x, cuts = NULL, ...) {
   # Extract additional arguments
   dots <- list(...)
   algo <- if (!is.null(dots$algo)) dots$algo else "hclust"
   hclust_method <- if (!is.null(dots$hclust_method)) dots$hclust_method else "ward.D"
-
-  orig <- x$cluster
+  dist_method <- if (!is.null(dots$dist_method)) dots$dist_method else "correlation"
 
   # Check if centers exist (some methods like SNIC don't provide centers)
   if (is.null(x$centers)) {
-    stop("Cannot perform meta clustering: the clustering result does not contain cluster centers. ",
+    stop("Cannot perform meta clustering: input 'x' does not contain cluster centers. ",
          "Methods like SNIC do not compute explicit cluster centers.")
   }
 
-  cvols <- if (algo == "hclust") {
-    # x$centers is already a matrix, no need to rbind
-    cen <- x$centers
-    #D <- 1 - cor(t(x$centers))
+  # Fix default cuts logic based on actual number of clusters (rows)
+  n_clusters <- nrow(x$centers)
+  if (is.null(cuts)) {
+    # Default: a few representative cuts up to half the number of clusters
+    max_cut <- max(2, floor(n_clusters / 2))
+    cuts <- sort(unique(c(2, min(5, max_cut), min(10, max_cut))))
+    cuts <- cuts[cuts < n_clusters]
+  }
 
-    D <- 1 - cor(t(cen))
-    hres <- hclust(as.dist(D), method=hclust_method)
-    cmat <- do.call(cbind, lapply(cuts, function(i) {
-      cind <- cutree(hres, i)
-      cind[orig]
-    }))
+  if (any(cuts >= n_clusters) || any(cuts < 2)) {
+    stop("Cuts must be integers between 2 and ", n_clusters - 1, ".")
+  }
 
-    cvols <- lapply(1:ncol(cmat), function(i) {
-      ClusteredNeuroVol(x$clusvol@mask, cluster=cmat[,i])
+  orig_labels <- x$cluster
+
+  if (algo == "hclust") {
+    # Compute Distance Matrix
+    if (dist_method == "correlation") {
+      # 1 - Pearson Correlation
+      # Transpose needed because cor() works on columns (variables)
+      D <- as.dist(1 - stats::cor(t(x$centers)))
+    } else if (dist_method == "euclidean") {
+      D <- stats::dist(x$centers)
+    } else {
+      stop("Unknown dist_method '", dist_method, "'. Use 'correlation' or 'euclidean'.")
+    }
+
+    # Hierarchical Clustering
+    hres <- stats::hclust(D, method = hclust_method)
+
+    # Cut tree at specified levels
+    # cutree returns a matrix if 'k' is a vector
+    cut_assignments <- stats::cutree(hres, k = cuts)
+
+    # Ensure matrix format even if single cut
+    if (is.vector(cut_assignments)) {
+      cut_assignments <- matrix(cut_assignments, ncol = 1)
+    }
+    colnames(cut_assignments) <- paste0("k_", cuts)
+
+    # Map meta-clusters back to voxel space
+    # cut_assignments is (K_clusters x N_cuts)
+    # orig_labels is (N_voxels) containing values 1..K
+    # Fast mapping via matrix indexing
+    cmat <- cut_assignments[orig_labels, , drop = FALSE]
+
+    # Generate ClusteredNeuroVol objects
+    cvols <- lapply(seq_along(cuts), function(i) {
+      new_labels <- cmat[, i]
+      neuroim2::ClusteredNeuroVol(x$clusvol@mask, cluster = new_labels)
     })
 
-    c(cvols, list(x$clusvol))
+    # Return structure
+    list(
+      cvols = cvols,
+      cuts = cuts,
+      cutmat = cmat,
+      hclus = hres,
+      original_result = x
+    )
+
   } else {
-    stop()
+    stop(sprintf("Algorithm '%s' is not supported. Currently only 'hclust' is implemented.", algo))
   }
-  # } else if (algo == "apcluster") {
-  #   S <- cor(t(x$centers))
-  #   apres <- apcluster(S, details=TRUE)
-  #   out <- integer(nrow(x$centers))
-  #   clmap <- do.call(rbind, imap(apres@clusters, function(cl,i) {
-  #     cbind(cl,i)
-  #   }))
-  #
-  #   cltab <- as.list(clmap[,2])
-  #   names(cltab) <- as.character(clmap[,1])
-  #   clusters <- unlist(cltab[as.character(orig)])
-  # }
-
-  list(cvols=cvols, cuts=cuts, cutmat=cmat, hclus=hres)
-
 }
 
 #' Merge Clustering Results for ClusteredNeuroVol Objects
 #'
-#' This method of merge_clus is specifically designed to merge clustering results for \code{ClusteredNeuroVol} objects.
+#' This method of merge_clus is specifically designed to merge clustering results for \code{ClusteredNeuroVol} objects
+#' by performing consensus clustering across multiple clustering results.
 #'
 #' @param x A \code{ClusteredNeuroVol} object or an object of class \code{"cluster_result"}.
 #' @param method A character string indicating the consensus clustering algorithm to use. Default is "SE".
 #' See \code{\link[clue]{cl_consensus}} for available methods.
 #' @param ... Additional clustering results to be merged.
 #'
-#' @return A \code{\linkS4class{ClusteredNeuroVol}} instance.
+#' @return A \code{\linkS4class{ClusteredNeuroVol}} instance representing the consensus partition.
 #'
 #' @seealso \code{\link[clue]{cl_consensus}}, \code{\link[clue]{as.cl_hard_partition}}, \code{\link[clue]{cl_ensemble}}
 #' @importFrom clue cl_consensus as.cl_hard_partition cl_ensemble
 #' @importFrom assertthat assert_that
-#' @importFrom purrr map_lgl
 #' @export
 merge_clus.cluster_result <- function(x, method="SE", ...) {
   args <- c(list(x), list(...))
-  assert_that(all(map_lgl(args, ~ inherits(., "cluster_result"))))
 
+  # Use vapply for lighter dependency checking than purrr
+  is_cluster_result <- vapply(args, function(obj) inherits(obj, "cluster_result"), logical(1))
+  assertthat::assert_that(all(is_cluster_result),
+                          msg = "All arguments must be of class 'cluster_result'")
+
+  # Create Ensemble
   ens <- do.call(clue::cl_ensemble, args)
-  cons <- clue::cl_consensus(ens, method="SE")
+
+  # Compute Consensus
+  cons <- clue::cl_consensus(ens, method = method)
+
+  # Extract Hard Partition
   hpart <- clue::as.cl_hard_partition(cons)
-  as.integer(hpart$.Data)
-  #ClusteredNeuroVol(x$clusvol@mask, clusters=hpart$.Data)
+  consensus_labels <- as.integer(hpart$.Data)
+
+  # Return ClusteredNeuroVol as promised by documentation
+  neuroim2::ClusteredNeuroVol(x$clusvol@mask, cluster = consensus_labels)
 }
 
 
 #' @export
 merge_clus.cluster_result_time <- function(x, ...) {
+  # This variant returns integer vector (for internal/time-series use)
   args <- c(list(x), list(...))
-  assert_that(all(map_lgl(args, ~ inherits(., "cluster_result"))))
+
+  # Use vapply for lighter dependency checking
+  is_cluster_result <- vapply(args, function(obj) inherits(obj, "cluster_result"), logical(1))
+  assertthat::assert_that(all(is_cluster_result))
 
   ens <- do.call(clue::cl_ensemble, args)
+  # Default consensus method typically used if not specified
   cons <- clue::cl_consensus(ens)
   hpart <- clue::as.cl_hard_partition(cons)
+
+  # Return integer vector for this variant
   as.integer(hpart$.Data)
 }
 
@@ -182,8 +232,9 @@ merge_clus.cluster_result_time <- function(x, ...) {
 #' @seealso \code{\link[clue]{cl_class_ids}} for the generic function.
 #' @method cl_class_ids cluster_result
 #' @export
+#' @importFrom clue cl_class_ids
 cl_class_ids.cluster_result <- function(x) {
-  x$cluster
+  as.integer(x$cluster)
 }
 
 
@@ -201,7 +252,7 @@ cl_class_ids.cluster_result <- function(x) {
 #' @seealso \code{\link[clue]{is.cl_partition}} for the generic function.
 #' @method is.cl_partition cluster_result
 #' @export
+#' @importFrom clue is.cl_partition
 is.cl_partition.cluster_result <- function(x) {
   TRUE
 }
-

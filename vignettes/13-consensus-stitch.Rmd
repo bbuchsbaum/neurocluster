@@ -1,0 +1,113 @@
+---
+title: Consensus and slice stitching
+name: consensus-stitch
+description: Use slice_msf with consensus and stitch clusters across z-slices.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+params:
+  family: lapis
+  base_size: 13
+  content_width: 72
+vignette: |
+  %\VignetteIndexEntry{Consensus and slice stitching} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+css: albers.css
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
+  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  message = FALSE, warning = FALSE
+)
+set.seed(123); options(pillar.sigfig = 7, width = 80)
+suppressWarnings(suppressPackageStartupMessages({
+  library(neurocluster)
+  library(neuroim2)
+}))
+if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+# Toy data with a deliberate z seam (top vs bottom slices differ)
+make_toy_seam <- function(dims = c(12,12,6), T = 12, seed = 456) {
+  set.seed(seed)
+  d1 <- dims[1]; d2 <- dims[2]; d3 <- dims[3]
+  mask <- NeuroVol(array(1L, dims), NeuroSpace(dims))
+  arr <- array(rnorm(d1*d2*d3*T, sd = 0.25), c(d1,d2,d3,T))
+  tt <- seq(0, 2*pi, length.out = T)
+  s_top <- sin(tt)
+  s_bot <- sin(tt + pi/3)
+  arr[,,1:3,] <- sweep(arr[,,1:3,], 4, 0.8*s_top, "+")
+  arr[,,4:6,] <- sweep(arr[,,4:6,], 4, 0.8*s_bot, "+")
+  vec <- NeuroVec(arr, NeuroSpace(c(d1,d2,d3,T)))
+  list(vec = vec, mask = mask)
+}
+toy <- make_toy_seam()
+```
+
+# Consensus {#consensus}
+```r
+res_cons <- cluster4d(toy$vec, toy$mask, n_clusters = 6, method = "slice_msf",
+                      spatial_weight = 0.5, connectivity = 26,
+                      num_runs = 3, consensus = TRUE, stitch_z = FALSE)
+```
+
+```{r albers_inject, echo=FALSE, results='asis'}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+# Stitch across z {#stitch}
+```r
+res_stitch <- cluster4d(toy$vec, toy$mask, n_clusters = 6, method = "slice_msf",
+                        spatial_weight = 0.5, connectivity = 26,
+                        num_runs = 1, consensus = FALSE, stitch_z = TRUE)
+```
+
+# Visual comparison {#fig-stitch}
+```{r fig-stitch, fig.cap='Slice-MSF on toy data with a designed z seam: consensus vs stitching.', fig.alt='Two panels: consensus (no stitch) and stitch across z.'}
+ok <- exists("res_cons", inherits = TRUE) && exists("res_stitch", inherits = TRUE)
+if (ok) {
+  par(mfrow = c(1,2))
+  plot(res_cons,   view = "axial"); title("consensus (no stitch)")
+  plot(res_stitch, view = "axial"); title("stitch_z = TRUE")
+  par(mfrow = c(1,1))
+} else {
+  cat("Consensus/stitch demo unavailable on this platform or dataset size.")
+}
+```
+
+# Post-merge {#post-merge}
+```r
+# Example: merge clusters if too small (toy illustration)
+val <- validate_cluster4d(res_stitch)
+val$summary
+```
+
+# Notes & limitations {#pitfalls}
+- Slice-wise clustering operates independently per slice; boundaries can be discontinuous across z. `stitch_z = TRUE` merges adjacent slices using contact and similarity thresholds.
+- Consensus (`num_runs > 1, consensus = TRUE`) aggregates multiple runs; improves stability at additional runtime cost.
+includes:
+  in_header: |-
+    <link rel="stylesheet" href="albers.css" />
+    <script src="albers.js"></script>

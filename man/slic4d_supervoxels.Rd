@@ -72,10 +72,10 @@ for speed (Johnson-Lindenstrauss style). 0 = use full time series.}
 \value{
 A list of class \code{cluster_result} with elements:
 \itemize{
-  \item \code{clusvol}: \code{ClusteredNeuroVol} with the final labels
-  \item \code{cluster}: integer vector of length = #masked voxels
-  \item \code{centers}: matrix (K x d_feat) center features
-  \item \code{coord_centers}: matrix (K x 3) spatial centers in mm
+\item \code{clusvol}: \code{ClusteredNeuroVol} with the final labels
+\item \code{cluster}: integer vector of length = #masked voxels
+\item \code{centers}: matrix (K x d_feat) center features
+\item \code{coord_centers}: matrix (K x 3) spatial centers in mm
 }
 }
 \description{
@@ -84,7 +84,7 @@ Cluster a 4D \code{NeuroVec} (x,y,z,time) into compact, spatially contiguous
 gradient-based seed relocation, and exact K preservation.
 }
 \note{
-Consider using \code{\link{cluster4d}} with \code{method = "slic"} for a 
+Consider using \code{\link{cluster4d}} with \code{method = "slic"} for a
 standardized interface across all clustering methods.
 }
 \examples{

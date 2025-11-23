@@ -54,6 +54,9 @@
 #' @param lambda Mixing parameter for consensus (0-1). Controls balance between label
 #'   agreement and feature similarity when use_features=TRUE. Higher values weight
 #'   label agreement more. Default is 0.7.
+#' @param z_mult Z-smoothing factor (0-1). Values > 0 softly blend DCT sketches between
+#'   adjacent slices before clustering, reducing visible z-plane seams. 0 preserves the
+#'   legacy per-slice behavior. Recommended range 0.1-0.4. Default is 0.0.
 #'
 #' @return A \code{list} of class \code{slice_msf_cluster_result} with the following elements:
 #' \describe{
@@ -98,11 +101,13 @@
 #' - Reduce theta_link to 0.75-0.80 for more aggressive stitching
 #' - Set min_contact to 2-3 for balanced connectivity
 #' - Use lower compactness (2-4) for more flexible cluster shapes
+#' - Set z_mult between 0.1-0.3 to softly bleed information across slices
 #' 
 #' **Moderate artifacts** (visible lines):
 #' - Use multiple runs (num_runs = 3-5) with consensus = TRUE
 #' - Enable use_features = TRUE for feature-based consensus
 #' - Adjust lambda to 0.5-0.6 to weight features more
+#' - Combine with z_mult smoothing for additional continuity without heavy fusion
 #' 
 #' **Severe artifacts** (strong discontinuities):
 #' - Consider alternative algorithms like supervoxels() or snic() for true 3D clustering
@@ -275,14 +280,14 @@ slice_msf <- function(vec, mask,
                       k_fuse = NULL,
                       min_size_fuse = NULL,
                       use_features = FALSE,
-                      lambda = 0.7) {
+                      lambda = 0.7,
+                      z_mult = 0.0) {
   
-  # Use common validation (target_k_global is the effective K)
-  effective_k <- if (target_k_global > 0) target_k_global else 100  # Default estimate
-  validate_cluster4d_inputs(vec, mask, effective_k, "slice_msf")
+  # Basic parameter validation
   assert_that(nbhd %in% c(4, 6, 8))
   assert_that(r >= 1)
   assert_that(num_runs >= 1)
+  assert_that(is.numeric(z_mult), length(z_mult) == 1, z_mult >= 0, z_mult <= 1)
   
   # Check spatial dimension compatibility
   vec_dims <- dim(vec)[1:3]  # First 3 dimensions are spatial (x, y, z)
@@ -304,6 +309,8 @@ slice_msf <- function(vec, mask,
   if (length(mask.idx) == 0) {
     stop("No valid voxels found in mask. Mask must contain at least one positive value.")
   }
+  effective_k <- if (target_k_global > 0) target_k_global else min(100, length(mask.idx))
+  validate_cluster4d_inputs(vec, mask, effective_k, "slice_msf")
   
   # Get time series matrix for all voxels
   # The C++ function expects data for the full volume
@@ -345,7 +352,8 @@ slice_msf <- function(vec, mask,
       voxel_dim = voxel_dim,
       spatial_beta = 0.0,
       target_k_global = target_k_global,
-      target_k_per_slice = target_k_per_slice
+      target_k_per_slice = target_k_per_slice,
+      z_mult = z_mult
     )
     
     labels <- result$labels
@@ -371,7 +379,8 @@ slice_msf <- function(vec, mask,
         voxel_dim = voxel_dim,
         spatial_beta = 0.0,
         target_k_global = target_k_global,
-        target_k_per_slice = target_k_per_slice
+        target_k_per_slice = target_k_per_slice,
+        z_mult = z_mult
       )
     }
     
@@ -450,6 +459,8 @@ slice_msf <- function(vec, mask,
 #'   stitching two clusters. Only used if stitch_z=TRUE. Default is 1.
 #' @param gamma Reliability weighting exponent based on split-half correlations. Higher
 #'   values give more weight to reliable voxels. Default is 1.5.
+#' @param z_mult Z-smoothing factor (0-1). Values > 0 blend slice sketches prior to
+#'   clustering to reduce boundary artifacts. Default is 0.0.
 #'
 #' @return A list with the following components:
 #' \describe{
@@ -479,7 +490,8 @@ slice_msf_single <- function(vec, mask,
                             stitch_z = TRUE,
                             theta_link = 0.85,
                             min_contact = 1,
-                            gamma = 1.5) {
+                            gamma = 1.5,
+                            z_mult = 0.0) {
   
   # Validate inputs
   assert_that(inherits(vec, "NeuroVec") || inherits(vec, "SparseNeuroVec"))
@@ -509,6 +521,7 @@ slice_msf_single <- function(vec, mask,
   mask_flat <- as.integer(mask@.Data)
   vol_dim <- dim(mask)
   voxel_dim <- spacing(mask)
+  assert_that(is.numeric(z_mult), length(z_mult) == 1, z_mult >= 0, z_mult <= 1)
   
   # Call C++ function
   result <- slice_msf_runwise(
@@ -525,7 +538,8 @@ slice_msf_single <- function(vec, mask,
     rows_are_time = TRUE,
     gamma = gamma,
     voxel_dim = voxel_dim,
-    spatial_beta = 0.0
+    spatial_beta = 0.0,
+    z_mult = z_mult
   )
   
   result

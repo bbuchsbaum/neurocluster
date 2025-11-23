@@ -440,3 +440,91 @@ test_that("slice_msf handles sparse masks correctly", {
   expect_equal(length(result$cluster), nvox)
   expect_true(all(result$cluster > 0))
 })
+
+test_that("z-axis smoothing increases vertical feature agreement", {
+  dims <- c(2, 2, 3)
+  mask <- NeuroVol(array(1, dims), NeuroSpace(dims))
+  nvox <- prod(dims)
+  T <- 12
+  t_seq <- seq(0, 2 * pi, length.out = T)
+  base_pattern <- sin(t_seq)
+  alt_pattern <- cos(t_seq)
+
+  TS <- matrix(0, nrow = T, ncol = nvox)
+  idx <- 1
+  for (z in 1:dims[3]) {
+    for (y in 1:dims[2]) {
+      for (x in 1:dims[1]) {
+        TS[, idx] <- if (z == 2) alt_pattern else base_pattern
+        idx <- idx + 1
+      }
+    }
+  }
+
+  mask_flat <- as.integer(mask@.Data)
+  vol_dim <- dims
+  voxel_dim <- spacing(mask)
+
+  base <- slice_msf_runwise(
+    TS = TS,
+    mask = mask_flat,
+    vol_dim = vol_dim,
+    r = 4,
+    fh_scale = 0.3,
+    min_size = 1,
+    nbhd = 4,
+    stitch_z = TRUE,
+    theta_link = 0.9,
+    min_contact = 1,
+    rows_are_time = TRUE,
+    gamma = 1.0,
+    voxel_dim = voxel_dim,
+    spatial_beta = 0.0,
+    target_k_global = -1,
+    target_k_per_slice = -1,
+    z_mult = 0.0
+  )
+
+  smoothed <- slice_msf_runwise(
+    TS = TS,
+    mask = mask_flat,
+    vol_dim = vol_dim,
+    r = 4,
+    fh_scale = 0.3,
+    min_size = 1,
+    nbhd = 4,
+    stitch_z = TRUE,
+    theta_link = 0.9,
+    min_contact = 1,
+    rows_are_time = TRUE,
+    gamma = 1.0,
+    voxel_dim = voxel_dim,
+    spatial_beta = 0.0,
+    target_k_global = -1,
+    target_k_per_slice = -1,
+    z_mult = 0.5
+  )
+
+  idx3d <- function(x, y, z) {
+    (x - 1) + dims[1] * ((y - 1) + dims[2] * (z - 1)) + 1
+  }
+
+  vertical_mean <- function(U) {
+    dots <- numeric()
+    for (x in 1:dims[1]) {
+      for (y in 1:dims[2]) {
+        for (z in 1:(dims[3] - 1)) {
+          i <- idx3d(x, y, z)
+          j <- idx3d(x, y, z + 1)
+          dots <- c(dots, sum(U[, i] * U[, j]))
+        }
+      }
+    }
+    mean(dots)
+  }
+
+  base_mean <- vertical_mean(base$sketch)
+  smooth_mean <- vertical_mean(smoothed$sketch)
+
+  expect_gt(smooth_mean, base_mean + 0.05)
+})

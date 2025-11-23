@@ -37,7 +37,7 @@ supervoxel_cluster_time(
 }
 \value{
 A list of cluster results (one per repetition), each of which
-  has the same structure as \code{supervoxel_cluster_fit()}.
+has the same structure as \code{supervoxel_cluster_fit()}.
 }
 \description{
 Cluster feature matrix (rows = time points) in a "supervoxel" style but over temporal dimension.

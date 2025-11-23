@@ -41,7 +41,7 @@ test_that("supervoxels_flash3d works with basic inputs", {
   expect_s4_class(result$clusvol, "ClusteredNeuroVol")
   expect_equal(length(result$cluster), data$nvoxels)
   expect_lte(result$K, 10)
-  expect_equal(result$method, "FLASH-3D")
+  expect_equal(result$method, "flash3d")
   expect_equal(nrow(result$centers), result$K)
   expect_equal(ncol(result$centers), 30)
   expect_equal(nrow(result$coord_centers), result$K)

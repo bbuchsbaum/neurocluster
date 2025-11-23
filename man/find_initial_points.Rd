@@ -15,11 +15,11 @@ find_initial_points(cds, grad, K = 100)
 }
 \value{
 A list containing two elements:
-        selected - a vector of the selected indices corresponding to the initial cluster centers,
-        coords - a matrix or data frame with the spatial coordinates of the initial cluster centers.
+selected - a vector of the selected indices corresponding to the initial cluster centers,
+coords - a matrix or data frame with the spatial coordinates of the initial cluster centers.
 }
 \description{
-\strong{Deprecated:} This function is now available as \code{find_gradient_seeds()} 
+\strong{Deprecated:} This function is now available as \code{find_gradient_seeds()}
 in \code{cluster4d_init.R}. This version is maintained for backward compatibility.
 
 This function finds the initial cluster centers for a supervoxel algorithm.

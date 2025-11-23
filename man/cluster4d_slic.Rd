@@ -32,10 +32,10 @@ may produce slightly different numbers of clusters due to algorithmic constraint
 Higher values emphasize spatial compactness. Default 0.5.
 Maps to method-specific parameters:
 \itemize{
-  \item supervoxels: \code{alpha = 1 - spatial_weight} (0 = all spatial, 1 = all feature)
-  \item snic/slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
-  \item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
-  \item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
+\item supervoxels: \code{alpha = 1 - spatial_weight} (0 = all spatial, 1 = all feature)
+\item snic/slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
+\item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
+\item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
 }}
 
 \item{max_iterations}{Maximum iterations for iterative methods. Default 10.

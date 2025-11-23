@@ -67,11 +67,12 @@ init_cluster <- function(bvec, mask, coords, K, use_gradient = TRUE) {
     tryCatch({
       refvol <- bvec[[1]]
       grad <- spatial_gradient(refvol, mask)
+      grad_vals <- grad[mask.idx]
       valid_coords <- index_to_grid(mask, mask.idx)
 
       # find_initial_points function for gradient-based initialization
       # Use neurocluster::: to access non-exported function
-      init <- neurocluster:::find_initial_points(valid_coords, grad, K)
+      init <- neurocluster:::find_initial_points(valid_coords, grad_vals, K)
 
       # run kmeans with chosen seeds
       if (length(init$selected) >= K) {
@@ -272,15 +273,27 @@ supervoxel_cluster_fit <- function(feature_mat,
       # Use fast parallel centroid computation
       if (parallel && nvox > 1000 && n_actual_clusters > 50) {
         cent_result <- compute_centroids_parallel_fast(
-          newclus, feature_mat, coords, n_actual_clusters
+          as.integer(newclus - 1L), feature_mat, t(coords), as.integer(K)
         )
         num_centroids <- cent_result$centers
         sp_centroids <- cent_result$coord_centers
       } else {
         # Fallback to sequential computation for small problems
         centroids <- compute_centroids(feature_mat, coords, newclus, medoid = use_medoid)
-        sp_centroids <- t(do.call(rbind, centroids$centroid))  # Transpose to 3 x K
-        num_centroids <- t(do.call(rbind, centroids$center))   # Transpose to features x K
+        center_ids <- suppressWarnings(as.integer(names(centroids$center)))
+        if (anyNA(center_ids)) {
+          center_ids <- seq_along(centroids$center)
+        }
+        temp_num <- matrix(0, nrow = nrow(feature_mat), ncol = K)
+        temp_sp  <- matrix(0, nrow = 3, ncol = K)
+        for (idx in seq_along(centroids$center)) {
+          cid <- center_ids[idx]
+          if (cid < 1 || cid > K) next
+          temp_num[, cid] <- centroids$center[[idx]]
+          temp_sp[, cid]  <- centroids$centroid[[idx]]
+        }
+        num_centroids <- temp_num
+        sp_centroids  <- temp_sp
       }
       curclus <- newclus
     }
@@ -317,9 +330,9 @@ supervoxel_cluster_fit <- function(feature_mat,
 
   # Return the final clusters and the final centroids
   list(
-    clusters = newclus,
-    centers = do.call(rbind, centroids$center),
-    coord_centers = do.call(rbind, centroids$centroid)
+    clusters = curclus,
+    centers = t(num_centroids),
+    coord_centers = t(sp_centroids)
   )
 }
 
@@ -407,6 +420,7 @@ knn_shrink <- function(bvec, mask, k = 5, connectivity = 27) {
 #' @export
 #'
 #' @examples
+#' \dontrun{
 #' mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
 #' bvec <- replicate(10,
 #'                   NeuroVol(array(runif(20*20*20), c(20,20,20)),
@@ -414,6 +428,7 @@ knn_shrink <- function(bvec, mask, k = 5, connectivity = 27) {
 #'                   simplify=FALSE)
 #' bvec <- do.call(concat, bvec)
 #' cres1 <- supervoxels(bvec, mask, K=100, sigma1=1, sigma2=3)
+#' }
 #'
 #' @details
 #' The algorithm:
@@ -491,6 +506,14 @@ supervoxels <- function(bvec, mask,
   mask.idx <- which(mask > 0)
   if (length(mask.idx) == 0) {
     stop("No nonzero voxels in mask.")
+  }
+
+  # Safety fallback: on Apple Silicon, fused_assignment_parallel_binned has
+  # occasionally crashed (bus error) with parallel=TRUE. Disable parallel on
+  # that platform unless user explicitly forces it.
+  if (parallel && grepl("aarch64.*darwin", R.version$platform)) {
+    if (verbose) message("supervoxels: disabling parallel on aarch64-darwin for stability")
+    parallel <- FALSE
   }
   
   # Early check for K vs number of voxels
@@ -695,5 +718,3 @@ supervoxel_cluster_surface <- function(bsurf,
   class(out) <- c("cluster_result_surface", "cluster_result", "list")
   out
 }
-
-

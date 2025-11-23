@@ -125,12 +125,23 @@ slic4d_supervoxels <- function(bvec, mask,
     feat <- feat %*% R  # N x n_components
   }
   
-  # Compute default step from bbox volume / K if not supplied
+  # Compute default step from spatial extent / K if not supplied.
+  # For thin volumes (e.g., single-slice 2D images), using full 3D volume can
+  # make step_mm artificially tiny and collapse all voxels into one cluster.
+  # Here we treat strongly anisotropic (quasi‑2D) data using an area‑based
+  # heuristic and thicker volumes with the original 3D heuristic.
   if (is.null(step_mm)) {
     mins <- apply(coords, 2, min)
     maxs <- apply(coords, 2, max)
-    vol <- prod(pmax(1e-6, maxs - mins))
-    step_mm <- (vol / K)^(1/3)
+    extents <- pmax(1e-6, maxs - mins)
+    # If z‑extent is much smaller than x/y, treat as 2D
+    if (extents[3] < min(extents[1:2]) / 4) {
+      area <- extents[1] * extents[2]
+      step_mm <- sqrt(area / K)
+    } else {
+      vol <- prod(extents)
+      step_mm <- (vol / K)^(1/3)
+    }
   }
   
   # Compute gradient volume for seed relocation if needed

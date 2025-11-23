@@ -175,10 +175,10 @@ supervoxels_flash3d <- function(vec, mask, K,
     }
   }
   
-  # Call C++ implementation
-  labels_mask <- flash3d_supervoxels_cpp(
+  # Call C++ implementation (now returns List with labels, centers, coords)
+  cpp_result <- flash3d_supervoxels_cpp(
     ts = ts_matrix,
-    mask_lin0 = as.integer(mask_idx - 1),  # Convert R 1-based to C++ 0-based indexing
+    mask_lin0 = as.integer(mask_idx),  # R 1-based indices (C++ will convert)
     dims = as.integer(c(nx, ny, nz)),
     K = as.integer(K),
     lambda = c(lambda_s, lambda_t, lambda_g),
@@ -189,6 +189,11 @@ supervoxels_flash3d <- function(vec, mask, K,
     barrier_opt = barrier_vec,
     verbose = verbose
   )
+
+  # Extract results from C++
+  labels_mask <- cpp_result$labels
+  centers <- cpp_result$centers      # K x T matrix (already computed in C++)
+  coord_centers <- cpp_result$coords # K x 3 matrix (already computed in C++)
   
   # Replace any invalid labels (0 or NA) with valid cluster IDs
   if (any(labels_mask == 0 | is.na(labels_mask))) {
@@ -202,68 +207,43 @@ supervoxels_flash3d <- function(vec, mask, K,
   
   # Create ClusteredNeuroVol
   clusvol <- ClusteredNeuroVol(mask, labels_mask)
-  
-  # Compute cluster centers in feature space and spatial coordinates
+
+  # OPTIMIZED: Centers and coords already computed in C++, no R loops needed!
+  # Just verify we have valid data
   unique_labels <- sort(unique(labels_mask[!is.na(labels_mask)]))
   n_clusters <- length(unique_labels)
-  
-  centers <- matrix(0, nrow = n_clusters, ncol = ntime)
-  coord_centers <- matrix(0, nrow = n_clusters, ncol = 3)
-  
-  coords <- index_to_coord(mask, mask_idx)
-  
-  for (i in seq_along(unique_labels)) {
-    label <- unique_labels[i]
-    cluster_mask <- labels_mask == label & !is.na(labels_mask)
-    
-    if (sum(cluster_mask, na.rm = TRUE) > 0) {
-      # Feature space centroid - ts_matrix is T x Nmask
-      if (sum(cluster_mask, na.rm = TRUE) == 1) {
-        centers[i, ] <- ts_matrix[, cluster_mask]
-        coord_centers[i, ] <- as.numeric(coords[cluster_mask, , drop = TRUE])
-      } else {
-        centers[i, ] <- rowMeans(ts_matrix[, cluster_mask, drop = FALSE])
-        coord_centers[i, ] <- colMeans(coords[cluster_mask, , drop = FALSE])
-      }
-    }
+
+  # C++ returns K x T centers and K x 3 coords
+  # Transpose centers to match expected format if needed (K x T is correct)
+  if (nrow(centers) != K || ncol(centers) != ntime) {
+    warning(sprintf("Unexpected center dimensions: %d x %d (expected %d x %d)",
+                    nrow(centers), ncol(centers), K, ntime))
   }
   
-  # Prepare data for standardized result
-  data_prep <- list(
-    features = t(ts_matrix),  # Convert T x N to N x T
-    coords = coords,
-    mask_idx = mask_idx,
-    n_voxels = nmask,
-    dims = c(nx, ny, nz),
-    spacing = vox_scale
-  )
-  
-  # Create standardized result
-  result <- create_cluster4d_result(
-    labels = labels_mask,
-    mask = mask,
-    data_prep = data_prep,
-    method = "flash3d",
-    parameters = list(
-      K = K,
-      lambda_s = lambda_s,
-      lambda_t = lambda_t,
-      lambda_g = lambda_g,
-      rounds = rounds,
-      bits = bits,
-      dctM = dctM,
-      vox_scale = vox_scale
+  # OPTIMIZED: Create result directly with C++-computed centers
+  # No need for data_prep or additional computation
+  result <- structure(
+    list(
+      clusvol = clusvol,
+      cluster = labels_mask,
+      centers = centers,           # Already computed in C++ (K x T)
+      coord_centers = coord_centers, # Already computed in C++ (K x 3)
+      K = n_clusters,
+      n_clusters = n_clusters,
+      method = "flash3d",
+      parameters = list(
+        K = K,
+        lambda_s = lambda_s,
+        lambda_t = lambda_t,
+        lambda_g = lambda_g,
+        rounds = rounds,
+        bits = bits,
+        dctM = dctM,
+        vox_scale = vox_scale
+      )
     ),
-    metadata = list(
-      centers = centers,
-      coord_centers = coord_centers,
-      n_clusters = n_clusters
-    ),
-    compute_centers = FALSE  # Already computed
+    class = c("cluster_result", "flash3d_result", "list")
   )
-  
-  # Add FLASH-specific class and ensure backward compatibility
-  class(result) <- c("cluster_result", "flash3d_result", "list")
-  result$K <- n_clusters  # Keep for backward compatibility
+
   result
 }

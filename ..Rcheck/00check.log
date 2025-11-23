@@ -1,216 +1,25 @@
 * using log directory ‘/Users/bbuchsbaum/code/neurocluster/..Rcheck’
-* using R version 4.3.2 (2023-10-31)
-* using platform: aarch64-apple-darwin20 (64-bit)
+* using R version 4.5.1 (2025-06-13)
+* using platform: aarch64-apple-darwin20
 * R was compiled by
-    Apple clang version 14.0.0 (clang-1400.0.29.202)
-    GNU Fortran (GCC) 12.2.0
+    Apple clang version 16.0.0 (clang-1600.0.26.6)
+    GNU Fortran (GCC) 14.2.0
 * running under: macOS Sonoma 14.3
 * using session charset: UTF-8
-* using options ‘--no-manual --no-vignettes --no-build-vignettes’
+* using options ‘--no-manual --no-build-vignettes’
 * checking for file ‘./DESCRIPTION’ ... OK
 * checking extension type ... Package
 * this is package ‘neurocluster’ version ‘0.1.0’
 * package encoding: UTF-8
 * checking package namespace information ... OK
-* checking package dependencies ... OK
-* checking if this is a source package ... WARNING
-Subdirectory ‘neurocluster/src’ contains apparent object files/libraries
-  RcppExports.o compute_centroids_fast.o correlation_gradient.o
-  find_best.o find_best_parallel.o flash3d.o fused_assignment.o
-  fused_assignment_binned.o neurocluster.so slic4d.o slice_cluster.o
-  snic.o
-Object files/libraries should not be included in a source package.
-* checking if there is a namespace ... OK
-* checking for executable files ... OK
-* checking for hidden files and directories ... NOTE
-Found the following hidden files and directories:
-  .DS_Store
-  .Rhistory
-  .gitignore
-  R/.DS_Store
-  ..Rcheck
-  .Rproj.user
-  .claude
-  .git
-These were most likely included in error. See section ‘Package
-structure’ in the ‘Writing R Extensions’ manual.
-* checking for portable file names ... OK
-* checking for sufficient/correct file permissions ... OK
-* checking whether package ‘neurocluster’ can be installed ... WARNING
-Found the following significant warnings:
-  Note: possible error in 'slice_fuse_consensus(run_results = run_results, ': unused arguments (k_fuse = k_fuse, min_size_fuse = min_size_fuse) 
-  Warning: supervoxels.Rd:59: unexpected section header '\value'
-  Warning: supervoxels.Rd:66: unexpected section header '\description'
-  Warning: supervoxels.Rd:69: unexpected section header '\details'
-  Warning: supervoxels.Rd:127: unexpected section header '\examples'
-  Warning: supervoxels.Rd:137: unexpected END_OF_INPUT '
-  Warning: replacing previous import ‘FNN::knn’ by ‘igraph::knn’ when loading ‘neurocluster’
-  Warning: replacing previous import ‘igraph::graph’ by ‘neurosurf::graph’ when loading ‘neurocluster’
-  Warning: replacing previous import ‘igraph::vertices’ by ‘neurosurf::vertices’ when loading ‘neurocluster’
-See ‘/Users/bbuchsbaum/code/neurocluster/..Rcheck/00install.out’ for details.
-Information on the location(s) of code generating the ‘Note’s can be
-obtained by re-running with environment variable R_KEEP_PKG_SOURCE set
-to ‘yes’.
-* used C++ compiler: ‘Homebrew clang version 20.1.8’
-* used SDK: ‘MacOSX14.2.sdk’
-* checking C++ specification ... OK
-  Not all R platforms support C++17
-* checking installed package size ... OK
-* checking package directory ... OK
-* checking DESCRIPTION meta-information ... WARNING
-Non-standard license specification:
-  What license is it under?
-Standardizable: FALSE
-Checking should be performed on sources prepared by ‘R CMD build’.
-* checking top-level files ... OK
-* checking for left-over files ... OK
-* checking index information ... OK
-* checking package subdirectories ... WARNING
-Found the following directory with the name of a check directory:
-  ./..Rcheck
-Most likely, these were included erroneously.
-* checking R files for non-ASCII characters ... OK
-* checking R files for syntax errors ... OK
-* checking whether the package can be loaded ... OK
-* checking whether the package can be loaded with stated dependencies ... OK
-* checking whether the package can be unloaded cleanly ... OK
-* checking whether the namespace can be loaded with stated dependencies ... OK
-* checking whether the namespace can be unloaded cleanly ... OK
-* checking loading without being on the library search path ... OK
-* checking dependencies in R code ... WARNING
-'::' or ':::' imports not declared from:
-  ‘furrr’ ‘robustbase’
-Namespaces in Imports field not imported from:
-  ‘RcppParallel’ ‘future’
-  All declared Imports should be used.
-Missing or unexported object: ‘neuroim2::vol’
-There are ::: calls to the package's namespace in its code. A package
-  almost never needs to use ::: for its own objects:
-  ‘find_initial_points’
-* checking S3 generic/method consistency ... OK
-* checking replacement functions ... OK
-* checking foreign function calls ... OK
-* checking R code for possible problems ... NOTE
-commute_cluster: warning in kmeans(ct$cds, center = K, iter.max = 500):
-  partial argument match of 'center' to 'centers'
-commute_cluster_fit: warning in kmeans(ct$cds, center = K, iter.max =
-  100): partial argument match of 'center' to 'centers'
-meta_clust.cluster_result : <anonymous>: warning in
-  ClusteredNeuroVol(x$clusvol@mask, cluster = cmat[, i]): partial
-  argument match of 'cluster' to 'clusters'
-commute_cluster: no visible global function definition for ‘rnorm’
-commute_cluster_fit: no visible global function definition for ‘rnorm’
-compute_centroids : <anonymous>: no visible global function definition
-  for ‘dist’
-compute_centroids : <anonymous>: no visible global function definition
-  for ‘cor’
-merge_clus: possible error in UseMethod("merge_clus", x, method):
-  unused argument (method)
-meta_clust.cluster_result: no visible global function definition for
-  ‘cor’
-meta_clust.cluster_result: no visible global function definition for
-  ‘hclust’
-meta_clust.cluster_result: no visible global function definition for
-  ‘as.dist’
-meta_clust.cluster_result : <anonymous>: no visible global function
-  definition for ‘cutree’
-slic4d_supervoxels: no visible binding for global variable ‘sd’
-slic4d_supervoxels: no visible global function definition for ‘rnorm’
-slice_msf_consensus: possible error in slice_fuse_consensus(run_results
-  = run_results, vol_dim = vol_dim, nbhd = nbhd, k_fuse = k_fuse,
-  min_size_fuse = min_size_fuse, use_features = use_features, lambda =
-  lambda, voxel_dim = voxel_dim, spatial_beta = 0): unused arguments
-  (k_fuse = k_fuse, min_size_fuse = min_size_fuse)
-snic: no visible global function definition for ‘dist’
-supervoxel_cluster_fit: no visible global function definition for
-  ‘setNames’
-supervoxel_cluster_time: no visible global function definition for
-  ‘filter_mat’
-Undefined global functions or variables:
-  as.dist cor cutree dist filter_mat hclust rnorm sd setNames
-Consider adding
-  importFrom("stats", "as.dist", "cor", "cutree", "dist", "hclust",
-             "rnorm", "sd", "setNames")
-to your NAMESPACE file.
-* checking Rd files ... WARNING
-prepare_Rd: supervoxels.Rd:59: unexpected section header '\value'
-prepare_Rd: supervoxels.Rd:66: unexpected section header '\description'
-prepare_Rd: supervoxels.Rd:69: unexpected section header '\details'
-prepare_Rd: supervoxels.Rd:127: unexpected section header '\examples'
-prepare_Rd: supervoxels.Rd:137: unexpected END_OF_INPUT '
-'
-checkRd: (5) supervoxels.Rd:0-138: Must have a \description
-* checking Rd metadata ... OK
-* checking Rd cross-references ... OK
-* checking for missing documentation entries ... OK
-* checking for code/documentation mismatches ... WARNING
-Functions or methods with usage in documentation object 'hello' but not in code:
-  ‘hello’
+* checking package dependencies ... ERROR
+Package suggested but not available: ‘gt’
 
-* checking Rd \usage sections ... OK
-* checking Rd contents ... OK
-* checking for unstated dependencies in examples ... OK
-* checking LazyData ... NOTE
-  'LazyData' is specified without a 'data' directory
-* checking line endings in C/C++/Fortran sources/headers ... NOTE
-Found the following sources/headers not terminated with a newline:
-  src/find_best_parallel.cpp
-  src/flash3d.cpp
-  src/fused_assignment.cpp
-  src/slic4d.cpp
-  src/slice_cluster.cpp
-Some compilers warn on such files.
-* checking line endings in Makefiles ... NOTE
-Found the following Makefile(s) without a final LF:
-  src/Makevars
-Some ‘make’ programs ignore lines not ending in LF.
-* checking compilation flags in Makevars ... OK
-* checking for GNU extensions in Makefiles ... OK
-* checking for portable use of $(BLAS_LIBS) and $(LAPACK_LIBS) ... OK
-* checking use of PKG_*FLAGS in Makefiles ... OK
-* checking compiled code ... WARNING
-File ‘neurocluster/libs/neurocluster.so’:
-  Found ‘_abort’, possibly from ‘abort’ (C)
-    Object: ‘RcppExports.o’
+The suggested packages are required for a complete check.
+Checking can be attempted without them by setting the environment
+variable _R_CHECK_FORCE_SUGGESTS_ to a false value.
 
-Compiled code should not call entry points which might terminate R nor
-write to stdout/stderr instead of to the console, nor use Fortran I/O
-nor system RNGs nor [v]sprintf.
-
-See ‘Writing portable packages’ in the ‘Writing R Extensions’ manual.
-* checking examples ... ERROR
-Running examples in ‘neurocluster-Ex.R’ failed
-The error most likely occurred in:
-
-> ### Name: commute_cluster
-> ### Title: Commute Time Clustering
-> ### Aliases: commute_cluster
-> 
-> ### ** Examples
-> 
-> mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
-Error in NeuroVol(array(1, c(20, 20, 20)), NeuroSpace(c(20, 20, 20))) : 
-  could not find function "NeuroVol"
-Execution halted
-* checking for unstated dependencies in ‘tests’ ... OK
-* checking tests ... ERROR
-  Running ‘testthat.R’
-Running the tests in ‘tests/testthat.R’ failed.
-Last 13 lines of output:
-   11. └─purrr (local) `<fn>`(`<sbscOOBE>`)
-   12.   └─cli::cli_abort(...)
-   13.     └─rlang::abort(...)
-  ── Failure ('test_supervoxels_simple.R:24:3'): basic supervoxels works without parallel ──
-  nrow(res$centers) not equal to 10.
-  1/1 mismatches
-  [1] 9 - 10 == -1
-  ── Failure ('test_supervoxels_simple.R:25:3'): basic supervoxels works without parallel ──
-  nrow(res$coord_centers) not equal to 10.
-  1/1 mismatches
-  [1] 9 - 10 == -1
-  
-  [ FAIL 17 | WARN 37 | SKIP 17 | PASS 820 ]
-  Error: Test failures
-  Execution halted
+See section ‘The DESCRIPTION file’ in the ‘Writing R Extensions’
+manual.
 * DONE
-Status: 2 ERRORs, 8 WARNINGs, 5 NOTEs
+Status: 1 ERROR

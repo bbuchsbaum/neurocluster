@@ -54,14 +54,14 @@ metrics. Default is FALSE.}
 
 \item{converge_thresh}{Numeric; convergence threshold as proportion of voxels switching
 clusters. Algorithm stops when switch ratio falls below this value. Default is 0.001
-(0.1% of voxels).}
+(0.1\% of voxels).}
 }
 \value{
 A \code{list} (of class \code{cluster_result}) with elements:
-  \item{clusvol}{\code{ClusteredNeuroVol} containing the final clustering.}
-  \item{cluster}{Integer vector of cluster assignments for each voxel.}
-  \item{centers}{Matrix of cluster centers in feature space.}
-  \item{coord_centers}{Matrix of cluster spatial centroids.}
+\item{clusvol}{\code{ClusteredNeuroVol} containing the final clustering.}
+\item{cluster}{Integer vector of cluster assignments for each voxel.}
+\item{centers}{Matrix of cluster centers in feature space.}
+\item{coord_centers}{Matrix of cluster spatial centroids.}
 }
 \description{
 Cluster a \code{NeuroVec} instance into a set of spatially constrained clusters.
@@ -69,66 +69,83 @@ Cluster a \code{NeuroVec} instance into a set of spatially constrained clusters.
 \details{
 The algorithm:
 \enumerate{
-  \item Scale input data (\code{bvec}) so each feature dimension is centered and scaled.
-  \item If \code{use_gradient = TRUE}, initialize cluster seeds using gradient-based heuristics.
-  \item Run an iterative, spatially-constrained clustering that updates voxel assignments based on
-        both feature similarity (bandwidth \code{sigma1}) and spatial proximity (bandwidth \code{sigma2}),
-        weighted by \code{alpha}.
-  \item Return the final clusters, plus the feature-space and coordinate-space centers.
+\item Scale input data (\code{bvec}) so each feature dimension is centered and scaled.
+\item If \code{use_gradient = TRUE}, initialize cluster seeds using gradient-based heuristics.
+\item Run an iterative, spatially-constrained clustering that updates voxel assignments based on
+both feature similarity (bandwidth \code{sigma1}) and spatial proximity (bandwidth \code{sigma2}),
+weighted by \code{alpha}.
+\item Return the final clusters, plus the feature-space and coordinate-space centers.
 }
 
-## Parallelization Status
+\subsection{Parallelization Status}{
 
-**NOW PARALLELIZED with RcppParallel!** The supervoxels algorithm can now run
+\strong{NOW PARALLELIZED with RcppParallel!} The supervoxels algorithm can now run
 cluster assignment updates in parallel across multiple CPU cores.
+\subsection{Parallel Operations:}{
+\enumerate{
+\item \strong{Heat Kernel Computation}: Parallel across voxels using RcppParallel
+\itemize{
+\item Each voxel's best cluster assignment computed independently
+\item Automatic load balancing with configurable grain size
+\item Scales linearly with number of CPU cores
+}
+\item \strong{Sequential Operations} (still):
+\itemize{
+\item Initialization (K-means or gradient-based seed selection)
+\item Centroid updates after each iteration
+\item Convergence checking between iterations
+}
+}
+}
 
-### Parallel Operations:
+\subsection{Performance Characteristics:}{
+\itemize{
+\item \strong{Speedup}: Typically 2-8x faster on multicore systems
+\item \strong{Automatic optimization}: Disabled for small datasets (<1000 voxels)
+\item \strong{Memory overhead}: Minimal - uses shared memory via RcppParallel
+\item \strong{Computational complexity}: Still O(N × K × iterations) but parallelized over N
+}
+}
 
-1. **Heat Kernel Computation**: Parallel across voxels using RcppParallel
-   - Each voxel's best cluster assignment computed independently
-   - Automatic load balancing with configurable grain size
-   - Scales linearly with number of CPU cores
+\subsection{Parallel Configuration:}{
+\itemize{
+\item \strong{parallel}: Set to FALSE to force sequential execution
+\item \strong{grain_size}: Controls work distribution (default 100)
+\itemize{
+\item Smaller values = better load balancing but more overhead
+\item Larger values = less overhead but potential imbalance
+}
+\item \strong{Thread control}: Set threads via \code{RcppParallel::setThreadOptions()}
+}
+}
 
-2. **Sequential Operations** (still):
-   - Initialization (K-means or gradient-based seed selection)
-   - Centroid updates after each iteration
-   - Convergence checking between iterations
+\subsection{When Parallelization Helps Most:}{
+\itemize{
+\item Large numbers of voxels (N > 10,000)
+\item Many clusters (K > 100)
+\item Multiple iterations needed for convergence
+\item Systems with 4+ CPU cores
+}
+}
 
-### Performance Characteristics:
+\subsection{Performance Tips:}{
+\itemize{
+\item \strong{Set threads}: \code{RcppParallel::setThreadOptions(numThreads = 4)}
+\item \strong{Tune grain_size}: Start with nvoxels/nthreads/10
+\item \strong{Monitor CPU usage}: Should see near 100\% on all cores during updates
+\item \strong{Memory considerations}: Parallel version uses slightly more RAM
+\item \strong{Disable for debugging}: Set \code{parallel = FALSE} for reproducible debugging
+}
+}
 
-- **Speedup**: Typically 2-8x faster on multicore systems
-- **Automatic optimization**: Disabled for small datasets (<1000 voxels)
-- **Memory overhead**: Minimal - uses shared memory via RcppParallel
-- **Computational complexity**: Still O(N × K × iterations) but parallelized over N
-
-### Parallel Configuration:
-
-- **parallel**: Set to FALSE to force sequential execution
-- **grain_size**: Controls work distribution (default 100)
-  - Smaller values = better load balancing but more overhead
-  - Larger values = less overhead but potential imbalance
-- **Thread control**: Set threads via `RcppParallel::setThreadOptions()`
-
-### When Parallelization Helps Most:
-
-- Large numbers of voxels (N > 10,000)
-- Many clusters (K > 100)
-- Multiple iterations needed for convergence
-- Systems with 4+ CPU cores
-
-### Performance Tips:
-
-- **Set threads**: `RcppParallel::setThreadOptions(numThreads = 4)`
-- **Tune grain_size**: Start with nvoxels/nthreads/10
-- **Monitor CPU usage**: Should see near 100% on all cores during updates
-- **Memory considerations**: Parallel version uses slightly more RAM
-- **Disable for debugging**: Set `parallel = FALSE` for reproducible debugging
+}
 }
 \note{
-Consider using \code{\link{cluster4d}} with \code{method = "supervoxels"} for a 
+Consider using \code{\link{cluster4d}} with \code{method = "supervoxels"} for a
 standardized interface across all clustering methods.
 }
 \examples{
+\dontrun{
 mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
 bvec <- replicate(10,
                   NeuroVol(array(runif(20*20*20), c(20,20,20)),
@@ -136,5 +153,6 @@ bvec <- replicate(10,
                   simplify=FALSE)
 bvec <- do.call(concat, bvec)
 cres1 <- supervoxels(bvec, mask, K=100, sigma1=1, sigma2=3)
+}
 
 }

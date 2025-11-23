@@ -1,0 +1,86 @@
+---
+title: Consensus and slice stitching
+name: consensus-stitch
+description: Use slice_msf with consensus and stitch clusters across z-slices.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+params:
+  family: lapis
+  base_size: 13
+  content_width: 72
+vignette: |
+  %\VignetteIndexEntry{Consensus and slice stitching} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+css: albers.css
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
+  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  message = FALSE, warning = FALSE
+)
+set.seed(123); options(pillar.sigfig = 7, width = 80)
+suppressWarnings(suppressPackageStartupMessages({
+  library(neurocluster)
+  library(neuroim2)
+}))
+if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+mask <- NeuroVol(array(1, c(6,6,6)), NeuroSpace(c(6,6,6)))
+vec  <- NeuroVec(array(rnorm(6*6*6*12), c(6,6,6,12)), NeuroSpace(c(6,6,6,12)))
+```
+
+# Consensus {#consensus}
+```r
+res_cons <- cluster4d(vec, mask, n_clusters = 6, method = "slice_msf",
+                      spatial_weight = 0.5, connectivity = 26,
+                      num_runs = 3, consensus = TRUE, stitch_z = FALSE)
+```
+
+```{r albers_inject, echo=FALSE, results='asis'}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+# Stitch across z {#stitch}
+```r
+res_stitch <- cluster4d(vec, mask, n_clusters = 6, method = "slice_msf",
+                        spatial_weight = 0.5, connectivity = 26,
+                        num_runs = 1, consensus = FALSE, stitch_z = TRUE)
+```
+
+# Post-merge {#post-merge}
+```r
+# Example: merge clusters if too small (toy illustration)
+val <- validate_cluster4d(res_stitch)
+val$summary
+```
+
+# Pitfalls {#pitfalls}
+- Slice-wise methods can show z‑plane artifacts; use stitching to mitigate.
+- Consensus adds stability but costs runtime.
+includes:
+  in_header: |-
+    <link rel="stylesheet" href="albers.css" />
+    <script src="albers.js"></script>

@@ -11,9 +11,9 @@
 
 \item{slice}{Slice specification. Can be:
 \itemize{
-  \item NULL (default): Shows middle slices
-  \item Numeric vector of length 3: c(x, y, z) coordinates
-  \item "montage": Shows multiple slices
+\item NULL (default): Shows middle slices
+\item Numeric vector of length 3: c(x, y, z) coordinates
+\item "montage": Shows multiple slices
 }}
 
 \item{view}{Viewing plane: "axial", "sagittal", "coronal", or "all"}

@@ -13,7 +13,9 @@ commute_cluster(
   sigma1 = 0.73,
   sigma2 = 5,
   connectivity = 27,
-  weight_mode = c("binary", "heat")
+  weight_mode = c("binary", "heat"),
+  noise_seed = NULL,
+  verbose = TRUE
 )
 }
 \arguments{
@@ -26,99 +28,169 @@ of included voxels.}
 
 \item{K}{The number of clusters to find. Default is 100.}
 
-\item{ncomp}{The number of components to use for the commute time embedding. Default is the ceiling of \code{sqrt(K2)}.}
+\item{ncomp}{The number of components to use for the commute time embedding.
+Default is the ceiling of \code{sqrt(K*2)}.}
 
-\item{alpha}{A numeric value controlling the balance between spatial and feature similarity. Default is 0.5.}
+\item{alpha}{A numeric value controlling the balance between spatial and feature similarity.
+Default is 0.5 (balanced). Range: 0 (spatial only) to 1 (feature only).}
 
 \item{sigma1}{A numeric value controlling the spatial weighting function. Default is 0.73.}
 
 \item{sigma2}{A numeric value controlling the feature weighting function. Default is 5.}
 
-\item{connectivity}{An integer representing the number of nearest neighbors to consider when constructing the similarity graph.
-Default is 27.}
+\item{connectivity}{An integer representing the number of nearest neighbors to consider
+when constructing the similarity graph. Default is 27 (full 3D neighborhood).}
 
-\item{weight_mode}{A character string indicating the type of weight function for the similarity graph. Options are "binary" and "heat".
-Default is "heat".}
+\item{weight_mode}{A character string indicating the type of weight function for the
+similarity graph. Options are "binary" and "heat". Default is "heat".}
+
+\item{noise_seed}{Optional integer seed for reproducible noise injection when handling
+zero-variance voxels. If NULL (default), uses non-deterministic noise.
+\strong{Note}: This only controls noise injection, not k-means initialization. For full
+reproducibility, wrap the entire call in \code{set.seed()}.}
+
+\item{verbose}{Logical. If TRUE, print progress messages. Default is TRUE.}
 }
 \value{
-A \code{list} of class \code{commute_time_cluster_result} with the following elements:
+A \code{list} of class \code{commute_time_cluster_result} (inheriting from
+\code{cluster_result}) with the following elements:
 \describe{
 \item{clusvol}{An instance of type \linkS4class{ClusteredNeuroVol}.}
 \item{cluster}{A vector of cluster indices equal to the number of voxels in the mask.}
-\item{centers}{A matrix of cluster centers with each column representing the feature vector for a cluster.}
-\item{coord_centers}{A matrix of spatial coordinates with each row corresponding to a cluster.}
+\item{centers}{A matrix of cluster centers (K x T) where T is the number of timepoints.}
+\item{coord_centers}{A matrix of spatial coordinates (K x 3) with each row
+corresponding to a cluster centroid.}
+\item{embedding}{The spectral embedding coordinates (N x ncomp) from commute time distance.}
+\item{n_clusters}{The number of clusters (same as K).}
+\item{method}{Character string "commute_time".}
 }
 }
 \description{
-The commute_cluster function performs spatially constrained clustering on a \code{NeuroVec} instance
-using the commute time distance and K-means clustering.
+Performs spatially constrained clustering on a \code{NeuroVec} instance
+using commute time distance (spectral embedding) and K-means clustering.
 }
 \details{
-## Parallelization Status
+\subsection{Algorithm Overview}{
 
-**Currently NOT parallelized.** The commute_cluster algorithm runs sequentially,
-relying on matrix operations from the `neighborweights` package.
+Commute time clustering uses spectral graph theory to embed voxels into a lower-dimensional
+space where geodesic distances on the graph approximate commute times (expected random walk
+return times). This embedding respects both spatial proximity and feature similarity.
 
-### Sequential Operations:
+The algorithm has three main steps:
+\enumerate{
+\item \strong{Graph Construction}: Build a weighted adjacency matrix combining spatial and
+feature similarity using \code{neighborweights::weighted_spatial_adjacency()}.
+\item \strong{Spectral Embedding}: Compute commute time distances via eigendecomposition of
+the graph Laplacian using \code{neighborweights::commute_time_distance()}.
+\item \strong{Clustering}: Apply k-means to the embedded coordinates.
+}
+}
 
-1. **Graph Construction**: `weighted_spatial_adjacency()`
-   - Builds weighted adjacency matrix combining spatial and feature similarity
-   - Sequential nearest neighbor search
-   - Weight computation for each edge
+\subsection{Scalability Warning}{
 
-2. **Commute Time Embedding**: `commute_time_distance()`
-   - Eigendecomposition of graph Laplacian
-   - Computation of commute distances in spectral space
-   - Matrix operations potentially use BLAS/LAPACK threading
+\strong{This method is computationally expensive and NOT recommended for whole-brain clustering.}
+\itemize{
+\item \strong{Complexity}: O(N³) for eigendecomposition where N = number of voxels
+\item \strong{Memory}: O(N²) for adjacency matrix storage
+\item \strong{Practical limit}: ~10,000 voxels (ROI-based analysis)
+\item \strong{Whole-brain}: ~100,000+ voxels will likely crash or take hours
+}
 
-3. **K-means Clustering**: Standard k-means on embedded coordinates
-   - Multiple random starts (sequential)
-   - Iterative centroid updates
+For large-scale clustering, consider:
+\itemize{
+\item \code{slice_msf()}: Slice-based minimum spanning forests
+\item \code{acsc()}: Adaptive correlation superclustering
+\item \code{supervoxels()} or \code{snic()}: Iterative spatial methods
+}
+}
 
-### Why Not Parallelized:
+\subsection{Parallelization Status}{
 
-- **External dependencies**: Uses `neighborweights` package functions
-- **Matrix operations**: Relies on optimized BLAS/LAPACK libraries
-- **Eigendecomposition**: Difficult to parallelize efficiently in R
-- **Small overhead**: Graph construction often not the bottleneck
+\strong{Currently NOT explicitly parallelized.} The algorithm runs sequentially,
+but matrix operations may use multi-threaded BLAS/LAPACK libraries.
+\subsection{Why Not Parallelized:}{
+\itemize{
+\item \strong{External dependencies}: Uses \code{neighborweights} package functions
+\item \strong{Eigendecomposition}: Difficult to parallelize efficiently in R
+\item \strong{Already optimized}: BLAS/LAPACK typically use multiple threads automatically
+\item \strong{Bottleneck}: Eigendecomposition dominates runtime regardless of parallelization
+}
+}
 
-### Performance Characteristics:
+\subsection{Performance Tips:}{
+\itemize{
+\item \strong{Use optimized BLAS}: OpenBLAS, Intel MKL, or Apple Accelerate
+\item \strong{Reduce connectivity}: Smaller neighborhoods = sparser matrices (e.g., 6 or 18)
+\item \strong{Increase alpha}: Higher values emphasize features over space, reducing graph density
+\item \strong{Use fewer components}: Set \code{ncomp} lower (e.g., \code{ncomp = K/2}) for faster embedding
+\item \strong{Pre-filter voxels}: Remove low-variance voxels before clustering
+\item \strong{ROI analysis}: Apply to small regions of interest rather than whole brain
+}
+}
 
-- **Complexity**: O(N³) for eigendecomposition (limiting factor)
-- **Memory intensive**: Stores full N×N adjacency matrix
-- **Scalability limit**: Practical for up to ~10,000 voxels
-- **Numerical stability**: Can fail with singular matrices or perfect correlations
+\subsection{Common Issues:}{
 
-### Indirect Parallelization:
+\strong{Eigenvalue Errors}: Often due to singular or near-singular weight matrices.
 
-While the R code is sequential, performance can benefit from:
-- **Optimized BLAS**: Use OpenBLAS, Intel MKL, or Apple Accelerate
-- **Multi-threaded LAPACK**: Eigendecomposition may use multiple threads
-- Configure with: `options(matprod = "blas")` or system BLAS settings
+Causes:
+\itemize{
+\item Duplicate or perfectly correlated time series
+\item Disconnected graph components
+\item Insufficient connectivity parameter
+}
 
-### Performance Tips:
+Solutions:
+\itemize{
+\item Increase \code{connectivity} (e.g., 27 instead of 6)
+\item Adjust \code{alpha} to balance spatial/feature weights
+\item Use \code{noise_seed} for reproducible noise injection
+\item Check for and remove constant voxels beforehand
+}
 
-- **Reduce connectivity**: Smaller neighborhoods = sparser matrices
-- **Increase alpha**: Higher values reduce graph density
-- **Use fewer components**: Set ncomp << K for faster embedding
-- **Pre-filter voxels**: Remove low-variance voxels before clustering
-- **Alternative methods**: For large data, use `slice_msf()` or `acsc()`
+\strong{Memory Errors}: Adjacency matrix requires O(N²) memory.
 
-### Common Issues:
+Solutions:
+\itemize{
+\item Reduce number of voxels (subsample or use smaller ROI)
+\item Use alternative method for large N
+}
+}
 
-- **Eigenvalue errors**: Often due to singular matrices from duplicate time series
-- **Memory errors**: Full adjacency matrix requires O(N²) memory
-- **Slow performance**: Eigendecomposition dominates runtime for large N
+}
 }
 \examples{
-mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
-vec <- replicate(10, NeuroVol(array(runif(202020), c(20,20,20)),
-NeuroSpace(c(20,20,20))), simplify=FALSE)
+\dontrun{
+# Small example with synthetic data
+library(neuroim2)
+mask <- NeuroVol(array(1, c(20, 20, 20)), NeuroSpace(c(20, 20, 20)))
+vec <- replicate(10, NeuroVol(array(runif(20*20*20), c(20, 20, 20)),
+  NeuroSpace(c(20, 20, 20))), simplify = FALSE)
 vec <- do.call(concat, vec)
 
-commute_res <- commute_cluster(vec, mask, K=100)
+# Run clustering (8000 voxels - feasible for this method)
+commute_res <- commute_cluster(vec, mask, K = 50, verbose = TRUE)
 
+# Access results
+print(commute_res$n_clusters)
+plot(commute_res$clusvol)
+}
+
+\dontrun{
+# With reproducible noise injection (for zero-variance voxels)
+commute_res <- commute_cluster(vec, mask, K = 50, noise_seed = 42)
+
+# For full reproducibility (including k-means), use set.seed() wrapper
+set.seed(123)
+commute_res <- commute_cluster(vec, mask, K = 50, noise_seed = 42)
+
+# ROI-based analysis (recommended workflow)
+roi_mask <- mask  # In practice, use a smaller ROI
+roi_mask[1:10, , ] <- 0  # Reduce voxels
+commute_res <- commute_cluster(vec, roi_mask, K = 30)
+}
 }
 \seealso{
-\code{\link{snic}}
+\code{\link{snic}} for a faster non-iterative method
+\code{\link{slice_msf}} for scalable slice-based clustering
+\code{\link{acsc}} for large-scale correlation-based clustering
 }

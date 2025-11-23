@@ -5,7 +5,6 @@
 #'
 #' @keywords internal
 #' @name cluster4d_common
-
 validate_cluster4d_inputs <- function(vec, mask, n_clusters, method = "cluster4d") {
   # Check vec type
   if (!inherits(vec, "NeuroVec") && !inherits(vec, "SparseNeuroVec")) {

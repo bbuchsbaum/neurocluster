@@ -2,9 +2,9 @@
 // [[Rcpp::plugins(cpp11)]]
 #include <Rcpp.h>
 #include <RcppParallel.h>
-#include <unordered_set>
 #include <cmath>
 #include <atomic>
+#include <vector>
 
 using namespace Rcpp;
 using namespace RcppParallel;
@@ -33,7 +33,7 @@ inline double normalized_heat_kernel_impl(const double* x1, const double* x2, in
 // Parallel worker for best_candidate computation
 struct BestCandidateWorker : public Worker {
   // Inputs
-  const List& candidates;
+  const std::vector< std::vector<int> > &candidates;
   const RVector<int> curclus;
   const RMatrix<double> coords;
   const RMatrix<double> data_centroids;
@@ -48,7 +48,7 @@ struct BestCandidateWorker : public Worker {
   std::atomic<int>& nswitches;
   
   // Constructor
-  BestCandidateWorker(const List& candidates_,
+  BestCandidateWorker(const std::vector< std::vector<int> > &candidates_,
                       const IntegerVector& curclus_,
                       const NumericMatrix& coords_,
                       const NumericMatrix& data_centroids_,
@@ -74,18 +74,18 @@ struct BestCandidateWorker : public Worker {
   // Parallel operator
   void operator()(std::size_t begin, std::size_t end) {
     for (std::size_t i = begin; i < end; i++) {
-      IntegerVector cand = candidates[i];
-      
+      const std::vector<int> &cand = candidates[i];
+
       if (cand.size() <= 1) {
         out[i] = curclus[i];
         continue;
       }
-      
+
       // Find best candidate for this voxel
       double best_score = -1.0;
       int best_cluster = curclus[i];
-      
-      for (int j = 0; j < cand.size(); j++) {
+
+      for (size_t j = 0; j < cand.size(); j++) {
         int cid = cand[j] - 1;
         
         // Compute data similarity
@@ -136,9 +136,16 @@ IntegerVector best_candidate_parallel(List candidates,
   int n = candidates.size();
   IntegerVector out(n);
   std::atomic<int> nswitches(0);
+
+  std::vector< std::vector<int> > cand_store;
+  cand_store.reserve(n);
+  for (int i = 0; i < n; ++i) {
+    IntegerVector cand = candidates[i];
+    cand_store.emplace_back(cand.begin(), cand.end());
+  }
   
   // Create and run parallel worker
-  BestCandidateWorker worker(candidates, curclus, coords, 
+  BestCandidateWorker worker(cand_store, curclus, coords, 
                              data_centroids, coord_centroids,
                              data, sigma1, sigma2, alpha,
                              out, nswitches);

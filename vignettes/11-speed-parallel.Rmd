@@ -1,0 +1,113 @@
+---
+title: Speed up and parallelize
+name: speed-parallel
+description: Threads, grain size, and method choices for big data.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+params:
+  family: green
+  base_size: 13
+  content_width: 72
+vignette: |
+  %\VignetteIndexEntry{Speed up and parallelize} %\VignetteEngine{knitr::rmarkdown} %\VignetteEncoding{UTF-8}
+css: albers.css
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
+  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  message = FALSE, warning = FALSE
+)
+set.seed(123); options(pillar.sigfig = 7, width = 80)
+suppressWarnings(suppressPackageStartupMessages({
+  library(neurocluster)
+  library(neuroim2)
+}))
+if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+```{r albers_inject, echo=FALSE, results='asis'}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+# Threads {#threads}
+```r
+RcppParallel::setThreadOptions(numThreads = 2)
+```
+
+# Method choices {#method-choices}
+- Large N: `slice_msf` (slice-wise MSF) or `flash3d` (hash/DCT); both avoid global iteration over all voxels.
+- Preserve K: `cluster4d_slic()` with `preserve_k = TRUE`.
+- Iterative refinement: `supervoxels()` performs multiple reassignment iterations; uses RcppParallel for updates.
+
+# Grain size {#grain-size}
+- For `supervoxels`, a practical start is `grain_size = max(100, nvox / (threads * 10))`. Smaller values improve balancing at some overhead.
+
+# Memory tips {#memory-tips}
+- `snic()` is single-pass with low memory overhead (temporarily omitted below
+  because the current C++ backend can segfault on some synthetic volumes; see
+  `tests/testthat/test_g3s.R`).
+- Reduce time points or compress features if memory-bound.
+
+# Toy runtime illustration (small N) {#fig-runtime}
+Illustrative timing on toy data (very small N); absolute times are not representative of larger datasets. We omit SNIC in the live run because of the known segfault; once the upstream fix lands you can add it back by extending the `methods` vector below.
+
+```{r fig-runtime, fig.cap='Illustrative runtimes on toy data (small N).', fig.alt='Bar plot of elapsed seconds for several methods on tiny data.'}
+make_toy_blocks <- function(dims = c(10,10,4), T = 12, seed = 123, amp = 1.0, sdn = 0.2) {
+  set.seed(seed)
+  d1 <- dims[1]; d2 <- dims[2]; d3 <- dims[3]
+  mask <- NeuroVol(array(1L, dims), NeuroSpace(dims))
+  arr <- array(rnorm(d1*d2*d3*T, sd = sdn), c(d1,d2,d3,T))
+  tt <- seq(0, 2*pi, length.out = T)
+  p1 <- sin(tt); p2 <- cos(tt)
+  zmid <- floor(d3/2)
+  arr[1:5, 1:5, zmid, ]   <- sweep(arr[1:5, 1:5, zmid, ],   3, amp * p1, "+")
+  arr[6:10, 6:10, zmid, ] <- sweep(arr[6:10, 6:10, zmid, ], 3, amp * p2, "+")
+  vec <- NeuroVec(arr, NeuroSpace(c(d1,d2,d3,T)))
+  list(vec = vec, mask = mask)
+}
+toy <- make_toy_blocks()
+run_and_time <- function(method, ...) {
+  t <- system.time(cluster4d(toy$vec, toy$mask, n_clusters = 6, method = method, ...))
+  unname(t["elapsed"])  # seconds
+}
+methods <- list(
+  supervoxels = list(max_iterations = 3),
+  slic        = list(max_iterations = 5),
+  slice_msf   = list()
+)
+elapsed <- vapply(names(methods), function(m) {
+  args <- methods[[m]]
+  do.call(run_and_time, c(list(method = m), args))
+}, numeric(1))
+barplot(elapsed, ylab = "seconds", main = "Toy runtimes (tiny N)")
+```
+includes:
+  in_header: |-
+    <link rel="stylesheet" href="albers.css" />
+    <script src="albers.js"></script>
