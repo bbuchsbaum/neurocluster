@@ -159,7 +159,7 @@ test_that("parameter validation works correctly", {
   # Test invalid connectivity
   expect_error(
     cluster4d(vec, mask, n_clusters = 5, connectivity = 10),
-    "connectivity must be 6, 26, or 27"
+    "connectivity must be 6, 18, 26, or 27"
   )
   
   # Test invalid method

@@ -52,7 +52,7 @@ test_that("cluster4d validates inputs correctly", {
   # Test connectivity validation
   expect_error(
     cluster4d(vec, mask, n_clusters = 10, connectivity = 5),
-    "connectivity must be 6, 26, or 27"
+    "connectivity must be 6, 18, 26, or 27"
   )
 })
 

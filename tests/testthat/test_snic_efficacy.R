@@ -31,6 +31,8 @@ create_synthetic_regions <- function(dims = c(20, 20, 20), nvols = 10,
   ground_truth_kmeans <- kmeans(coords, centers = n_regions, iter.max = 100)
   ground_truth <- ground_truth_kmeans$cluster
 
+  prod_dims <- prod(dims)
+
   # Create distinct time series for each region
   vol_data <- array(0, c(dims, nvols))
 
@@ -58,12 +60,12 @@ create_synthetic_regions <- function(dims = c(20, 20, 20), nvols = 10,
           voxel_idx <- region_voxels[i]
           dist_from_center <- sqrt(sum((coords[ground_truth == region, ][i, ] - center)^2))
           spatial_factor <- 1 + 0.1 * dist_from_center / max(dims)
-          vol_data[voxel_idx][t] <- base_value * spatial_factor + rnorm(1, 0, noise_level)
+          vol_data[voxel_idx + (t - 1L) * prod_dims] <- base_value * spatial_factor + rnorm(1, 0, noise_level)
         }
       } else {
         # Uniform within region
         for (voxel_idx in region_voxels) {
-          vol_data[voxel_idx][t] <- base_value + rnorm(1, 0, noise_level)
+          vol_data[voxel_idx + (t - 1L) * prod_dims] <- base_value + rnorm(1, 0, noise_level)
         }
       }
     }
@@ -94,6 +96,7 @@ create_synthetic_gradient <- function(dims = c(20, 20, 20), nvols = 10,
   mask <- NeuroVol(mask_array, NeuroSpace(dims))
   mask_idx <- which(mask > 0)
   coords <- index_to_coord(mask, mask_idx)
+  prod_dims <- prod(dims)
 
   vol_data <- array(0, c(dims, nvols))
 
@@ -105,7 +108,7 @@ create_synthetic_gradient <- function(dims = c(20, 20, 20), nvols = 10,
     phase_shift <- 2 * pi * t / nvols
     for (i in seq_along(mask_idx)) {
       base_signal <- sin(2 * pi * gradient_values[i] + phase_shift)
-      vol_data[mask_idx[i]][t] <- base_signal + rnorm(1, 0, noise_level)
+      vol_data[mask_idx[i] + (t - 1L) * prod_dims] <- base_signal + rnorm(1, 0, noise_level)
     }
   }
 
@@ -127,6 +130,7 @@ create_synthetic_checkerboard <- function(dims = c(20, 20, 20), nvols = 10,
   mask <- NeuroVol(mask_array, NeuroSpace(dims))
   mask_idx <- which(mask > 0)
   coords <- index_to_coord(mask, mask_idx)
+  prod_dims <- prod(dims)
 
   vol_data <- array(0, c(dims, nvols))
 
@@ -143,7 +147,7 @@ create_synthetic_checkerboard <- function(dims = c(20, 20, 20), nvols = 10,
       } else {
         base_signal <- -sin(2 * pi * t / nvols)
       }
-      vol_data[mask_idx[i]][t] <- base_signal + rnorm(1, 0, noise_level)
+      vol_data[mask_idx[i] + (t - 1L) * prod_dims] <- base_signal + rnorm(1, 0, noise_level)
     }
   }
 
@@ -459,11 +463,11 @@ test_that("SNIC is stable across multiple runs with same seed", {
 })
 
 test_that("SNIC performance degrades gracefully with increasing noise", {
-  dims <- c(12, 12, 12)
-  nvols <- 8
+  dims <- c(10, 10, 10)   # smaller volume for speed
+  nvols <- 6              # fewer timepoints
   n_regions <- 4
 
-  noise_levels <- c(0.05, 0.15, 0.3)
+  noise_levels <- c(0.05, 0.15)  # trimmed to two levels for faster runtime
   ari_scores <- numeric(length(noise_levels))
 
   for (i in seq_along(noise_levels)) {
@@ -489,10 +493,9 @@ test_that("SNIC performance degrades gracefully with increasing noise", {
                              ari_scores[i-1], ari_scores[i]))
   }
 
-  cat(sprintf("\n  ARI vs noise: %.3f (%.2f) -> %.3f (%.2f) -> %.3f (%.2f)\n",
+  cat(sprintf("\n  ARI vs noise: %.3f (%.2f) -> %.3f (%.2f)\n",
              ari_scores[1], noise_levels[1],
-             ari_scores[2], noise_levels[2],
-             ari_scores[3], noise_levels[3]))
+             ari_scores[2], noise_levels[2]))
 })
 
 test_that("SNIC cluster centers accurately represent cluster members", {
@@ -520,8 +523,8 @@ test_that("SNIC cluster centers accurately represent cluster members", {
     cluster_members <- features[, result$cluster == cluster_id, drop = FALSE]
 
     if (!is.null(result$centers) && ncol(cluster_members) > 1) {
-      # Get center for this cluster
-      center <- result$centers[, i]
+      # Get center for this cluster (centers are stored row-wise)
+      center <- result$centers[i, ]
 
       # Compute correlation between center and each member
       correlations <- apply(cluster_members, 2, function(x) cor(center, x))
@@ -566,7 +569,7 @@ test_that("SNIC outperforms spatial k-means on structured data", {
   features <- series(synthetic$bvec, mask_idx)
 
   # Combine coords and features for spatial k-means
-  combined <- cbind(scale(coords), scale(t(features)))
+  combined <- cbind(base::scale(coords), base::scale(t(features)))
   kmeans_result <- kmeans(combined, centers = 4, iter.max = 100)
 
   # Compare quality

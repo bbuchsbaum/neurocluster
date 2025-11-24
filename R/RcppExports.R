@@ -36,6 +36,10 @@ correlation_gradient_cpp <- function(img_4d, brain_mask) {
     .Call('_neurocluster_correlation_gradient_cpp', PACKAGE = 'neurocluster', img_4d, brain_mask)
 }
 
+build_grid_adjacency_cpp <- function(mask_idx, dims, connectivity) {
+    .Call('_neurocluster_build_grid_adjacency_cpp', PACKAGE = 'neurocluster', mask_idx, dims, connectivity)
+}
+
 rena_rnn_coarse_cpp <- function(X, G, grad_img, stop_at, lambda = 0.0, max_iter = 100L) {
     .Call('_neurocluster_rena_rnn_coarse_cpp', PACKAGE = 'neurocluster', X, G, grad_img, stop_at, lambda, max_iter)
 }

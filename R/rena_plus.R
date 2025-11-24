@@ -185,64 +185,19 @@ cluster4d_rena_plus <- function(vec, mask, n_clusters = 100,
   result
 }
 
-#' Internal: build 3D grid adjacency for masked voxels
+#' Internal: build 3D grid adjacency for masked voxels (fast C++ version)
 #' @keywords internal
 build_grid_adjacency <- function(mask, mask_idx, connectivity) {
   dims <- dim(mask)
-  n_vox <- length(mask_idx)
-
-  idx_map <- array(-1L, dim = dims)
-  idx_map[mask_idx] <- seq_len(n_vox)
-
-  offsets <- switch(as.character(connectivity),
-                    "6" = rbind(
-                      c( 1, 0, 0), c(-1, 0, 0),
-                      c( 0, 1, 0), c( 0,-1, 0),
-                      c( 0, 0, 1), c( 0, 0,-1)
-                    ),
-                    "18" = {
-                      base <- expand.grid(-1:1, -1:1, -1:1)
-                      base <- as.matrix(base)
-                      base <- base[rowSums(abs(base)) <= 2 & rowSums(abs(base)) > 0, ]
-                      base
-                    },
-                    "26" = {
-                      base <- expand.grid(-1:1, -1:1, -1:1)
-                      base <- as.matrix(base)
-                      base <- base[rowSums(abs(base)) > 0, ]
-                      base
-                    },
-                    stop("Unsupported connectivity"))
-
-  edges_i <- integer()
-  edges_j <- integer()
-
-  # iterate masked voxels
-  coords <- index_to_grid(mask, mask_idx)
-  for (v in seq_len(n_vox)) {
-    xyz <- coords[v, ]
-    for (k in seq_len(nrow(offsets))) {
-      nb <- xyz + offsets[k, ]
-      if (any(nb < 1) || nb[1] > dims[1] || nb[2] > dims[2] || nb[3] > dims[3]) {
-        next
-      }
-      nb_idx <- idx_map[nb[1], nb[2], nb[3]]
-      if (nb_idx > 0 && nb_idx > v) {  # upper-tri to dedup
-        edges_i <- c(edges_i, v)
-        edges_j <- c(edges_j, nb_idx)
-      }
-    }
+  if (length(dims) != 3L) {
+    stop("build_grid_adjacency: mask must be 3D")
   }
-
-  if (length(edges_i) == 0) {
-    return(Matrix::sparseMatrix(i = integer(0), j = integer(0), dims = c(n_vox, n_vox)))
-  }
-
-  Matrix::sparseMatrix(
-    i = c(edges_i, edges_j),
-    j = c(edges_j, edges_i),
-    x = 1,
-    dims = c(n_vox, n_vox)
+  # 27-connectivity is treated as 26 in the C++ helper
+  conn <- if (connectivity == 27L) 26L else connectivity
+  build_grid_adjacency_cpp(
+    mask_idx = as.integer(mask_idx),
+    dims     = as.integer(dims),
+    connectivity = as.integer(conn)
   )
 }
 

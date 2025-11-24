@@ -50,6 +50,7 @@
     <li><a class="dropdown-item" href="../articles/20-spatially-constrained-clustering.html">Spatially Constrained Clustering</a></li>
     <li><a class="dropdown-item" href="../articles/21-method-deep-dives.html">Method Deep Dives</a></li>
     <li><a class="dropdown-item" href="../articles/22-performance-memory.html">Performance &amp; Memory</a></li>
+    <li><a class="dropdown-item" href="../articles/25-benchmarks.html">Benchmarks</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Reference Maps</h6></li>
     <li><a class="dropdown-item" href="../articles/30-api-overview.html">API Overview</a></li>
     <li><a class="dropdown-item" href="../articles/31-objects-results.html">Objects &amp; Results</a></li>
@@ -207,23 +208,21 @@ pre::before{content:""; position:absolute; left:10px; top:10px; width:10px; heig
 </h2>
 <p>Run several methods with the same <code>n_clusters</code> and compare
 basic characteristics.</p>
-<p>Throughout this vignette we use
-<code><a href="../reference/generate_synthetic_volume.html">generate_synthetic_volume()</a></code> to build a tiny checkerboard
-dataset (single axial slice, 2×3 structure). The generator provides both
-the noisy time series volume and the latent labels, so we can see how
-close each method gets to the known answer.</p>
+<p>We use a simple, scikit-learn-style synthetic (three vertical bands
+with distinct time courses plus light noise). It’s small, deterministic,
+and spatially local, so all methods have a fair shot.</p>
 </div>
 <div class="section level2">
-<h2 id="fig-toy-ground-truth">Ground truth grid (for reference)<a class="anchor" aria-label="anchor" href="#fig-toy-ground-truth"></a>
+<h2 id="fig-toy-ground-truth">Ground truth bands (for reference)<a class="anchor" aria-label="anchor" href="#fig-toy-ground-truth"></a>
 </h2>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># Display the ground truth as a simple image</span></span>
 <span><span class="va">truth_array</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/array.html" class="external-link">array</a></span><span class="op">(</span><span class="va">toy</span><span class="op">$</span><span class="va">truth</span>, dim <span class="op">=</span> <span class="va">toy</span><span class="op">$</span><span class="va">dims</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/graphics/image.html" class="external-link">image</a></span><span class="op">(</span><span class="va">truth_array</span><span class="op">[</span>,,<span class="fl">1</span><span class="op">]</span>, col <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/grDevices/palettes.html" class="external-link">rainbow</a></span><span class="op">(</span><span class="va">toy</span><span class="op">$</span><span class="va">n_clusters</span><span class="op">)</span>,</span>
-<span>      main <span class="op">=</span> <span class="st">"Ground Truth: 2x3 Grid"</span>, axes <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/image.html" class="external-link">image</a></span><span class="op">(</span><span class="va">truth_array</span><span class="op">[</span>,,<span class="fl">1</span><span class="op">]</span>, col <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/grDevices/palettes.html" class="external-link">rainbow</a></span><span class="op">(</span><span class="fl">6</span><span class="op">)</span>,</span>
+<span>      main <span class="op">=</span> <span class="st">"Ground Truth: 3 bands"</span>, axes <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></code></pre></div>
 <div class="figure" style="text-align: center">
-<img src="02-compare-methods_files/figure-html/fig-toy-ground-truth-1.png" class="r-plt" alt="Axial slice showing a clean 2×3 grid of colored blocks." width="100%"><p class="caption">
-Ground truth 2×3 grid of clusters on the toy axial slice (labels 1–6).
+<img src="02-compare-methods_files/figure-html/fig-toy-ground-truth-1.png" class="r-plt" alt="Axial slice showing three colored vertical bands." width="100%"><p class="caption">
+Ground truth bands (3 clusters) on the toy axial slice.
 </p>
 </div>
 </div>
@@ -231,41 +230,21 @@ Ground truth 2×3 grid of clusters on the toy axial slice (labels 1–6).
 <h2 id="run-methods">Run methods (same K)<a class="anchor" aria-label="anchor" href="#run-methods"></a>
 </h2>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">methods</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"supervoxels"</span>, <span class="st">"snic"</span>, <span class="st">"slic"</span><span class="op">)</span></span>
+<code class="sourceCode R"><span><span class="va">methods</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"snic"</span>, <span class="st">"slice_msf"</span>, <span class="st">"supervoxels"</span><span class="op">)</span></span>
 <span><span class="va">run_one</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">m</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="co"># Method-specific tuning for this tiny toy so that each method plausibly recovers the 2×3 grid.</span></span>
-<span>  <span class="kw">if</span> <span class="op">(</span><span class="va">m</span> <span class="op">==</span> <span class="st">"supervoxels"</span><span class="op">)</span> <span class="op">{</span></span>
-<span>    <span class="va">args</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>      vec <span class="op">=</span> <span class="va">toy</span><span class="op">$</span><span class="va">vec</span>, mask <span class="op">=</span> <span class="va">toy</span><span class="op">$</span><span class="va">mask</span>,</span>
-<span>      n_clusters <span class="op">=</span> <span class="fl">6</span>,</span>
-<span>      method <span class="op">=</span> <span class="st">"supervoxels"</span>,</span>
-<span>      spatial_weight <span class="op">=</span> <span class="fl">0.3</span>,          <span class="co"># more feature-driven on this toy</span></span>
-<span>      connectivity <span class="op">=</span> <span class="fl">6</span>,</span>
-<span>      max_iterations <span class="op">=</span> <span class="fl">15</span>,</span>
-<span>      sigma2 <span class="op">=</span> <span class="fl">1</span>,                    <span class="co"># tighter spatial kernel</span></span>
-<span>      use_gradient <span class="op">=</span> <span class="cn">FALSE</span></span>
-<span>    <span class="op">)</span></span>
-<span>  <span class="op">}</span> <span class="kw">else</span> <span class="kw">if</span> <span class="op">(</span><span class="va">m</span> <span class="op">==</span> <span class="st">"snic"</span><span class="op">)</span> <span class="op">{</span></span>
-<span>    <span class="va">args</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>      vec <span class="op">=</span> <span class="va">toy</span><span class="op">$</span><span class="va">vec</span>, mask <span class="op">=</span> <span class="va">toy</span><span class="op">$</span><span class="va">mask</span>,</span>
-<span>      n_clusters <span class="op">=</span> <span class="fl">6</span>,</span>
-<span>      method <span class="op">=</span> <span class="st">"snic"</span>,</span>
-<span>      spatial_weight <span class="op">=</span> <span class="fl">0.25</span>,         <span class="co"># lower compactness to respect patterns</span></span>
-<span>      max_iterations <span class="op">=</span> <span class="fl">50</span></span>
-<span>    <span class="op">)</span></span>
-<span>  <span class="op">}</span> <span class="kw">else</span> <span class="kw">if</span> <span class="op">(</span><span class="va">m</span> <span class="op">==</span> <span class="st">"slic"</span><span class="op">)</span> <span class="op">{</span></span>
-<span>    <span class="va">args</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>      vec <span class="op">=</span> <span class="va">toy</span><span class="op">$</span><span class="va">vec</span>, mask <span class="op">=</span> <span class="va">toy</span><span class="op">$</span><span class="va">mask</span>,</span>
-<span>      n_clusters <span class="op">=</span> <span class="fl">6</span>,</span>
-<span>      method <span class="op">=</span> <span class="st">"slic"</span>,</span>
-<span>      spatial_weight <span class="op">=</span> <span class="fl">0.5</span>,</span>
-<span>      connectivity <span class="op">=</span> <span class="fl">26</span>,</span>
-<span>      max_iterations <span class="op">=</span> <span class="fl">10</span>,</span>
-<span>      preserve_k <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>      seed_method <span class="op">=</span> <span class="st">"grid"</span></span>
-<span>    <span class="op">)</span></span>
-<span>  <span class="op">}</span> <span class="kw">else</span> <span class="op">{</span></span>
-<span>    <span class="kw"><a href="https://rdrr.io/r/base/stop.html" class="external-link">stop</a></span><span class="op">(</span><span class="st">"Unknown method"</span><span class="op">)</span></span>
+<span>  <span class="va">args</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>vec <span class="op">=</span> <span class="va">toy</span><span class="op">$</span><span class="va">vec</span>, mask <span class="op">=</span> <span class="va">toy</span><span class="op">$</span><span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">3</span>, method <span class="op">=</span> <span class="va">m</span><span class="op">)</span></span>
+<span>  <span class="kw">if</span> <span class="op">(</span><span class="va">m</span> <span class="op">==</span> <span class="st">"snic"</span><span class="op">)</span> <span class="op">{</span></span>
+<span>    <span class="va">args</span><span class="op">$</span><span class="va">compactness</span> <span class="op">&lt;-</span> <span class="fl">3</span></span>
+<span>    <span class="va">args</span><span class="op">$</span><span class="va">max_iterations</span> <span class="op">&lt;-</span> <span class="fl">5</span></span>
+<span>  <span class="op">}</span> <span class="kw">else</span> <span class="kw">if</span> <span class="op">(</span><span class="va">m</span> <span class="op">==</span> <span class="st">"slice_msf"</span><span class="op">)</span> <span class="op">{</span></span>
+<span>    <span class="va">args</span><span class="op">$</span><span class="va">r</span> <span class="op">&lt;-</span> <span class="fl">8</span></span>
+<span>    <span class="va">args</span><span class="op">$</span><span class="va">min_size</span> <span class="op">&lt;-</span> <span class="fl">5</span></span>
+<span>    <span class="va">args</span><span class="op">$</span><span class="va">compactness</span> <span class="op">&lt;-</span> <span class="fl">3</span></span>
+<span>    <span class="va">args</span><span class="op">$</span><span class="va">num_runs</span> <span class="op">&lt;-</span> <span class="fl">1</span></span>
+<span>    <span class="va">args</span><span class="op">$</span><span class="va">stitch_z</span> <span class="op">&lt;-</span> <span class="cn">FALSE</span></span>
+<span>  <span class="op">}</span> <span class="kw">else</span> <span class="kw">if</span> <span class="op">(</span><span class="va">m</span> <span class="op">==</span> <span class="st">"supervoxels"</span><span class="op">)</span> <span class="op">{</span></span>
+<span>    <span class="va">args</span><span class="op">$</span><span class="va">alpha</span> <span class="op">&lt;-</span> <span class="fl">0.6</span></span>
+<span>    <span class="va">args</span><span class="op">$</span><span class="va">connectivity</span> <span class="op">&lt;-</span> <span class="fl">6</span></span>
 <span>  <span class="op">}</span></span>
 <span>  <span class="va">out</span> <span class="op">&lt;-</span> <span class="kw"><a href="https://rdrr.io/r/base/try.html" class="external-link">try</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/do.call.html" class="external-link">do.call</a></span><span class="op">(</span><span class="va">cluster4d</span>, <span class="va">args</span><span class="op">)</span>, silent <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
 <span>  <span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/class.html" class="external-link">inherits</a></span><span class="op">(</span><span class="va">out</span>, <span class="st">"try-error"</span><span class="op">)</span><span class="op">)</span> <span class="cn">NULL</span> <span class="kw">else</span> <span class="va">out</span></span>
@@ -279,11 +258,11 @@ Ground truth 2×3 grid of clusters on the toy axial slice (labels 1–6).
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># Fallback in case prior chunk failed in a different environment</span></span>
 <span><span class="kw">if</span> <span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/exists.html" class="external-link">exists</a></span><span class="op">(</span><span class="st">"results_ok"</span>, inherits <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="va">methods</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"supervoxels"</span>, <span class="st">"snic"</span>, <span class="st">"slic"</span><span class="op">)</span></span>
+<span>  <span class="va">methods</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"snic"</span>, <span class="st">"slice_msf"</span>, <span class="st">"supervoxels"</span><span class="op">)</span></span>
 <span>  <span class="va">run_one</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">m</span><span class="op">)</span> <span class="op">{</span></span>
 <span>    <span class="co"># Simple fallback with default parameters</span></span>
 <span>    <span class="va">out</span> <span class="op">&lt;-</span> <span class="kw"><a href="https://rdrr.io/r/base/try.html" class="external-link">try</a></span><span class="op">(</span><span class="fu"><a href="../reference/cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">toy</span><span class="op">$</span><span class="va">vec</span>, <span class="va">toy</span><span class="op">$</span><span class="va">mask</span>,</span>
-<span>                         n_clusters <span class="op">=</span> <span class="fl">6</span>, method <span class="op">=</span> <span class="va">m</span>,</span>
+<span>                         n_clusters <span class="op">=</span> <span class="fl">3</span>, method <span class="op">=</span> <span class="va">m</span>,</span>
 <span>                         max_iterations <span class="op">=</span> <span class="fl">5</span><span class="op">)</span>,</span>
 <span>               silent <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
 <span>    <span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/class.html" class="external-link">inherits</a></span><span class="op">(</span><span class="va">out</span>, <span class="st">"try-error"</span><span class="op">)</span><span class="op">)</span> <span class="cn">NULL</span> <span class="kw">else</span> <span class="va">out</span></span>
@@ -299,20 +278,20 @@ Ground truth 2×3 grid of clusters on the toy axial slice (labels 1–6).
 <span><span class="op">}</span></span></code></pre></div>
 <div class="figure" style="text-align: center">
 <img src="02-compare-methods_files/figure-html/fig-methods-1.png" class="r-plt" alt="Panels showing axial slices for available methods with arbitrary cluster colors." width="100%"><p class="caption">
-Toy axial view clustered by available methods (K=6; method-specific
-spatial settings). Colors indicate cluster IDs (arbitrary).
+Toy axial view clustered by available methods (K=3). Colors indicate
+cluster IDs (arbitrary).
 </p>
 </div>
 <div class="figure" style="text-align: center">
 <img src="02-compare-methods_files/figure-html/fig-methods-2.png" class="r-plt" alt="Panels showing axial slices for available methods with arbitrary cluster colors." width="100%"><p class="caption">
-Toy axial view clustered by available methods (K=6; method-specific
-spatial settings). Colors indicate cluster IDs (arbitrary).
+Toy axial view clustered by available methods (K=3). Colors indicate
+cluster IDs (arbitrary).
 </p>
 </div>
 <div class="figure" style="text-align: center">
 <img src="02-compare-methods_files/figure-html/fig-methods-3.png" class="r-plt" alt="Panels showing axial slices for available methods with arbitrary cluster colors." width="100%"><p class="caption">
-Toy axial view clustered by available methods (K=6; method-specific
-spatial settings). Colors indicate cluster IDs (arbitrary).
+Toy axial view clustered by available methods (K=3). Colors indicate
+cluster IDs (arbitrary).
 </p>
 </div>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">

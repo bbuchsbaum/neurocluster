@@ -11,6 +11,9 @@
   FLASH-3D method
 - [`cluster4d_g3s()`](cluster4d_g3s.md) : G3S: Gradient-Guided Geodesic
   Supervoxels
+- [`cluster4d_rena()`](cluster4d_rena.md) : Cluster4d using ReNA method
+- [`cluster4d_rena_plus()`](cluster4d_rena_plus.md) : Cluster4d wrapper
+  for ReNA++
 - [`cluster4d_slic()`](cluster4d_slic.md) : Cluster4d using SLIC method
 - [`cluster4d_slice_msf()`](cluster4d_slice_msf.md) : Cluster4d using
   slice_msf method
@@ -38,6 +41,8 @@
 - [`is.cl_partition(`*`<cluster_result>`*`)`](is.cl_partition.cluster_result.md)
   : Test if Object is a Partition
 - [`knn_shrink()`](knn_shrink.md) : K-nearest-neighbor shrink
+- [`make_block_synthetic()`](make_block_synthetic.md) : Make a tiny
+  block-structured synthetic volume
 - [`merge_clus()`](merge_clus.md) : Merge Clustering Results Using a
   Consensus Clustering Algorithm
 - [`merge_clus(`*`<cluster_result>`*`)`](merge_clus.cluster_result.md) :
@@ -52,6 +57,10 @@
   Methods for cluster4d_result Objects
 - [`print(`*`<g3s_result>`*`)`](print.g3s_result.md) : Print Method for
   G3S Results
+- [`rena()`](rena.md) : Recursive Nearest Agglomeration (ReNA)
+  Clustering
+- [`rena_plus()`](rena_plus.md) : ReNA++: Edge-aware Reciprocal
+  Multi-Level ReNA with Ward refinement
 - [`slic4d_grad_summary()`](slic4d_grad_summary.md) : Visualize gradient
   used for seed relocation
 - [`slic4d_supervoxels()`](slic4d_supervoxels.md) : Fast 4D SLIC

@@ -32,6 +32,7 @@
     <li><a class="dropdown-item" href="../articles/20-spatially-constrained-clustering.html">Spatially Constrained Clustering</a></li>
     <li><a class="dropdown-item" href="../articles/21-method-deep-dives.html">Method Deep Dives</a></li>
     <li><a class="dropdown-item" href="../articles/22-performance-memory.html">Performance &amp; Memory</a></li>
+    <li><a class="dropdown-item" href="../articles/25-benchmarks.html">Benchmarks</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Reference Maps</h6></li>
     <li><a class="dropdown-item" href="../articles/30-api-overview.html">API Overview</a></li>
     <li><a class="dropdown-item" href="../articles/31-objects-results.html">Objects &amp; Results</a></li>
@@ -121,6 +122,7 @@ has the same structure as <code>supervoxel_cluster_fit()</code>.</p>
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="va">feature_mat</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/matrix.html" class="external-link">matrix</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="fl">100</span> <span class="op">*</span> <span class="fl">10</span><span class="op">)</span>, <span class="fl">100</span>, <span class="fl">10</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://future.futureverse.org" class="external-link">future</a></span><span class="op">)</span></span></span>
+<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>package ‘future’ was built under R version 4.5.2</span>
 <span class="r-in"><span><span class="fu"><a href="https://future.futureverse.org/reference/plan.html" class="external-link">plan</a></span><span class="op">(</span><span class="va">multicore</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">cres</span> <span class="op">&lt;-</span> <span class="fu">supervoxel_cluster_time</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/t.html" class="external-link">t</a></span><span class="op">(</span><span class="va">feature_mat</span><span class="op">)</span>, K<span class="op">=</span><span class="fl">20</span><span class="op">)</span></span></span>
 <span class="r-err co"><span class="r-pr">#&gt;</span> <span class="error">Error in (function (.x, .f, ..., .progress = FALSE) {    map_("list", .x, .f, ..., .progress = .progress)})(.x = 1L, .f = function (...) {    NULL    NULL    ...furrr_out &lt;- ...furrr_fn(...)    ...furrr_out}):</span> <span style="color: #00BBBB;">ℹ</span> In index: 1.</span>

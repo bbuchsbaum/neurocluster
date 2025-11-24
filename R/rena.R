@@ -151,6 +151,47 @@ rena <- function(bvec, mask,
   mask.idx <- which(mask > 0)
   n_voxels <- length(mask.idx)
 
+   # Trivial cases: single cluster or single voxel
+  if (K <= 1 || n_voxels <= 1) {
+    coords <- index_to_grid(mask, mask.idx)
+    feature_mat <- neuroim2::series(bvec, mask.idx)
+    feature_mat <- t(as.matrix(feature_mat))
+    feature_mat <- base::scale(feature_mat, center = TRUE, scale = TRUE)
+    feature_mat[is.na(feature_mat)] <- 0
+    feature_mat <- t(feature_mat)
+
+    labels <- rep(1L, n_voxels)
+    data_prep <- list(
+      features = t(feature_mat),  # voxels x time
+      coords = coords,
+      mask_idx = mask.idx,
+      n_voxels = n_voxels,
+      dims = dim(mask),
+      spacing = spacing(mask)
+    )
+    result <- create_cluster4d_result(
+      labels = labels,
+      mask = mask,
+      data_prep = data_prep,
+      method = "rena",
+      parameters = list(
+        K = K,
+        requested_K = K,
+        connectivity = connectivity,
+        max_iterations = max_iterations,
+        exact_k = exact_k
+      ),
+      metadata = list(
+        iterations = 0,
+        final_n_clusters = 1
+      ),
+      compute_centers = TRUE,
+      center_method = "mean"
+    )
+    class(result) <- c("rena_cluster_result", class(result))
+    return(result)
+  }
+
   if (verbose) {
     message("ReNA: Starting with ", n_voxels, " voxels, target K = ", K)
   }
@@ -247,7 +288,7 @@ rena <- function(bvec, mask,
     n_components <- length(unique(component_labels))
 
     if (n_components == current_n_clusters) {
-      warning("ReNA: No progress in iteration ", iteration, ", stopping")
+      if (verbose) message("ReNA: No progress in iteration ", iteration, ", stopping")
       break
     }
 
@@ -290,8 +331,73 @@ rena <- function(bvec, mask,
     }
   }
 
+  # If exact_k requested but we stopped above K (e.g., no-progress), attempt a final prune
+  if (exact_k && current_n_clusters > K) {
+    # Rebuild edge list from current adjacency
+    adj_indices <- Matrix::which(current_adjacency > 0, arr.ind = TRUE)
+    adj_i <- adj_indices[, 1]
+    adj_j <- adj_indices[, 2]
+
+    upper_tri <- adj_i < adj_j
+    adj_i <- adj_i[upper_tri]
+    adj_j <- adj_j[upper_tri]
+
+    if (length(adj_i) > 0) {
+      distances <- compute_masked_distances_cpp(current_features, adj_i, adj_j)
+      nearest_neighbor <- find_1nn_subgraph_cpp(current_n_clusters, adj_i, adj_j, distances)
+
+      nn_distances <- rep(Inf, current_n_clusters)
+      for (e in seq_along(adj_i)) {
+        i <- adj_i[e]
+        j <- adj_j[e]
+        if (nearest_neighbor[i] + 1 == j) {
+          nn_distances[i] <- distances[e]
+        }
+        if (nearest_neighbor[j] + 1 == i) {
+          nn_distances[j] <- distances[e]
+        }
+      }
+
+      nearest_neighbor <- prune_edges_for_k_cpp(
+        current_n_clusters,
+        nearest_neighbor,
+        nn_distances,
+        K
+      )
+
+      component_labels <- find_connected_components_cpp(current_n_clusters, nearest_neighbor)
+      # Update voxel mapping through final components
+      voxel_to_component <- component_labels[voxel_to_component + 1]
+      current_n_clusters <- length(unique(voxel_to_component))
+    }
+  }
+
   # Create final cluster assignments (1-based for R)
   final_labels <- voxel_to_component + 1
+
+  # Final fallback: if still above K and exact_k requested, reduce components via kmeans on current features
+  actual_k <- length(unique(final_labels))
+  if (exact_k && actual_k > K) {
+    # Deterministic kmeans on cluster feature centroids
+    # Safely save and restore .Random.seed
+    if (exists(".Random.seed", envir = .GlobalEnv)) {
+      old_seed <- .Random.seed
+      on.exit({.Random.seed <<- old_seed}, add = TRUE)
+    } else {
+      on.exit({
+        if (exists(".Random.seed", envir = .GlobalEnv)) {
+          rm(.Random.seed, envir = .GlobalEnv)
+        }
+      }, add = TRUE)
+    }
+
+    set.seed(0)
+    km <- stats::kmeans(t(current_features), centers = K, iter.max = 50, nstart = 1)
+
+    voxel_to_component <- km$cluster[voxel_to_component + 1] - 1
+    current_n_clusters <- length(unique(voxel_to_component))
+    final_labels <- voxel_to_component + 1
+  }
 
   # Prepare data for standardized result
   data_prep <- list(

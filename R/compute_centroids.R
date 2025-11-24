@@ -37,12 +37,22 @@ compute_centroids <- function(feature_mat, grid, assignment, medoid=FALSE) {
 
   if (!medoid) {
     purrr::transpose(purrr::map(csplit, function(id) {
-      mat <- feature_mat[, id,drop=FALSE]
-      coords <- grid[id,,drop=FALSE]
+      id <- id[id >= 1 & id <= ncol(feature_mat)]
+      if (length(id) == 0) {
+        return(list(center = rep(NA_real_, nrow(feature_mat)),
+                    centroid = rep(NA_real_, ncol(grid))))
+      }
+      mat <- feature_mat[, id, drop=FALSE]
+      coords <- grid[id, , drop=FALSE]
       list(center=rowMeans(mat), centroid=colMeans(coords))
     }))
   } else {
     purrr::transpose(purrr::map(csplit, function(id) {
+      id <- id[id >= 1 & id <= ncol(feature_mat)]
+      if (length(id) == 0) {
+        return(list(center = rep(NA_real_, nrow(feature_mat)),
+                    centroid = rep(NA_real_, ncol(grid))))
+      }
       mat <- feature_mat[, id, drop=FALSE]
       coords <- grid[id,,drop=FALSE]
       coords_dist <- as.matrix(dist(coords))

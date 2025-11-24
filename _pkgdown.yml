@@ -39,6 +39,8 @@ navbar:
         href: articles/21-method-deep-dives.html
       - text: Performance & Memory
         href: articles/22-performance-memory.html
+      - text: Benchmarks
+        href: articles/25-benchmarks.html
       - text: Reference Maps
       - text: API Overview
         href: articles/30-api-overview.html
@@ -63,6 +65,9 @@ articles:
   - matches("^20-spatially-constrained-clustering$")
   - matches("^21-method-deep-dives$")
   - matches("^22-performance-memory$")
+- title: Benchmarks
+  contents:
+  - matches("^25-benchmarks$")
 - title: Reference Maps
   contents:
   - matches("^30-api-overview$")

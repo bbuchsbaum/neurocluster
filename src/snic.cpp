@@ -73,27 +73,26 @@ struct Centroid {
 };
 
 // Inline distance computation - no allocations, pure C++
+// Combined squared distance (spatial + feature); avoids sqrt for PQ ordering
 inline double compute_dist_cpp(double ck_x, double ck_y, double ck_z,
-                               const std::vector<double>& ck_c,
+                               const double* ck_c,
                                double ni_x, double ni_y, double ni_z,
                                const double* ni_c,
-                               int n_features, double s, double compactness) {
+                               int n_features, double s_inv, double compactness_inv) {
 
-    // Spatial distance
     double dx = ck_x - ni_x;
     double dy = ck_y - ni_y;
     double dz = ck_z - ni_z;
     double ds = dx*dx + dy*dy + dz*dz;
 
-    // Feature distance
     double dc = 0.0;
     for(int i = 0; i < n_features; ++i) {
         double diff = ck_c[i] - ni_c[i];
         dc += diff * diff;
     }
 
-    // Combined distance metric
-    return std::sqrt((ds / s) + (dc / compactness));
+    // Return squared combined distance; monotonic w.r.t. Euclidean distance
+    return (ds * s_inv) + (dc * compactness_inv);
 }
 
 // =============================================================================
@@ -358,6 +357,8 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
     int coord_rows = valid_coords.nrow();
     int norm_rows = norm_coords.nrow();
     int mask_lookup_size = mask_lookup_data.size();
+    const double* norm_ptr = norm_coords.begin();
+    int norm_stride = norm_coords.nrow();
 
     if (coord_rows != nvoxels || norm_rows != nvoxels) {
         Rcpp::stop("SNIC internal error: coordinate matrices do not match voxel count");
@@ -365,6 +366,10 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
     if (mask_lookup_size != dim_x * dim_y * dim_z) {
         Rcpp::stop("SNIC internal error: mask lookup size mismatch");
     }
+
+    // Precompute inverses to replace division inside hot loops
+    const double s_inv = (s > 0.0) ? 1.0 / s : 1.0;
+    const double comp_inv = (compactness > 0.0) ? 1.0 / compactness : 1.0;
 
     // Priority queue with lightweight struct
     std::priority_queue<QueueElement, std::vector<QueueElement>, std::greater<QueueElement>> Q;
@@ -386,9 +391,9 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
         int vz = valid_coords(idx, 2);
 
         // Get normalized coordinates
-        double nx = norm_coords(idx, 0);
-        double ny = norm_coords(idx, 1);
-        double nz = norm_coords(idx, 2);
+        double nx = norm_ptr[idx + norm_stride * 0];
+        double ny = norm_ptr[idx + norm_stride * 1];
+        double nz = norm_ptr[idx + norm_stride * 2];
 
         // Get feature vector - access column in matrix
         // NumericMatrix is column-major, so column idx starts at &vecmat[0] + idx * n_features
@@ -425,9 +430,9 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
 
             // Update centroid in-place
             const double* feat_ptr = &vecmat[0] + e.voxel_idx * n_features;
-            double nx = norm_coords(e.voxel_idx, 0);
-            double ny = norm_coords(e.voxel_idx, 1);
-            double nz = norm_coords(e.voxel_idx, 2);
+            double nx = norm_ptr[e.voxel_idx + norm_stride * 0];
+            double ny = norm_ptr[e.voxel_idx + norm_stride * 1];
+            double nz = norm_ptr[e.voxel_idx + norm_stride * 2];
 
             Centroid& ck = C_store[e.k_label - 1];
             ck.add_pixel(nx, ny, nz, feat_ptr, n_features);
@@ -464,14 +469,14 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
 
                         // Get neighbor features and coordinates
                         const double* n_feat_ptr = &vecmat[0] + neigh_idx * n_features;
-                        double nnx = norm_coords(neigh_idx, 0);
-                        double nny = norm_coords(neigh_idx, 1);
-                        double nnz = norm_coords(neigh_idx, 2);
+                        double nnx = norm_ptr[neigh_idx + norm_stride * 0];
+                        double nny = norm_ptr[neigh_idx + norm_stride * 1];
+                        double nnz = norm_ptr[neigh_idx + norm_stride * 2];
 
                         // Compute distance
-                        double d = compute_dist_cpp(ck.avg_x, ck.avg_y, ck.avg_z, ck.avg_c,
+                        double d = compute_dist_cpp(ck.avg_x, ck.avg_y, ck.avg_z, ck.avg_c.data(),
                                                     nnx, nny, nnz, n_feat_ptr,
-                                                    n_features, s, compactness);
+                                                    n_features, s_inv, comp_inv);
 
                         // Add to queue
                         Q.push({nx_pos, ny_pos, nz_pos, neigh_idx, e.k_label, d});
@@ -547,4 +552,3 @@ IntegerVector detect_boundaries_2d_cpp(IntegerVector volume, IntegerVector mask)
   }
   return boundaries_array.toRVector();
 }
-

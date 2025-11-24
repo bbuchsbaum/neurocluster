@@ -38,119 +38,86 @@ params$n_clusters
 
 ## Toy data for illustrations
 
-To make parameter effects concrete, we call
-[`generate_synthetic_volume()`](../reference/generate_synthetic_volume.md)
-to create a tiny 4D volume where the true clusters form a clear 2D 2×3
-grid on a single axial slice. Voxels within each grid cell share a
-similar time course (high correlation), so a well‑tuned clustering
-should recover these blocks. This runs quickly and deterministically.
+To make parameter effects concrete, we use
+[`make_block_synthetic()`](../reference/make_block_synthetic.md)—three
+vertical bands with distinct time courses, light noise, and a single
+slice. It’s fast, deterministic, and spatially local.
 
 ## Effect of K (number of clusters)
 
-Larger K produces finer partitions. The toy volume below is clustered
-with the same method and weights, varying only K.
+Larger K produces finer partitions. Below we fix the method (`snic`) and
+compactness, varying only K.
 
 ``` r
 par(mfrow = c(1, 3))
-res_k3 <- cluster4d(toy$vec, toy$mask, n_clusters = 3)
+res_k2 <- snic(toy$vec, toy$mask, K = 2, compactness = 3)
+plot(res_k2, slice = c(1, 1, 1), view = "axial"); title("K = 2")
+```
+
+![Three panels showing axial slices clustered with K=2, K=3, and
+K=5.](10-choose-parameters_files/figure-html/fig-k-1.png)
+
+Effect of K on a block synthetic (snic).
+
+``` r
+res_k3 <- snic(toy$vec, toy$mask, K = 3, compactness = 3)
 plot(res_k3, slice = c(1, 1, 1), view = "axial"); title("K = 3")
 ```
 
-![Three panels showing axial slices clustered with K=3, K=6, and
-K=9.](10-choose-parameters_files/figure-html/fig-k-1.png)
+![Three panels showing axial slices clustered with K=2, K=3, and
+K=5.](10-choose-parameters_files/figure-html/fig-k-2.png)
 
-Effect of K on a toy axial view (default method).
-
-``` r
-res_k6 <- cluster4d(toy$vec, toy$mask, n_clusters = 6)
-plot(res_k6, slice = c(1, 1, 1), view = "axial"); title("K = 6")
-```
-
-![Three panels showing axial slices clustered with K=3, K=6, and
-K=9.](10-choose-parameters_files/figure-html/fig-k-2.png)
-
-Effect of K on a toy axial view (default method).
+Effect of K on a block synthetic (snic).
 
 ``` r
-res_k9 <- cluster4d(toy$vec, toy$mask, n_clusters = 9)
-plot(res_k9, slice = c(1, 1, 1), view = "axial"); title("K = 9")
+res_k5 <- snic(toy$vec, toy$mask, K = 5, compactness = 3)
+plot(res_k5, slice = c(1, 1, 1), view = "axial"); title("K = 5")
 ```
 
-![Three panels showing axial slices clustered with K=3, K=6, and
-K=9.](10-choose-parameters_files/figure-html/fig-k-3.png)
+![Three panels showing axial slices clustered with K=2, K=3, and
+K=5.](10-choose-parameters_files/figure-html/fig-k-3.png)
 
-Effect of K on a toy axial view (default method).
+Effect of K on a block synthetic (snic).
 
 ``` r
 par(mfrow = c(1,1))
 ```
 
-## Effect of spatial_weight
+## Effect of compactness (SNIC)
 
-Higher `spatial_weight` emphasizes spatial compactness relative to
-feature similarity.
+Higher `compactness` makes clusters more spatially tight; lower values
+follow feature patterns more closely.
 
 ``` r
 par(mfrow = c(1, 3))
-res_sw02 <- cluster4d(toy$vec, toy$mask, n_clusters = 6, spatial_weight = 0.2)
-plot(res_sw02, slice = c(1, 1, 1), view = "axial"); title("spatial_weight = 0.2")
+res_c2 <- snic(toy$vec, toy$mask, K = 3, compactness = 2)
+plot(res_c2, slice = c(1, 1, 1), view = "axial"); title("compactness = 2")
 ```
 
-![Three panels with spatial_weight 0.2, 0.5,
-0.8.](10-choose-parameters_files/figure-html/fig-sw-1.png)
+![Three panels with compactness 2, 4,
+6.](10-choose-parameters_files/figure-html/fig-compactness-1.png)
 
-Effect of spatial_weight on a toy axial view (K=6).
+Effect of compactness on the block synthetic (K=3, snic).
 
 ``` r
-res_sw05 <- cluster4d(toy$vec, toy$mask, n_clusters = 6, spatial_weight = 0.5)
-plot(res_sw05, slice = c(1, 1, 1), view = "axial"); title("spatial_weight = 0.5")
+res_c4 <- snic(toy$vec, toy$mask, K = 3, compactness = 4)
+plot(res_c4, slice = c(1, 1, 1), view = "axial"); title("compactness = 4")
 ```
 
-![Three panels with spatial_weight 0.2, 0.5,
-0.8.](10-choose-parameters_files/figure-html/fig-sw-2.png)
+![Three panels with compactness 2, 4,
+6.](10-choose-parameters_files/figure-html/fig-compactness-2.png)
 
-Effect of spatial_weight on a toy axial view (K=6).
+Effect of compactness on the block synthetic (K=3, snic).
 
 ``` r
-res_sw08 <- cluster4d(toy$vec, toy$mask, n_clusters = 6, spatial_weight = 0.8)
-plot(res_sw08, slice = c(1, 1, 1), view = "axial"); title("spatial_weight = 0.8")
+res_c6 <- snic(toy$vec, toy$mask, K = 3, compactness = 6)
+plot(res_c6, slice = c(1, 1, 1), view = "axial"); title("compactness = 6")
 ```
 
-![Three panels with spatial_weight 0.2, 0.5,
-0.8.](10-choose-parameters_files/figure-html/fig-sw-3.png)
+![Three panels with compactness 2, 4,
+6.](10-choose-parameters_files/figure-html/fig-compactness-3.png)
 
-Effect of spatial_weight on a toy axial view (K=6).
-
-``` r
-par(mfrow = c(1,1))
-```
-
-## Effect of connectivity
-
-Connectivity controls the local neighborhood (6 = faces; 26 =
-faces/edges/corners). Higher connectivity typically yields smoother
-boundaries.
-
-``` r
-par(mfrow = c(1, 2))
-res_c6  <- cluster4d(toy$vec, toy$mask, n_clusters = 6, spatial_weight = 0.5, connectivity = 6)
-plot(res_c6, slice = c(1, 1, 1), view = "axial"); title("connectivity = 6")
-```
-
-![Two panels: connectivity 6 and connectivity
-26.](10-choose-parameters_files/figure-html/fig-connectivity-1.png)
-
-Effect of connectivity on a toy axial view (K=6, spatial_weight=0.5).
-
-``` r
-res_c26 <- cluster4d(toy$vec, toy$mask, n_clusters = 6, spatial_weight = 0.5, connectivity = 26)
-plot(res_c26, slice = c(1, 1, 1), view = "axial"); title("connectivity = 26")
-```
-
-![Two panels: connectivity 6 and connectivity
-26.](10-choose-parameters_files/figure-html/fig-connectivity-2.png)
-
-Effect of connectivity on a toy axial view (K=6, spatial_weight=0.5).
+Effect of compactness on the block synthetic (K=3, snic).
 
 ``` r
 par(mfrow = c(1,1))

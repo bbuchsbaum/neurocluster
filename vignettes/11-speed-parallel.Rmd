@@ -69,43 +69,43 @@ RcppParallel::setThreadOptions(numThreads = 2)
 - For `supervoxels`, a practical start is `grain_size = max(100, nvox / (threads * 10))`. Smaller values improve balancing at some overhead.
 
 # Memory tips {#memory-tips}
-- `snic()` is single-pass with low memory overhead (temporarily omitted below
-  because the current C++ backend can segfault on some synthetic volumes; see
-  `tests/testthat/test_g3s.R`).
+- `snic()` is single-pass with low memory overhead.
 - Reduce time points or compress features if memory-bound.
 
 # Toy runtime illustration (small N) {#fig-runtime}
-Illustrative timing on toy data (very small N); absolute times are not representative of larger datasets. We omit SNIC in the live run because of the known segfault; once the upstream fix lands you can add it back by extending the `methods` vector below.
+Illustrative timing on a small, deterministic dataset (3-band synthetic). Absolute times are not representative of large datasets but show relative ordering on the same volume.
 
-```{r fig-runtime, fig.cap='Illustrative runtimes on toy data (small N).', fig.alt='Bar plot of elapsed seconds for several methods on tiny data.'}
-make_toy_blocks <- function(dims = c(10,10,4), T = 12, seed = 123, amp = 1.0, sdn = 0.2) {
-  set.seed(seed)
-  d1 <- dims[1]; d2 <- dims[2]; d3 <- dims[3]
-  mask <- NeuroVol(array(1L, dims), NeuroSpace(dims))
-  arr <- array(rnorm(d1*d2*d3*T, sd = sdn), c(d1,d2,d3,T))
-  tt <- seq(0, 2*pi, length.out = T)
-  p1 <- sin(tt); p2 <- cos(tt)
-  zmid <- floor(d3/2)
-  arr[1:5, 1:5, zmid, ]   <- sweep(arr[1:5, 1:5, zmid, ],   3, amp * p1, "+")
-  arr[6:10, 6:10, zmid, ] <- sweep(arr[6:10, 6:10, zmid, ], 3, amp * p2, "+")
-  vec <- NeuroVec(arr, NeuroSpace(c(d1,d2,d3,T)))
-  list(vec = vec, mask = mask)
+```{r fig-runtime, fig.cap='Illustrative runtimes on a 3-band synthetic (small N).', fig.alt='Bar plot of elapsed seconds for several methods on tiny data.'}
+toy <- make_block_synthetic(dims = c(14, 14, 2), ntime = 40, noise = 0.1, seed = 321)
+
+run_and_time <- function(tag, fn) {
+  t <- system.time(fn())
+  unname(t["elapsed"])
 }
-toy <- make_toy_blocks()
-run_and_time <- function(method, ...) {
-  t <- system.time(cluster4d(toy$vec, toy$mask, n_clusters = 6, method = method, ...))
-  unname(t["elapsed"])  # seconds
-}
-methods <- list(
-  supervoxels = list(max_iterations = 3),
-  slic        = list(max_iterations = 5),
-  slice_msf   = list()
+
+elapsed <- c(
+  snic = run_and_time("snic", function() snic(toy$vec, toy$mask, K = 3, compactness = 3, max_iter = 3)),
+  slice_msf = run_and_time("slice_msf", function() slice_msf(toy$vec, toy$mask,
+                                                            target_k_global = 3,
+                                                            r = 8, min_size = 6,
+                                                            compactness = 3,
+                                                            num_runs = 1,
+                                                            stitch_z = FALSE)),
+  supervoxels = run_and_time("supervoxels", function() supervoxels(toy$vec, toy$mask,
+                                                                  K = 3,
+                                                                  alpha = 0.6,
+                                                                  connectivity = 6,
+                                                                  iterations = 5)),
+  slic = run_and_time("slic", function() cluster4d(toy$vec, toy$mask,
+                                                  n_clusters = 3,
+                                                  method = "slic",
+                                                  spatial_weight = 0.5,
+                                                  connectivity = 26,
+                                                  max_iterations = 5,
+                                                  preserve_k = TRUE))
 )
-elapsed <- vapply(names(methods), function(m) {
-  args <- methods[[m]]
-  do.call(run_and_time, c(list(method = m), args))
-}, numeric(1))
-barplot(elapsed, ylab = "seconds", main = "Toy runtimes (tiny N)")
+
+barplot(elapsed, ylab = "seconds", main = "Toy runtimes (small N)")
 ```
 includes:
   in_header: |-

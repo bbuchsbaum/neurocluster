@@ -152,6 +152,7 @@ supervoxels_flash3d <- function(vec, mask, K,
   
   # Extract time series matrix - series returns T x Nmask which is what we need
   ts_matrix <- series(vec, mask_idx)
+  dctM_eff <- min(dctM, nrow(ts_matrix), 32L)
   
   # Debug: check dimensions
   if (verbose) {
@@ -184,7 +185,7 @@ supervoxels_flash3d <- function(vec, mask, K,
     lambda = c(lambda_s, lambda_t, lambda_g),
     rounds = as.integer(rounds),
     bits = as.integer(bits),
-    dctM = as.integer(dctM),
+    dctM = as.integer(dctM_eff),
     vox_scale = as.numeric(vox_scale),
     barrier_opt = barrier_vec,
     verbose = verbose
@@ -195,50 +196,34 @@ supervoxels_flash3d <- function(vec, mask, K,
   centers <- cpp_result$centers      # K x T matrix (already computed in C++)
   coord_centers <- cpp_result$coords # K x 3 matrix (already computed in C++)
   
-  # Replace any invalid labels (0 or NA) with valid cluster IDs
-  if (any(labels_mask == 0 | is.na(labels_mask))) {
-    invalid_mask <- labels_mask == 0 | is.na(labels_mask)
-    if (verbose) {
-      cat("Warning: Found", sum(invalid_mask), "unlabeled voxels, assigning to nearest cluster\n")
-    }
-    # Assign to cluster 1 for now - could improve this with nearest neighbor assignment
-    labels_mask[invalid_mask] <- 1
-  }
-  
-  # Create ClusteredNeuroVol
+  # Compress labels to contiguous IDs and drop empty centers
+  used <- sort(unique(labels_mask[!is.na(labels_mask)]))
+  map <- setNames(seq_along(used), used)
+  labels_mask <- unname(map[as.character(labels_mask)])
+  centers <- centers[used, , drop = FALSE]
+  coord_centers <- coord_centers[used, , drop = FALSE]
+  n_clusters <- length(used)
+
   clusvol <- ClusteredNeuroVol(mask, labels_mask)
 
-  # OPTIMIZED: Centers and coords already computed in C++, no R loops needed!
-  # Just verify we have valid data
-  unique_labels <- sort(unique(labels_mask[!is.na(labels_mask)]))
-  n_clusters <- length(unique_labels)
-
-  # C++ returns K x T centers and K x 3 coords
-  # Transpose centers to match expected format if needed (K x T is correct)
-  if (nrow(centers) != K || ncol(centers) != ntime) {
-    warning(sprintf("Unexpected center dimensions: %d x %d (expected %d x %d)",
-                    nrow(centers), ncol(centers), K, ntime))
-  }
-  
-  # OPTIMIZED: Create result directly with C++-computed centers
-  # No need for data_prep or additional computation
   result <- structure(
     list(
       clusvol = clusvol,
       cluster = labels_mask,
-      centers = centers,           # Already computed in C++ (K x T)
-      coord_centers = coord_centers, # Already computed in C++ (K x 3)
+      centers = centers,           # Already computed in C++ (K_eff x T)
+      coord_centers = coord_centers, # Already computed in C++ (K_eff x 3)
       K = n_clusters,
       n_clusters = n_clusters,
       method = "flash3d",
       parameters = list(
-        K = K,
+        K_requested = K,
+        K_effective = n_clusters,
         lambda_s = lambda_s,
         lambda_t = lambda_t,
         lambda_g = lambda_g,
         rounds = rounds,
         bits = bits,
-        dctM = dctM,
+        dctM = dctM_eff,
         vox_scale = vox_scale
       )
     ),

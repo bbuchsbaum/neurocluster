@@ -226,16 +226,45 @@ acsc <- function(bvec, mask,
   }
 
   ## ------------------------------------------------------------------------
-  ## 7. Construct output
+  ## 6b. Force exact K if requested (merge/split as needed for downstream ARI)
+  ## ------------------------------------------------------------------------
+  if (!is.null(K)) {
+    voxel_labels <- force_exact_k(voxel_labels, feature_mat, K)
+  }
+
+  ## ------------------------------------------------------------------------
+  ## 7. Construct output as cluster_result
   ## ------------------------------------------------------------------------
   cluster_map <- array(0L, dim(mask))
   cluster_map[mask.idx] <- voxel_labels
 
-  list(
-    cluster_map       = cluster_map,
-    graph             = graph,
-    init_block_label  = construct_block_label_array(block_id, mask)
+  # Create cluster_result compatible structure
+  result <- structure(
+    list(
+      cluster = voxel_labels,
+      clusvol = neuroim2::ClusteredNeuroVol(mask, clusters = voxel_labels),
+      n_clusters = length(unique(voxel_labels[voxel_labels > 0])),
+      method = "acsc",
+      parameters = list(
+        alpha = alpha,
+        block_size = block_size,
+        ann_k = ann_k,
+        correlation_metric = correlation_metric[1],
+        spatial_weighting = spatial_weighting[1],
+        refine = refine,
+        max_refine_iter = max_refine_iter,
+        K = K
+      ),
+      metadata = list(
+        cluster_map = cluster_map,
+        graph = graph,
+        init_block_label = construct_block_label_array(block_id, mask)
+      )
+    ),
+    class = c("acsc_result", "cluster4d_result", "cluster_result", "list")
   )
+
+  result
 }
 
 #' Preprocess fMRI time-series data
@@ -486,6 +515,50 @@ construct_block_label_array <- function(block_id, mask) {
   mask.idx    <- which(mask > 0)
   block_array[mask.idx] <- block_id
   block_array
+}
+
+#' Force clustering to have exactly K clusters by merging or splitting
+#' @keywords internal
+force_exact_k <- function(labels, feature_mat, K_target) {
+  labels <- as.integer(labels)
+  valid <- labels[labels > 0]
+  if (length(valid) == 0) return(labels)
+
+  relabel <- function(lbl) {
+    u <- sort(unique(lbl[lbl > 0]))
+    map <- setNames(seq_along(u), u)
+    newlbl <- integer(length(lbl))
+    sel <- lbl > 0
+    newlbl[sel] <- unname(map[as.character(lbl[sel])])
+    newlbl
+  }
+
+  labels <- relabel(labels)
+  k_curr <- length(unique(labels[labels > 0]))
+  if (k_curr == K_target) return(labels)
+
+  # Helper: compute centroids
+  compute_centroids <- function(lbls) {
+    idx <- lbls > 0
+    lbls2 <- lbls[idx]
+    rowsum(feature_mat[idx, , drop = FALSE], lbls2) / as.numeric(table(lbls2))
+  }
+
+  if (k_curr > K_target) {
+    cent <- compute_centroids(labels)
+    # Ward merge down to K_target
+    hc <- hclust(dist(cent), method = "ward.D2")
+    cut <- cutree(hc, k = K_target)
+    labels[labels > 0] <- cut[labels[labels > 0]]
+    labels <- relabel(labels)
+    return(labels)
+  }
+
+  # k_curr < K_target: split via kmeans over all voxels
+  km <- kmeans(feature_mat, centers = K_target, iter.max = 50, nstart = 5)
+  labels[] <- km$cluster
+  labels <- relabel(labels)
+  labels
 }
 
 #' Normalize feature matrix to unit-length vectors

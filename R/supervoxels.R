@@ -227,8 +227,16 @@ supervoxel_cluster_fit <- function(feature_mat,
   no_improvement_count <- 0
   
   # Use cheap-then-exact strategy: first 5 iterations spatial-only (alpha=0)
-  cheap_iters <- min(5, max(1, floor(iterations * 0.2)))
+  cheap_iters <- 1L  # keep only a single cheap pass; avoids locking-in bad spatial seeds
   original_alpha <- alpha
+
+  # Adaptive spatial binning (small K needs wider search)
+  window_factor <- if (K < 20) {
+    max(4.0, 3.0 + 10.0 / K)
+  } else {
+    3.0
+  }
+  bin_expand <- if (K < 10 || nvox < 5000) 2L else 1L
 
   while (iter <= iter.max && switches > 0) {
     # Adjust alpha for cheap-then-exact strategy
@@ -249,8 +257,8 @@ supervoxel_cluster_fit <- function(feature_mat,
         t(coords), num_centroids, sp_centroids, feature_mat,
         dthresh, sigma1, sigma2, current_alpha,
         grain_size = max(1024L, as.integer(nvox / 32L)),
-        window_factor = 2.0,     # ~2S spatial radius
-        bin_expand = 1L          # visit ±1 neighbor cells
+        window_factor = window_factor,
+        bin_expand = bin_expand
       )
     } else {
       # Even sequential mode benefits from spatial binning
@@ -258,8 +266,8 @@ supervoxel_cluster_fit <- function(feature_mat,
         nn_indices, neib$nn.dist, curclus,
         t(coords), num_centroids, sp_centroids, feature_mat,
         dthresh, sigma1, sigma2, current_alpha,
-        window_factor = 2.0,
-        bin_expand = 1L
+        window_factor = window_factor,
+        bin_expand = bin_expand
       )
     }
     
@@ -491,7 +499,7 @@ knn_shrink <- function(bvec, mask, k = 5, connectivity = 27) {
 #'
 supervoxels <- function(bvec, mask,
                         K = 500,
-                        sigma1 = 1,
+                        sigma1 = NULL,
                         sigma2 = 2.5,
                         iterations = 50,
                         connectivity = 27,
@@ -528,8 +536,15 @@ supervoxels <- function(bvec, mask,
   # initialization of cluster assignments
   clusinit <- init_cluster(bvec, mask, coords, K, use_gradient)
 
-  # gather scaled features
-  feature_mat <- neuroim2::series(bvec, mask.idx)
+  # gather scaled features (time x voxels); keep both orientations
+  feature_mat <- neuroim2::series(bvec, mask.idx)        # T x N
+  feature_mat_vox <- t(as.matrix(feature_mat))           # N x T for downstream summaries
+
+  # Default sigma1 tuned for z-scored data and normalized heat kernel
+  if (is.null(sigma1)) {
+    sigma1 <- 1.0
+    if (verbose) message("supervoxels: sigma1 not provided; using default 1.0 for normalized data distance")
+  }
 
   # run the iterative fit
   ret <- supervoxel_cluster_fit(feature_mat, coords, K = K, sigma1 = sigma1, sigma2 = sigma2,
@@ -545,7 +560,7 @@ supervoxels <- function(bvec, mask,
 
   # Prepare data for standardized result
   data_prep <- list(
-    features = feature_mat,
+    features = feature_mat_vox,
     coords = coords,
     mask_idx = mask.idx,
     n_voxels = length(mask.idx),
@@ -553,6 +568,17 @@ supervoxels <- function(bvec, mask,
     spacing = spacing(mask)
   )
   
+  # If centers from fit don't match actual clusters, recompute to ensure consistency
+  actual_k <- length(unique(ret$clusters))
+  centers_meta <- ret$centers
+  coord_meta <- ret$coord_centers
+  if (is.null(centers_meta) || nrow(centers_meta) != actual_k ||
+      is.null(coord_meta)   || nrow(coord_meta)   != actual_k) {
+    recomputed <- compute_cluster_centers(ret$clusters, feature_mat_vox, coords, method = "mean")
+    centers_meta <- recomputed$centers
+    coord_meta   <- recomputed$coord_centers
+  }
+
   # Create standardized result
   result <- create_cluster4d_result(
     labels = ret$clusters,
@@ -573,10 +599,10 @@ supervoxels <- function(bvec, mask,
       converge_thresh = converge_thresh
     ),
     metadata = list(
-      centers = ret$centers,
-      coord_centers = ret$coord_centers
+      centers = centers_meta,
+      coord_centers = coord_meta
     ),
-    compute_centers = FALSE  # Already computed
+    compute_centers = FALSE  # we supply centers via metadata
   )
   
   # Ensure backward compatibility with old class

@@ -11,7 +11,8 @@ cluster4d(
   vec,
   mask,
   n_clusters = 100,
-  method = c("supervoxels", "snic", "slic", "slice_msf", "flash3d", "g3s"),
+  method = c("supervoxels", "snic", "slic", "slice_msf", "flash3d", "g3s", "rena",
+    "rena_plus"),
   spatial_weight = 0.5,
   max_iterations = 10,
   connectivity = 26,
@@ -56,6 +57,9 @@ cluster4d(
 
   - `"g3s"`: Gradient-Guided Geodesic Supervoxels (NEW - recommended for
     best quality/speed)
+
+  - `"rena"`: Recursive Nearest Agglomeration (fast, balanced,
+    topology-aware)
 
 - spatial_weight:
 
@@ -142,6 +146,7 @@ containing:
 | Good | Low | No | Large data, non-iterative | slic | Fast | Good |
 | Medium | Yes | Balanced speed/quality | slice_msf | Very Fast | Moderate | Low |
 | Yes | High-res data, accept z-artifacts | flash3d | Fast | Good | Medium | Partial |
+| Large data, hash-based | rena | Fast | Excellent | Low | No | Balanced clusters, topology-aware |
 
 ## Parameter Guidelines
 
@@ -182,3 +187,47 @@ Legacy functions (deprecated): [`supervoxels`](supervoxels.md),
 [`supervoxels_flash3d`](supervoxels_flash3d.md)
 
 ## Examples
+
+``` r
+if (FALSE) { # \dontrun{
+# Simple synthetic example (runs quickly for testing)
+library(neuroim2)
+mask <- NeuroVol(array(1, c(4,4,4)), NeuroSpace(c(4,4,4)))
+vec <- NeuroVec(array(rnorm(4*4*4*10), c(4,4,4,10)), 
+                NeuroSpace(c(4,4,4,10)))
+result <- cluster4d(vec, mask, n_clusters = 3, method = "g3s", 
+                   max_iterations = 1)
+print(result$n_clusters)
+} # }
+
+if (FALSE) { # \dontrun{
+# More realistic examples with larger data
+mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
+vec <- replicate(50, NeuroVol(array(runif(20*20*20), c(20,20,20)),
+                              NeuroSpace(c(20,20,20))), simplify=FALSE)
+vec <- do.call(concat, vec)
+
+# Basic usage with default supervoxels method
+result <- cluster4d(vec, mask, n_clusters = 100)
+
+# Fast clustering with FLASH-3D (hash-based)
+result <- cluster4d(vec, mask, n_clusters = 100, method = "flash3d")
+
+# Emphasize spatial compactness
+result <- cluster4d(vec, mask, n_clusters = 100, spatial_weight = 0.8)
+
+# Use specific method with custom parameters
+result <- cluster4d(vec, mask, n_clusters = 100, 
+                   method = "slice_msf",
+                   num_runs = 3,  # slice_msf-specific parameter
+                   consensus = TRUE)
+
+# Get parameter suggestions for your data
+n_vox <- sum(mask > 0)
+n_time <- dim(vec)[4]
+params <- suggest_cluster4d_params(n_vox, n_time, priority = "quality")
+result <- cluster4d(vec, mask, 
+                   n_clusters = params$n_clusters,
+                   method = params$recommended_method)
+} # }
+```

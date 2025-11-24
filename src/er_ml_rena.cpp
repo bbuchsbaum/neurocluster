@@ -8,6 +8,7 @@
 #include <queue>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <algorithm>
 #include <limits>
 #include <cmath>
@@ -17,9 +18,126 @@ using namespace arma;
 
 // ---------- helpers ---------------------------------------------------------
 
-inline double squared_l2(const arma::rowvec &a, const arma::rowvec &b) {
-  rowvec diff = a - b;
-  return dot(diff, diff);
+// Compute squared L2 distance between two rows of a matrix without creating
+// intermediate rowvec temporaries. This avoids large hidden allocations in
+// the hot path of ReNA.
+inline double squared_l2_rows(const arma::mat &M, arma::uword i, arma::uword j) {
+  const arma::uword n = M.n_cols;
+  double acc = 0.0;
+  for (arma::uword k = 0; k < n; ++k) {
+    double d = M(i, k) - M(j, k);
+    acc += d * d;
+  }
+  return acc;
+}
+
+// Build symmetric grid adjacency for masked voxels entirely in C++ to avoid
+// repeated R allocations and vector growth.
+// [[Rcpp::export]]
+arma::sp_mat build_grid_adjacency_cpp(const IntegerVector &mask_idx,
+                                      const IntegerVector &dims,
+                                      const int connectivity) {
+  if (dims.size() != 3)
+    stop("build_grid_adjacency_cpp: dims must be length 3");
+
+  const int nx = dims[0];
+  const int ny = dims[1];
+  const int nz = dims[2];
+
+  const int n_vox = mask_idx.size();
+  const int total = nx * ny * nz;
+
+  // map from linear index (0-based) to node id (0..n_vox-1), -1 if not masked
+  std::vector<int> loc2node(total, -1);
+  for (int v = 0; v < n_vox; ++v) {
+    int lin = mask_idx[v] - 1; // R is 1-based
+    if (lin < 0 || lin >= total)
+      stop("build_grid_adjacency_cpp: mask_idx out of range");
+    loc2node[lin] = v;
+  }
+
+  // Precompute neighbor offsets in (dx, dy, dz)
+  std::vector<int> dx, dy, dz;
+  dx.reserve(26);
+  dy.reserve(26);
+  dz.reserve(26);
+
+  for (int ddx = -1; ddx <= 1; ++ddx) {
+    for (int ddy = -1; ddy <= 1; ++ddy) {
+      for (int ddz = -1; ddz <= 1; ++ddz) {
+        if (ddx == 0 && ddy == 0 && ddz == 0) continue;
+
+        int manhattan = std::abs(ddx) + std::abs(ddy) + std::abs(ddz);
+        bool keep = false;
+
+        if (connectivity == 6) {
+          keep = (manhattan == 1);
+        } else if (connectivity == 18) {
+          keep = (manhattan > 0 && manhattan <= 2);
+        } else if (connectivity == 26) {
+          keep = true; // all non-zero offsets in {-1,0,1}^3
+        } else {
+          stop("build_grid_adjacency_cpp: unsupported connectivity");
+        }
+
+        if (keep) {
+          dx.push_back(ddx);
+          dy.push_back(ddy);
+          dz.push_back(ddz);
+        }
+      }
+    }
+  }
+
+  std::vector<uword> ii;
+  std::vector<uword> jj;
+  ii.reserve(static_cast<size_t>(n_vox) * dx.size());
+  jj.reserve(static_cast<size_t>(n_vox) * dx.size());
+
+  for (int v = 0; v < n_vox; ++v) {
+    int lin = mask_idx[v] - 1;
+
+    int tmp = lin;
+    int x = tmp % nx;      tmp /= nx;
+    int y = tmp % ny;
+    int z = tmp / ny;
+
+    for (size_t k = 0; k < dx.size(); ++k) {
+      int xx = x + dx[k];
+      int yy = y + dy[k];
+      int zz = z + dz[k];
+
+      if (xx < 0 || xx >= nx ||
+          yy < 0 || yy >= ny ||
+          zz < 0 || zz >= nz) continue;
+
+      int n_lin = xx + nx * (yy + ny * zz);
+      int nb = loc2node[n_lin];
+      if (nb >= 0 && nb > v) { // upper triangle only
+        ii.push_back(static_cast<uword>(v));
+        jj.push_back(static_cast<uword>(nb));
+      }
+    }
+  }
+
+  arma::sp_mat G(n_vox, n_vox);
+
+  if (!ii.empty()) {
+    const uword m = ii.size();
+    umat locations(2, 2 * m);
+    vec  values(2 * m, fill::ones);
+
+    for (uword k = 0; k < m; ++k) {
+      locations(0, k)      = ii[k];
+      locations(1, k)      = jj[k];
+      locations(0, k + m)  = jj[k];
+      locations(1, k + m)  = ii[k];
+    }
+
+    G = sp_mat(locations, values, n_vox, n_vox);
+  }
+
+  return G;
 }
 
 struct UnionFind {
@@ -58,7 +176,6 @@ IntegerVector rena_rnn_step_internal(const arma::mat &X,
   IntegerVector labels(p);
 
   std::vector<int> nearest_idx(p);
-  std::vector<double> nearest_dist(p);
 
   bool use_grad = (grad.n_elem == p && lambda != 0.0);
   double inf = std::numeric_limits<double>::infinity();
@@ -71,13 +188,15 @@ IntegerVector rena_rnn_step_internal(const arma::mat &X,
     double best_d = inf;
     int best_j = static_cast<int>(i);
 
+    const double g_i = use_grad ? grad(i) : 0.0; // avoid repeated loads
+
     for (sp_mat::const_row_iterator it = G.begin_row(i);
          it != G.end_row(i); ++it) {
       uword j = it.col();
       if (i == j) continue;
-      double d = squared_l2(X.row(i), X.row(j));
+      double d = squared_l2_rows(X, i, j);
       if (use_grad) {
-        double gdiff = std::abs(grad(i) - grad(j));
+        double gdiff = std::abs(g_i - grad(j));
         d *= (1.0 + lambda * gdiff);
       }
       if (d < best_d) {
@@ -85,8 +204,7 @@ IntegerVector rena_rnn_step_internal(const arma::mat &X,
         best_j = static_cast<int>(j);
       }
     }
-    nearest_idx[i]  = best_j;
-    nearest_dist[i] = best_d;
+    nearest_idx[i] = best_j;
   }
 
   // Reciprocal merges + fallback 1-NN for isolated nodes
@@ -315,7 +433,7 @@ List ward_on_supervoxels_cpp(const arma::mat &X_coarse,
     double denom = s_a + s_b;
     if (denom <= 0) return;
     double factor = (s_a * s_b) / denom;
-    double d2 = squared_l2(means.row(a), means.row(b));
+    double d2 = squared_l2_rows(means, a, b);
     double cost = factor * d2;
     pq.push(Edge{cost, a, b});
   };
@@ -348,9 +466,19 @@ List ward_on_supervoxels_cpp(const arma::mat &X_coarse,
     active_count--;
     uf.unite(a, b);
 
-    for (int d : neighbors[b]) {
-      if (d == a || !active[d]) continue;
-      neighbors[a].push_back(d);
+    // Merge neighbor lists with deduplication to avoid growth
+    std::vector<int> merged;
+    merged.reserve(neighbors[a].size() + neighbors[b].size());
+    for (int d : neighbors[a]) if (active[d] && d != a) merged.push_back(d);
+    for (int d : neighbors[b]) if (active[d] && d != a) merged.push_back(d);
+    std::sort(merged.begin(), merged.end());
+    merged.erase(std::unique(merged.begin(), merged.end()), merged.end());
+
+    neighbors[a].swap(merged);
+    neighbors[b].clear();
+
+    // Keep adjacency symmetric and push updated edges
+    for (int d : neighbors[a]) {
       neighbors[d].push_back(a);
       push_edge(a, d);
     }

@@ -221,6 +221,7 @@ struct ParallelCentroidWorker : public Worker {
   const std::vector<int> &labels;
   const uint8_t *is_mask;
   const uint64_t *hashA, *hashB;
+  const float *best;
   const int nx, ny;
   const int K;
   const int bits;
@@ -231,7 +232,9 @@ struct ParallelCentroidWorker : public Worker {
     int64_t count;
     uint32_t bitcA[64];
     uint32_t bitcB[64];
-    CentroidAccum() : sx(0), sy(0), sz(0), count(0) {
+    float max_err;
+    int   max_idx;
+    CentroidAccum() : sx(0), sy(0), sz(0), count(0), max_err(-std::numeric_limits<float>::infinity()), max_idx(-1) {
       memset(bitcA, 0, sizeof(bitcA));
       memset(bitcB, 0, sizeof(bitcB));
     }
@@ -240,9 +243,9 @@ struct ParallelCentroidWorker : public Worker {
   std::vector<CentroidAccum> acc;  // Per-thread accumulator
 
   ParallelCentroidWorker(const std::vector<int> &lbl, const uint8_t *msk,
-                         const uint64_t *ha, const uint64_t *hb,
+                         const uint64_t *ha, const uint64_t *hb, const float *best_,
                          int nx_, int ny_, int K_, int bits_)
-    : labels(lbl), is_mask(msk), hashA(ha), hashB(hb),
+    : labels(lbl), is_mask(msk), hashA(ha), hashB(hb), best(best_),
       nx(nx_), ny(ny_), K(K_), bits(bits_) {
     acc.resize(K);
   }
@@ -250,7 +253,7 @@ struct ParallelCentroidWorker : public Worker {
   // Split constructor for RcppParallel
   ParallelCentroidWorker(const ParallelCentroidWorker& other, Split)
     : labels(other.labels), is_mask(other.is_mask),
-      hashA(other.hashA), hashB(other.hashB),
+      hashA(other.hashA), hashB(other.hashB), best(other.best),
       nx(other.nx), ny(other.ny), K(other.K), bits(other.bits) {
     acc.resize(K);
   }
@@ -271,6 +274,12 @@ struct ParallelCentroidWorker : public Worker {
         a.sy += yc;
         a.sz += zc;
         a.count++;
+
+        float err = best ? best[i] : 0.0f;
+        if (err > a.max_err) {
+          a.max_err = err;
+          a.max_idx = (int)i;
+        }
 
         // Bit voting for hash majority
         uint64_t h = hashA[i];
@@ -315,6 +324,11 @@ struct ParallelCentroidWorker : public Worker {
         for (int b = 0; b < 64; ++b) {
           acc[k].bitcB[b] += rhs.acc[k].bitcB[b];
         }
+      }
+
+      if (rhs.acc[k].max_err > acc[k].max_err) {
+        acc[k].max_err = rhs.acc[k].max_err;
+        acc[k].max_idx = rhs.acc[k].max_idx;
       }
     }
   }
@@ -400,6 +414,7 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
   const size_t Ngrid = (size_t)nx * ny * nz;
   const int Nmask = ts.ncol();
   const int T = ts.nrow();
+  const int dctM_eff = std::min(std::min(dctM, T), 32);
   if (Nmask != mask_lin0.size()) stop("ts ncol must equal length(mask_lin)");
   if ((int)vox_scale.size() != 3) stop("vox_scale must be length 3");
 
@@ -427,20 +442,20 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
 
   // Estimate spacing S
   const double S_est = std::cbrt((double)Nmask / (double)K);
-  const double S2 = S_est * S_est;
+  const double S2 = std::max(1.0, S_est * S_est);
 
   // Precompute DCT table & comparator pairs
   std::vector<double> ctab;
-  build_dct_table(T, dctM, ctab);
+  build_dct_table(T, dctM_eff, ctab);
   std::vector<uint8_t> ci, cj;
-  make_comparators(dctM, bits, ci, cj);
+  make_comparators(dctM_eff, bits, ci, cj);
 
   // Hash time series
   std::vector<uint64_t> hashA((size_t)Nmask, 0ull), hashB;
   if (bits == 128) hashB.assign((size_t)Nmask, 0ull);
   NumericVector mean_tail(Nmask), var_tail(Nmask);
   {
-    HashWorker hw(ts, dctM, bits, ctab, ci, cj, mean_tail, var_tail, hashA, hashB);
+    HashWorker hw(ts, dctM_eff, bits, ctab, ci, cj, mean_tail, var_tail, hashA, hashB);
     parallelFor(0, (size_t)Nmask, hw, (size_t)2048);
   }
 
@@ -458,7 +473,7 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
   seed_blue_noise(mask_lin, nx, ny, nz, K, seeds);
 
   // Site state
-  struct Site { float x,y,z; uint64_t ha, hb; };
+  struct Site { float x,y,z; uint64_t ha, hb; int seed_idx; };
   std::vector<Site> sites((size_t)K);
   // Map from masked voxel index to coordinate
   auto idx_to_xyz = [&](int idx, float &x, float &y, float &z){
@@ -472,7 +487,7 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
     int gridIdx = seeds[(size_t)k].gridIndex;
     float x,y,z;
     idx_to_xyz(gridIdx, x,y,z);
-    sites[(size_t)k] = Site{ x, y, z, gridHashA[(size_t)gridIdx], (bits==128)?gridHashB[(size_t)gridIdx]:0ull };
+    sites[(size_t)k] = Site{ x, y, z, gridHashA[(size_t)gridIdx], (bits==128)?gridHashB[(size_t)gridIdx]:0ull, gridIdx };
   }
 
 
@@ -631,15 +646,6 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
   std::vector<float> best (Ngrid,  inf), best_next (Ngrid, inf);
   std::vector<int>   carry(Ngrid, -1), carry_next(Ngrid, -1); // site id carried by cell
 
-  // Initialize with seeds
-  for (int k = 0; k < K; ++k) {
-    int g = seeds[(size_t)k].gridIndex;
-    label[(size_t)g] = k;
-    carry[(size_t)g] = k;
-    best [(size_t)g] = 0.0f;
-  }
-
-
   double lambda_s_current = lambda_s0;
 
   // Helper lambda for power-of-2 ceiling
@@ -654,10 +660,23 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
     // Anneal spatial weight slightly upward per round (encourages compactness to finish)
     lambda_s_current = lambda_s0 * (1.0 + 0.5 * (double)r);
 
-    // sync best/label/carry first
-    std::copy(best.begin(), best.end(), best_next.begin());
-    std::copy(label.begin(), label.end(), label_next.begin());
-    std::copy(carry.begin(), carry.end(), carry_next.begin());
+    // reset grids and seed from current medoids
+    std::fill(best.begin(),  best.end(),  inf);
+    std::fill(label.begin(), label.end(), -1);
+    std::fill(carry.begin(), carry.end(), -1);
+
+    for (int k = 0; k < K; ++k) {
+      int g = sites[(size_t)k].seed_idx;
+      if (g < 0 || (size_t)g >= Ngrid) continue;
+      label[(size_t)g] = k;
+      carry[(size_t)g] = k;
+      best [(size_t)g] = 0.0f;
+    }
+
+    // mirror into next buffers before first swap
+    best_next  = best;
+    label_next = label;
+    carry_next = carry;
 
     // jump-flood steps: from large to 1
     int maxdim = std::max(nx, std::max(ny, nz));
@@ -687,17 +706,23 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
       }
     }
 
+    // ensure we use the latest buffers after the last JFA step
+    std::swap(best, best_next);
+    std::swap(label, label_next);
+    std::swap(carry, carry_next);
+
     // ----- recenter sites (OPTIMIZED: parallel reduction) -----
     ParallelCentroidWorker centroid_worker(
       label,
       is_mask.data(),
       gridHashA.data(),
       (bits == 128) ? gridHashB.data() : nullptr,
+      best.data(),
       nx, ny, K, bits
     );
     parallelReduce(0, Ngrid, centroid_worker);
 
-    // update sites (handle empties by stealing from biggest cluster center)
+    // update sites (handle empties via hardest voxel of largest cluster)
     // find biggest cluster
     int big_k = 0; int64_t big_c = 0;
     for (int k=0;k<K;k++) {
@@ -707,19 +732,53 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
       }
     }
 
+    // compute medoids (closest voxel to centroid per cluster)
+    std::vector<int> medoid_idx(K, -1);
+    std::vector<double> medoid_best(K, std::numeric_limits<double>::infinity());
+    for (int m = 0; m < Nmask; ++m) {
+      int idx = mask_lin[m];
+      int lab = label[(size_t)idx];
+      if (lab < 0 || lab >= K) continue;
+      double cnt = (double)centroid_worker.acc[(size_t)lab].count;
+      if (cnt <= 0) continue;
+      double cx = centroid_worker.acc[(size_t)lab].sx / cnt;
+      double cy = centroid_worker.acc[(size_t)lab].sy / cnt;
+      double cz = centroid_worker.acc[(size_t)lab].sz / cnt;
+      int zc = idx / (nx*ny);
+      int rem = idx - zc*(nx*ny);
+      int yc = rem / nx;
+      int xc = rem - yc*nx;
+      double dx = (double)xc - cx;
+      double dy = (double)yc - cy;
+      double dz = (double)zc - cz;
+      double d2 = dx*dx + dy*dy + dz*dz;
+      if (d2 < medoid_best[(size_t)lab]) {
+        medoid_best[(size_t)lab] = d2;
+        medoid_idx[(size_t)lab]  = idx;
+      }
+    }
+
     for (int k = 0; k < K; ++k) {
+      uint64_t ha = 0ull, hb = 0ull;
       if (centroid_worker.acc[(size_t)k].count == 0) {
-        // steal: perturb the biggest cluster center slightly
-        Site s = sites[(size_t)big_k];
-        s.x += 0.5f; s.y -= 0.5f; // tiny shift
-        sites[(size_t)k] = s;
+        int steal_idx = -1;
+        if (big_c > 0 && centroid_worker.acc[(size_t)big_k].max_idx >= 0) {
+          steal_idx = centroid_worker.acc[(size_t)big_k].max_idx;
+        } else if (!mask_lin.empty()) {
+          steal_idx = mask_lin[0];
+        }
+        if (steal_idx < 0) continue;
+        float x,y,z; idx_to_xyz(steal_idx, x,y,z);
+        ha = gridHashA[(size_t)steal_idx];
+        if (bits==128) hb = gridHashB[(size_t)steal_idx];
+        sites[(size_t)k] = Site{ x, y, z, ha, hb, steal_idx };
         continue;
       }
-      double inv = 1.0 / (double)centroid_worker.acc[(size_t)k].count;
-      double x = centroid_worker.acc[(size_t)k].sx * inv;
-      double y = centroid_worker.acc[(size_t)k].sy * inv;
-      double z = centroid_worker.acc[(size_t)k].sz * inv;
-      uint64_t ha = 0ull, hb = 0ull;
+
+      int seed_idx = medoid_idx[(size_t)k];
+      if (seed_idx < 0) seed_idx = sites[(size_t)k].seed_idx; // fallback
+      float x,y,z; idx_to_xyz(seed_idx, x,y,z);
+
       for (int b=0;b<64;b++) {
         if (centroid_worker.acc[(size_t)k].bitcA[b] * 2 >= centroid_worker.acc[(size_t)k].count) {
           ha |= (1ull<<b);
@@ -732,11 +791,8 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
           }
         }
       }
-      sites[(size_t)k] = Site{ (float)x, (float)y, (float)z, ha, hb };
+      sites[(size_t)k] = Site{ x, y, z, ha, hb, seed_idx };
     }
-
-    // reinitialize carry to current labels so next flood starts from assigned seeds
-    for (size_t i=0;i<Ngrid;++i) carry[i] = label[i];
   }
 
   // Pull labels for mask voxels (1-based cluster ids to be friendly in R)

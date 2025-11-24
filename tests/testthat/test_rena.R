@@ -93,15 +93,18 @@ test_that("rena handles single voxel mask", {
 
 test_that("rena produces consistent results with same seed", {
   # Create test volume
+  set.seed(42)
   mask <- NeuroVol(array(1, c(5,5,5)), NeuroSpace(c(5,5,5)))
   vec <- NeuroVec(array(rnorm(5*5*5*10), c(5,5,5,10)),
                   NeuroSpace(c(5,5,5,10)))
 
-  # Run twice with same data
+  # Run twice with explicit seed setting (ReNA uses FNN which may use RNG)
+  set.seed(100)
   result1 <- rena(vec, mask, K=8, connectivity=6, verbose=FALSE)
+  set.seed(100)
   result2 <- rena(vec, mask, K=8, connectivity=6, verbose=FALSE)
 
-  # Results should be identical (ReNA is deterministic)
+  # Results should be identical (ReNA is deterministic with same seed)
   expect_equal(result1$cluster, result2$cluster)
   expect_equal(result1$n_clusters, result2$n_clusters)
 })

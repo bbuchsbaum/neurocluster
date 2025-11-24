@@ -148,16 +148,16 @@ feature_mat <- matrix(rnorm(n_voxels * n_timepoints), n_voxels, n_timepoints)
 # Compress to 15 dimensions (typical for G3S)
 compressed <- compress_features_svd(feature_mat, n_components = 15)
 #> Using randomized SVD (rsvd) with k=15
-#> Warning: Initial n_components (15) only explained 9.7% variance. Trying with 25 components.
+#> Warning: Initial n_components (15) only explained 9.6% variance. Trying with 25 components.
 print(compressed$variance_explained)  # Should be ~0.95
-#> [1] 0.1559281
+#> [1] 0.1560771
 print(ncol(compressed$features))      # Should be 15
 #> [1] 25
 
 # More aggressive compression
 compressed_fast <- compress_features_svd(feature_mat, n_components = 10)
 #> Using randomized SVD (rsvd) with k=10
-#> Warning: Initial n_components (10) only explained 6.6% variance. Trying with 20 components.
+#> Warning: Initial n_components (10) only explained 6.5% variance. Trying with 20 components.
 
 # Conservative compression (preserve 98% variance)
 compressed_accurate <- compress_features_svd(

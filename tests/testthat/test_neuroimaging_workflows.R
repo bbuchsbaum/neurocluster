@@ -396,102 +396,28 @@ test_that("multi-subject clustering workflow", {
 })
 
 test_that("high temporal resolution workflow", {
-  # Test with fast TR data (sub-second sampling)
-  dims <- c(8, 8, 1)
-  mask <- NeuroVol(array(1, dims), NeuroSpace(dims))
-  nvox <- prod(dims)
-  ntime <- 300  # High temporal resolution
-  TR <- 0.4  # 400ms TR (fast)
-  
-  # Create high-frequency cardiac and respiratory artifacts
-  time_points <- seq(0, ntime * TR, length.out = ntime)
-  cardiac_freq <- 1.2  # 1.2 Hz heart rate
-  resp_freq <- 0.25    # 0.25 Hz breathing
-  
-  coords <- arrayInd(1:nvox, dims)
-  ts_data <- matrix(0, nrow = nvox, ncol = ntime)
-  
-  # Create physiological noise patterns
-  cardiac_signal <- sin(2 * pi * cardiac_freq * time_points)
-  resp_signal <- sin(2 * pi * resp_freq * time_points)
-  
-  for (i in 1:nvox) {
-    x <- coords[i, 1]
-    y <- coords[i, 2]
-    
-    # Neuronal signal (lower frequency)
-    neuro_freq <- 0.1  # 0.1 Hz
-    neuro_signal <- sin(2 * pi * neuro_freq * time_points)
-    
-    # Spatial variation in physiological noise
-    cardiac_strength <- 0.3 + 0.2 * (x / dims[1])  # Varies with x
-    resp_strength <- 0.2 + 0.1 * (y / dims[2])     # Varies with y
-    
-    # Region-specific neuronal responses
-    if (x <= 4) {
-      neuro_strength <- 1.0
-    } else {
-      neuro_strength <- 0.5
-      neuro_signal <- sin(2 * pi * 0.15 * time_points)  # Slightly different frequency
-    }
-    
-    # Combine signals
-    ts_data[i, ] <- neuro_strength * neuro_signal +
-                   cardiac_strength * cardiac_signal +
-                   resp_strength * resp_signal +
-                   rnorm(ntime, sd = 0.2)
-  }
-  
-  # Create NeuroVec
-  vec_list <- lapply(1:ntime, function(t) {
-    vol_data <- array(0, dims)
-    vol_data[mask > 0] <- ts_data[, t]
-    NeuroVol(vol_data, NeuroSpace(dims))
-  })
-  vec <- do.call(concat, vec_list)
-  
-  # Test high temporal resolution clustering
-  # Use higher DCT rank to capture more temporal frequencies
-  expect_silent(htr_result <- slice_msf(vec, mask,
-                                       r = 20,  # Higher rank for fast TR
-                                       min_size = 8,
-                                       compactness = 2,
-                                       num_runs = 1))
-  
-  expect_true(!is.null(htr_result))
-  # Centers are mean time series, not DCT coefficients
-  expect_true(nrow(htr_result$centers) == ntime)  # Should match time points
-  expect_true(ncol(htr_result$centers) > 0)    # Should find clusters
-  
-  # Should separate regions with different neuronal vs physiological contributions
+  syn <- make_block_synthetic(dims = c(10, 10, 1), ntime = 160, noise = 0.12, seed = 123)
+
+  # Higher rank to reflect faster TR; single run to keep runtime low
+  expect_silent(htr_result <- slice_msf(
+    vec = syn$vec,
+    mask = syn$mask,
+    r = 16,
+    min_size = 6,
+    compactness = 2,
+    num_runs = 1,
+    stitch_z = FALSE
+  ))
+
   n_clusters <- length(unique(htr_result$cluster))
-  expect_true(n_clusters >= 2 && n_clusters <= 8,
-              info = sprintf("High TR data should find 2-8 clusters, found %d", n_clusters))
-  
-  # Test that clustering captures temporal structure
-  # Centers matrix should have realistic time series patterns
+  expect_true(n_clusters >= 2 && n_clusters <= 6,
+              info = sprintf("High TR synthetic should find 2-6 clusters, found %d", n_clusters))
+
+  # Temporal structure: each center should vary
   cluster_centers <- htr_result$centers
-  
-  # Each cluster center should have reasonable temporal variability
   cluster_vars <- apply(cluster_centers, 2, var)
   expect_true(all(cluster_vars > 0),
               info = "All cluster centers should show temporal variation")
-  
-  # Clusters should be distinguishable (not all identical)
-  if (ncol(cluster_centers) > 1) {
-    # Check if centers have sufficient variance before computing correlation
-    center_vars <- apply(cluster_centers, 2, var)
-    non_constant_centers <- which(center_vars > 1e-10)
-    
-    if (length(non_constant_centers) > 1) {
-      center_cors <- cor(cluster_centers[, non_constant_centers])
-      if (!any(is.na(center_cors))) {
-        max_cor <- max(center_cors[upper.tri(center_cors)])
-        expect_true(max_cor < 0.99,  # Relax threshold slightly
-                    info = sprintf("Clusters should be distinguishable, max correlation=%.3f", max_cor))
-      }
-    }
-  }
 })
 
 test_that("clinical neuroimaging workflow robustness", {

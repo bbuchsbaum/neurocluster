@@ -55,6 +55,10 @@
 
   Scaling rules, memory estimates, and method choices.
 
+### Benchmarks
+
+- [Benchmark gallery](25-benchmarks.md):
+
 ### Reference Maps
 
 - [API overview](30-api-overview.md):

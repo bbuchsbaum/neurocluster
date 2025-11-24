@@ -97,8 +97,15 @@ meta_clust.cluster_result <- function(x, cuts = NULL, ...) {
          "Methods like SNIC do not compute explicit cluster centers.")
   }
 
+  orig_labels <- x$cluster
+
   # Fix default cuts logic based on actual number of clusters (rows)
   n_clusters <- nrow(x$centers)
+  labels_used <- sort(unique(orig_labels))
+  # ensure centers align with labels_used; if not, assume centers rows correspond to labels_used order
+  if (length(labels_used) != n_clusters) {
+    labels_used <- seq_len(n_clusters)
+  }
   if (is.null(cuts)) {
     # Default: a few representative cuts up to half the number of clusters
     max_cut <- max(2, floor(n_clusters / 2))
@@ -110,14 +117,15 @@ meta_clust.cluster_result <- function(x, cuts = NULL, ...) {
     stop("Cuts must be integers between 2 and ", n_clusters - 1, ".")
   }
 
-  orig_labels <- x$cluster
-
   if (algo == "hclust") {
     # Compute Distance Matrix
     if (dist_method == "correlation") {
       # 1 - Pearson Correlation
       # Transpose needed because cor() works on columns (variables)
-      D <- as.dist(1 - stats::cor(t(x$centers)))
+      C <- stats::cor(t(x$centers))
+      C[!is.finite(C)] <- 0  # handle zero-variance clusters
+      diag(C) <- 1
+      D <- as.dist(1 - C)
     } else if (dist_method == "euclidean") {
       D <- stats::dist(x$centers)
     } else {
@@ -139,9 +147,9 @@ meta_clust.cluster_result <- function(x, cuts = NULL, ...) {
 
     # Map meta-clusters back to voxel space
     # cut_assignments is (K_clusters x N_cuts)
-    # orig_labels is (N_voxels) containing values 1..K
-    # Fast mapping via matrix indexing
-    cmat <- cut_assignments[orig_labels, , drop = FALSE]
+    # orig_labels is (N_voxels) containing values 1..K (contiguous)
+    label_index <- match(orig_labels, labels_used)
+    cmat <- cut_assignments[label_index, , drop = FALSE]
 
     # Generate ClusteredNeuroVol objects
     cvols <- lapply(seq_along(cuts), function(i) {
@@ -187,6 +195,11 @@ merge_clus.cluster_result <- function(x, method="SE", ...) {
   assertthat::assert_that(all(is_cluster_result),
                           msg = "All arguments must be of class 'cluster_result'")
 
+  # All inputs must have the same number of elements
+  n_elems <- vapply(args, function(obj) length(obj$cluster), integer(1))
+  assertthat::assert_that(length(unique(n_elems)) == 1,
+                          msg = "All cluster_result inputs must have the same number of labeled elements.")
+
   # Create Ensemble
   ens <- do.call(clue::cl_ensemble, args)
 
@@ -198,7 +211,13 @@ merge_clus.cluster_result <- function(x, method="SE", ...) {
   consensus_labels <- as.integer(hpart$.Data)
 
   # Return ClusteredNeuroVol as promised by documentation
-  neuroim2::ClusteredNeuroVol(x$clusvol@mask, cluster = consensus_labels)
+  mask_obj <- if (!is.null(x$clusvol)) x$clusvol@mask else NULL
+  if (!is.null(mask_obj)) {
+    neuroim2::ClusteredNeuroVol(mask_obj, cluster = consensus_labels)
+  } else {
+    # Fallback: return a cluster_result-like list when mask missing
+    list(cluster = consensus_labels, method = "consensus", n_clusters = length(unique(consensus_labels)))
+  }
 }
 
 
@@ -219,6 +238,147 @@ merge_clus.cluster_result_time <- function(x, ...) {
   # Return integer vector for this variant
   as.integer(hpart$.Data)
 }
+
+#' Lightweight cluster-quality metrics
+#'
+#' Computes quick diagnostic metrics for a clustering result, supporting both
+#' data-driven and spatial assessments.
+#'
+#' @param result A \code{cluster_result} (or compatible list with \code{cluster} and optionally \code{centers}, \code{coord_centers}).
+#' @param feature_mat Optional matrix of features (voxels x time/features). If NULL, tries \code{result$metadata$features} or \code{result$data_prep$features}.
+#' @param coords Optional matrix of coordinates (voxels x 3). If NULL, tries \code{result$metadata$coords} or \code{result$data_prep$coords}.
+#' @param truth Optional integer vector of ground-truth labels for ARI.
+#'
+#' @return Named list with fields (when available):
+#' \describe{
+#'   \item{n_clusters}{Number of clusters.}
+#'   \item{size_summary}{Min/median/max cluster size.}
+#'   \item{ari_truth}{Adjusted Rand Index vs. \code{truth} (if provided).}
+#'   \item{within_data_corr}{Mean Fisher-z of voxel-to-centroid correlations (data space).}
+#'   \item{between_data_corr}{Mean Fisher-z of centroid-to-centroid correlations (data space).}
+#'   \item{within_spatial_dist}{Mean Euclidean distance voxel-to-centroid (spatial).}
+#' }
+#' @export
+cluster_metrics <- function(result,
+                            feature_mat = NULL,
+                            coords = NULL,
+                            truth = NULL) {
+
+  labs <- result$cluster
+  stopifnot(!is.null(labs))
+  n <- length(labs)
+  n_clusters <- length(unique(labs))
+
+  # Pull features/coords if not provided
+  if (is.null(feature_mat)) {
+    feature_mat <- result$metadata$features %||% result$data_prep$features
+  }
+  if (is.null(coords)) {
+    coords <- result$metadata$coords %||% result$data_prep$coords
+  }
+
+  fisher_z <- function(r) 0.5 * log((1 + r) / (1 - r))
+
+  # Size summary
+  sz <- tabulate(labs, nbins = n_clusters)
+  size_summary <- c(min = min(sz), median = stats::median(sz), max = max(sz))
+
+  out <- list(
+    n_clusters = n_clusters,
+    size_summary = size_summary
+  )
+
+  # ARI if truth supplied
+  if (!is.null(truth) && length(truth) == n) {
+    out$ari_truth <- adj_rand_index_internal(labs, truth)
+  }
+
+  # Data-based metrics
+  if (!is.null(feature_mat)) {
+    # Ensure matrix is voxels x features
+    if (nrow(feature_mat) != n && ncol(feature_mat) == n) {
+      feature_mat <- t(feature_mat)
+    }
+    stopifnot(nrow(feature_mat) == n)
+
+    # Use provided centers if present, else compute means
+    centers <- result$centers
+    if (is.null(centers)) {
+      centers <- vapply(seq_len(n_clusters), function(k) colMeans(feature_mat[labs == k, , drop = FALSE]), numeric(ncol(feature_mat)))
+      centers <- t(centers)
+    }
+    if (nrow(centers) != n_clusters) {
+      # attempt to reorder/trim to contiguous ids
+      centers <- centers[seq_len(n_clusters), , drop = FALSE]
+    }
+
+    # voxel-to-centroid correlation
+    # normalize
+    fm <- scale(feature_mat, center = TRUE, scale = TRUE)
+    cm <- scale(centers, center = TRUE, scale = TRUE)
+    # efficient dot product correlation
+    denom_v <- sqrt(rowSums(fm^2))
+    denom_c <- sqrt(rowSums(cm^2))
+    denom_v[denom_v == 0] <- 1
+    denom_c[denom_c == 0] <- 1
+    # compute per voxel corr with its centroid
+    within_corr <- numeric(n)
+    for (k in seq_len(n_clusters)) {
+      idx <- which(labs == k)
+      if (length(idx) == 0) next
+      within_corr[idx] <- as.numeric(fm[idx, , drop = FALSE] %*% cm[k, ]) /
+        (denom_v[idx] * denom_c[k])
+    }
+    within_corr[!is.finite(within_corr)] <- 0
+    out$within_data_corr <- mean(fisher_z(within_corr))
+
+    # centroid-to-centroid correlation
+    cc <- stats::cor(t(cm))
+    cc[!is.finite(cc)] <- 0
+    out$between_data_corr <- mean(fisher_z(cc[upper.tri(cc)]))
+  }
+
+  # Spatial metrics
+  if (!is.null(coords)) {
+    if (nrow(coords) != n && ncol(coords) == n) coords <- t(coords)
+    stopifnot(nrow(coords) == n)
+    ccent <- result$coord_centers
+    if (is.null(ccent)) {
+      ccent <- vapply(seq_len(n_clusters), function(k) colMeans(coords[labs == k, , drop = FALSE]), numeric(ncol(coords)))
+      ccent <- t(ccent)
+    }
+    if (nrow(ccent) != n_clusters) {
+      ccent <- ccent[seq_len(n_clusters), , drop = FALSE]
+    }
+    within_dist <- numeric(n)
+    for (k in seq_len(n_clusters)) {
+      idx <- which(labs == k)
+      if (length(idx) == 0) next
+      diff <- coords[idx, , drop = FALSE] - matrix(rep(ccent[k, ], each = length(idx)), ncol = ncol(coords), byrow = TRUE)
+      within_dist[idx] <- sqrt(rowSums(diff^2))
+    }
+    out$within_spatial_dist <- mean(within_dist)
+  }
+
+  out
+}
+
+# Internal ARI (duplicated here to avoid extra deps)
+adj_rand_index_internal <- function(labels1, labels2) {
+  if (length(labels1) != length(labels2)) return(NA_real_)
+  tab <- table(labels1, labels2)
+  sum_comb <- sum(choose(tab, 2))
+  sum_rows <- sum(choose(rowSums(tab), 2))
+  sum_cols <- sum(choose(colSums(tab), 2))
+  n <- length(labels1)
+  expected <- sum_rows * sum_cols / choose(n, 2)
+  max_idx <- 0.5 * (sum_rows + sum_cols)
+  if (max_idx == expected) return(0)
+  (sum_comb - expected) / (max_idx - expected)
+}
+
+# Null-coalescing helper
+`%||%` <- function(a, b) if (!is.null(a)) a else b
 
 #' Extract Class IDs from Cluster Result
 #'

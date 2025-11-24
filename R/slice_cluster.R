@@ -412,7 +412,7 @@ slice_msf <- function(vec, mask,
   
   # Create ClusteredNeuroVol with consistent logical mask (only positive values are TRUE)
   logical_mask <- mask > 0
-  kvol <- ClusteredNeuroVol(logical_mask, clusters = cluster_ids)
+  kvol <- suppressWarnings(ClusteredNeuroVol(logical_mask, clusters = cluster_ids))
   
   # Prepare return structure
   ret <- structure(

@@ -192,7 +192,7 @@ handle_bad_voxels <- function(X, seed = NULL) {
 #' @importFrom matrixStats colSds
 #' @importFrom neighborweights weighted_spatial_adjacency commute_time_distance
 #' @importFrom stats kmeans
-#' @importFrom Matrix t
+#' @importFrom Matrix t isSymmetric
 #' @import assertthat
 #'
 #' @export
@@ -271,7 +271,8 @@ commute_cluster <- function(bvec,
   )
 
   # Ensure symmetry (only if needed to avoid unnecessary computation)
-  if (!isSymmetric(W)) {
+  sym_ok <- if (inherits(W, "Matrix")) Matrix::isSymmetric(W, checkDN = FALSE) else isSymmetric(W)
+  if (!sym_ok) {
     if (verbose) {
       message("commute_cluster: Symmetrizing adjacency matrix...")
     }

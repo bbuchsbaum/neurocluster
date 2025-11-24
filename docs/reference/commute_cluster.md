@@ -238,3 +238,35 @@ Solutions:
 [`acsc`](acsc.md) for large-scale correlation-based clustering
 
 ## Examples
+
+``` r
+if (FALSE) { # \dontrun{
+# Small example with synthetic data
+library(neuroim2)
+mask <- NeuroVol(array(1, c(20, 20, 20)), NeuroSpace(c(20, 20, 20)))
+vec <- replicate(10, NeuroVol(array(runif(20*20*20), c(20, 20, 20)),
+  NeuroSpace(c(20, 20, 20))), simplify = FALSE)
+vec <- do.call(concat, vec)
+
+# Run clustering (8000 voxels - feasible for this method)
+commute_res <- commute_cluster(vec, mask, K = 50, verbose = TRUE)
+
+# Access results
+print(commute_res$n_clusters)
+plot(commute_res$clusvol)
+} # }
+
+if (FALSE) { # \dontrun{
+# With reproducible noise injection (for zero-variance voxels)
+commute_res <- commute_cluster(vec, mask, K = 50, noise_seed = 42)
+
+# For full reproducibility (including k-means), use set.seed() wrapper
+set.seed(123)
+commute_res <- commute_cluster(vec, mask, K = 50, noise_seed = 42)
+
+# ROI-based analysis (recommended workflow)
+roi_mask <- mask  # In practice, use a smaller ROI
+roi_mask[1:10, , ] <- 0  # Reduce voxels
+commute_res <- commute_cluster(vec, roi_mask, K = 30)
+} # }
+```

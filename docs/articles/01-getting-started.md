@@ -60,32 +60,24 @@ plot(result)
 
 ## Quick visual (toy blocks)
 
-A tiny, seeded toy illustrates a clear 2D grid of contiguous clusters
-(K=6) on a single axial slice. Voxels within each grid cell share a
-similar time course (high correlation), so clustering should recover the
-underlying block structure. Colors are arbitrary cluster IDs.
+Here’s a scikit-learn-style “blobs” example: three vertical bands with
+distinct time courses plus light noise. It’s tiny, deterministic, and
+easy to see what the algorithm is doing.
 
 ``` r
-toy <- generate_synthetic_volume(
-  scenario = "checkerboard",
-  dims = c(12, 12, 1),
-  n_clusters = 6,
-  n_time = 16,
-  seed = 123
-)
+toy <- make_block_synthetic(dims = c(12, 12, 1), ntime = 60, noise = 0.1, seed = 7)
 toy_res <- cluster4d(
-  toy$vec, toy$mask, n_clusters = 6,
-  method = "slic", spatial_weight = 0.5, connectivity = 26,
-  max_iterations = 10
+  toy$vec, toy$mask, n_clusters = 3,
+  method = "snic", max_iterations = 1
 )
 plot(toy_res, slice = c(1, 1, 1), view = "axial")
 ```
 
-![Axial slice showing several contiguous colored
-regions.](01-getting-started_files/figure-html/quick-visual-1.png)
+![Axial slice showing three contiguous colored
+bands.](01-getting-started_files/figure-html/quick-visual-1.png)
 
-Toy axial slice clustered with K=6; contiguous blocks roughly follow a
-2×3 grid (colors are arbitrary cluster IDs).
+Blocky synthetic with three temporal signatures. SNIC recovers the
+spatial bands cleanly.
 
 ## Export
 

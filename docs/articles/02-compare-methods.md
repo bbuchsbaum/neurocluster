@@ -5,65 +5,42 @@
 Run several methods with the same `n_clusters` and compare basic
 characteristics.
 
-Throughout this vignette we use
-[`generate_synthetic_volume()`](../reference/generate_synthetic_volume.md)
-to build a tiny checkerboard dataset (single axial slice, 2×3
-structure). The generator provides both the noisy time series volume and
-the latent labels, so we can see how close each method gets to the known
-answer.
+We use a simple, scikit-learn-style synthetic (three vertical bands with
+distinct time courses plus light noise). It’s small, deterministic, and
+spatially local, so all methods have a fair shot.
 
-## Ground truth grid (for reference)
+## Ground truth bands (for reference)
 
 ``` r
 # Display the ground truth as a simple image
 truth_array <- array(toy$truth, dim = toy$dims)
-image(truth_array[,,1], col = rainbow(toy$n_clusters),
-      main = "Ground Truth: 2x3 Grid", axes = FALSE)
+image(truth_array[,,1], col = rainbow(6),
+      main = "Ground Truth: 3 bands", axes = FALSE)
 ```
 
-![Axial slice showing a clean 2×3 grid of colored
-blocks.](02-compare-methods_files/figure-html/fig-toy-ground-truth-1.png)
+![Axial slice showing three colored vertical
+bands.](02-compare-methods_files/figure-html/fig-toy-ground-truth-1.png)
 
-Ground truth 2×3 grid of clusters on the toy axial slice (labels 1–6).
+Ground truth bands (3 clusters) on the toy axial slice.
 
 ## Run methods (same K)
 
 ``` r
-methods <- c("supervoxels", "snic", "slic")
+methods <- c("snic", "slice_msf", "supervoxels")
 run_one <- function(m) {
-  # Method-specific tuning for this tiny toy so that each method plausibly recovers the 2×3 grid.
-  if (m == "supervoxels") {
-    args <- list(
-      vec = toy$vec, mask = toy$mask,
-      n_clusters = 6,
-      method = "supervoxels",
-      spatial_weight = 0.3,          # more feature-driven on this toy
-      connectivity = 6,
-      max_iterations = 15,
-      sigma2 = 1,                    # tighter spatial kernel
-      use_gradient = FALSE
-    )
-  } else if (m == "snic") {
-    args <- list(
-      vec = toy$vec, mask = toy$mask,
-      n_clusters = 6,
-      method = "snic",
-      spatial_weight = 0.25,         # lower compactness to respect patterns
-      max_iterations = 50
-    )
-  } else if (m == "slic") {
-    args <- list(
-      vec = toy$vec, mask = toy$mask,
-      n_clusters = 6,
-      method = "slic",
-      spatial_weight = 0.5,
-      connectivity = 26,
-      max_iterations = 10,
-      preserve_k = TRUE,
-      seed_method = "grid"
-    )
-  } else {
-    stop("Unknown method")
+  args <- list(vec = toy$vec, mask = toy$mask, n_clusters = 3, method = m)
+  if (m == "snic") {
+    args$compactness <- 3
+    args$max_iterations <- 5
+  } else if (m == "slice_msf") {
+    args$r <- 8
+    args$min_size <- 5
+    args$compactness <- 3
+    args$num_runs <- 1
+    args$stitch_z <- FALSE
+  } else if (m == "supervoxels") {
+    args$alpha <- 0.6
+    args$connectivity <- 6
   }
   out <- try(do.call(cluster4d, args), silent = TRUE)
   if (inherits(out, "try-error")) NULL else out
@@ -77,11 +54,11 @@ results_ok <- Filter(Negate(is.null), results)
 ``` r
 # Fallback in case prior chunk failed in a different environment
 if (!exists("results_ok", inherits = TRUE)) {
-  methods <- c("supervoxels", "snic", "slic")
+  methods <- c("snic", "slice_msf", "supervoxels")
   run_one <- function(m) {
     # Simple fallback with default parameters
     out <- try(cluster4d(toy$vec, toy$mask,
-                         n_clusters = 6, method = m,
+                         n_clusters = 3, method = m,
                          max_iterations = 5),
                silent = TRUE)
     if (inherits(out, "try-error")) NULL else out
@@ -100,20 +77,20 @@ for (nm in names(results_ok)) {
 ![Panels showing axial slices for available methods with arbitrary
 cluster colors.](02-compare-methods_files/figure-html/fig-methods-1.png)
 
-Toy axial view clustered by available methods (K=6; method-specific
-spatial settings). Colors indicate cluster IDs (arbitrary).
+Toy axial view clustered by available methods (K=3). Colors indicate
+cluster IDs (arbitrary).
 
 ![Panels showing axial slices for available methods with arbitrary
 cluster colors.](02-compare-methods_files/figure-html/fig-methods-2.png)
 
-Toy axial view clustered by available methods (K=6; method-specific
-spatial settings). Colors indicate cluster IDs (arbitrary).
+Toy axial view clustered by available methods (K=3). Colors indicate
+cluster IDs (arbitrary).
 
 ![Panels showing axial slices for available methods with arbitrary
 cluster colors.](02-compare-methods_files/figure-html/fig-methods-3.png)
 
-Toy axial view clustered by available methods (K=6; method-specific
-spatial settings). Colors indicate cluster IDs (arbitrary).
+Toy axial view clustered by available methods (K=3). Colors indicate
+cluster IDs (arbitrary).
 
 ``` r
 par(mfrow = c(1, 1))

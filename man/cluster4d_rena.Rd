@@ -12,6 +12,7 @@ cluster4d_rena(
   max_iterations = 50,
   connectivity = 26,
   verbose = FALSE,
+  exact_k = TRUE,
   ...
 )
 }
@@ -43,6 +44,8 @@ Maps to: \code{iterations} (supervoxels), \code{max_iter} (snic/slic),
 6 = face neighbors only, 26 = face + edge + corner neighbors.}
 
 \item{verbose}{Print progress messages. Default FALSE.}
+
+\item{exact_k}{Logical; if TRUE, apply edge pruning to target exactly \code{n_clusters}.}
 
 \item{...}{Additional parameters (currently unused for ReNA)}
 }

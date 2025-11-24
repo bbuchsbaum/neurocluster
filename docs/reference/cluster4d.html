@@ -36,6 +36,7 @@ in the neurocluster package."></head><body>
     <li><a class="dropdown-item" href="../articles/20-spatially-constrained-clustering.html">Spatially Constrained Clustering</a></li>
     <li><a class="dropdown-item" href="../articles/21-method-deep-dives.html">Method Deep Dives</a></li>
     <li><a class="dropdown-item" href="../articles/22-performance-memory.html">Performance &amp; Memory</a></li>
+    <li><a class="dropdown-item" href="../articles/25-benchmarks.html">Benchmarks</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Reference Maps</h6></li>
     <li><a class="dropdown-item" href="../articles/30-api-overview.html">API Overview</a></li>
     <li><a class="dropdown-item" href="../articles/31-objects-results.html">Objects &amp; Results</a></li>
@@ -68,7 +69,8 @@ in the neurocluster package.</p>
 <span>  <span class="va">vec</span>,</span>
 <span>  <span class="va">mask</span>,</span>
 <span>  n_clusters <span class="op">=</span> <span class="fl">100</span>,</span>
-<span>  method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"supervoxels"</span>, <span class="st">"snic"</span>, <span class="st">"slic"</span>, <span class="st">"slice_msf"</span>, <span class="st">"flash3d"</span>, <span class="st">"g3s"</span><span class="op">)</span>,</span>
+<span>  method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"supervoxels"</span>, <span class="st">"snic"</span>, <span class="st">"slic"</span>, <span class="st">"slice_msf"</span>, <span class="st">"flash3d"</span>, <span class="st">"g3s"</span>, <span class="st">"rena"</span>,</span>
+<span>    <span class="st">"rena_plus"</span><span class="op">)</span>,</span>
 <span>  spatial_weight <span class="op">=</span> <span class="fl">0.5</span>,</span>
 <span>  max_iterations <span class="op">=</span> <span class="fl">10</span>,</span>
 <span>  connectivity <span class="op">=</span> <span class="fl">26</span>,</span>
@@ -104,6 +106,7 @@ may produce slightly different numbers of clusters due to algorithmic constraint
 <li><p><code>"slice_msf"</code>: Slice-wise Minimum Spanning Forest (fast but may show z-artifacts)</p></li>
 <li><p><code>"flash3d"</code>: Fast Low-rank Approximate Superclusters</p></li>
 <li><p><code>"g3s"</code>: Gradient-Guided Geodesic Supervoxels (NEW - recommended for best quality/speed)</p></li>
+<li><p><code>"rena"</code>: Recursive Nearest Agglomeration (fast, balanced, topology-aware)</p></li>
 </ul></dd>
 
 
@@ -174,7 +177,7 @@ containing:</p>
 
 
 
-<table class="table table"><tr><td><strong>Method</strong></td><td><strong>Speed</strong></td><td><strong>3D Continuity</strong></td><td><strong>Memory</strong></td><td><strong>Parallel</strong></td><td><strong>Best For</strong></td><td>supervoxels</td></tr><tr><td>Slow</td><td>Excellent</td><td>High</td><td>Yes</td><td>Small-medium data, smooth parcels</td><td>snic</td><td>Fast</td></tr><tr><td>Good</td><td>Low</td><td>No</td><td>Large data, non-iterative</td><td>slic</td><td>Fast</td><td>Good</td></tr><tr><td>Medium</td><td>Yes</td><td>Balanced speed/quality</td><td>slice_msf</td><td>Very Fast</td><td>Moderate</td><td>Low</td></tr><tr><td>Yes</td><td>High-res data, accept z-artifacts</td><td>flash3d</td><td>Fast</td><td>Good</td><td>Medium</td><td>Partial</td></tr></table></div>
+<table class="table table"><tr><td><strong>Method</strong></td><td><strong>Speed</strong></td><td><strong>3D Continuity</strong></td><td><strong>Memory</strong></td><td><strong>Parallel</strong></td><td><strong>Best For</strong></td><td>supervoxels</td></tr><tr><td>Slow</td><td>Excellent</td><td>High</td><td>Yes</td><td>Small-medium data, smooth parcels</td><td>snic</td><td>Fast</td></tr><tr><td>Good</td><td>Low</td><td>No</td><td>Large data, non-iterative</td><td>slic</td><td>Fast</td><td>Good</td></tr><tr><td>Medium</td><td>Yes</td><td>Balanced speed/quality</td><td>slice_msf</td><td>Very Fast</td><td>Moderate</td><td>Low</td></tr><tr><td>Yes</td><td>High-res data, accept z-artifacts</td><td>flash3d</td><td>Fast</td><td>Good</td><td>Medium</td><td>Partial</td></tr><tr><td>Large data, hash-based</td><td>rena</td><td>Fast</td><td>Excellent</td><td>Low</td><td>No</td><td>Balanced clusters, topology-aware</td></tr></table></div>
     <div class="section level2">
     <h2 id="parameter-guidelines">Parameter Guidelines<a class="anchor" aria-label="anchor" href="#parameter-guidelines"></a></h2>
 
@@ -200,7 +203,48 @@ containing:</p>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
+<span class="r-in"><span><span class="co"># Simple synthetic example (runs quickly for testing)</span></span></span>
+<span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/bbuchsbaum/neuroim2" class="external-link">neuroim2</a></span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">mask</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroVol.html" class="external-link">NeuroVol</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/array.html" class="external-link">array</a></span><span class="op">(</span><span class="fl">1</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">4</span>,<span class="fl">4</span>,<span class="fl">4</span><span class="op">)</span><span class="op">)</span>, <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroSpace.html" class="external-link">NeuroSpace</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">4</span>,<span class="fl">4</span>,<span class="fl">4</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">vec</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroVec-class.html" class="external-link">NeuroVec</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/array.html" class="external-link">array</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="fl">4</span><span class="op">*</span><span class="fl">4</span><span class="op">*</span><span class="fl">4</span><span class="op">*</span><span class="fl">10</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">4</span>,<span class="fl">4</span>,<span class="fl">4</span>,<span class="fl">10</span><span class="op">)</span><span class="op">)</span>, </span></span>
+<span class="r-in"><span>                <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroSpace.html" class="external-link">NeuroSpace</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">4</span>,<span class="fl">4</span>,<span class="fl">4</span>,<span class="fl">10</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu">cluster4d</span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">3</span>, method <span class="op">=</span> <span class="st">"g3s"</span>, </span></span>
+<span class="r-in"><span>                   max_iterations <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">result</span><span class="op">$</span><span class="va">n_clusters</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
+<span class="r-in"><span><span class="co"># More realistic examples with larger data</span></span></span>
+<span class="r-in"><span><span class="va">mask</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroVol.html" class="external-link">NeuroVol</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/array.html" class="external-link">array</a></span><span class="op">(</span><span class="fl">1</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">20</span>,<span class="fl">20</span>,<span class="fl">20</span><span class="op">)</span><span class="op">)</span>, <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroSpace.html" class="external-link">NeuroSpace</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">20</span>,<span class="fl">20</span>,<span class="fl">20</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">vec</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">replicate</a></span><span class="op">(</span><span class="fl">50</span>, <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroVol.html" class="external-link">NeuroVol</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/array.html" class="external-link">array</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/Uniform.html" class="external-link">runif</a></span><span class="op">(</span><span class="fl">20</span><span class="op">*</span><span class="fl">20</span><span class="op">*</span><span class="fl">20</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">20</span>,<span class="fl">20</span>,<span class="fl">20</span><span class="op">)</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>                              <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroSpace.html" class="external-link">NeuroSpace</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">20</span>,<span class="fl">20</span>,<span class="fl">20</span><span class="op">)</span><span class="op">)</span><span class="op">)</span>, simplify<span class="op">=</span><span class="cn">FALSE</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">vec</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/do.call.html" class="external-link">do.call</a></span><span class="op">(</span><span class="va">concat</span>, <span class="va">vec</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co"># Basic usage with default supervoxels method</span></span></span>
+<span class="r-in"><span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu">cluster4d</span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">100</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co"># Fast clustering with FLASH-3D (hash-based)</span></span></span>
+<span class="r-in"><span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu">cluster4d</span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">100</span>, method <span class="op">=</span> <span class="st">"flash3d"</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co"># Emphasize spatial compactness</span></span></span>
+<span class="r-in"><span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu">cluster4d</span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">100</span>, spatial_weight <span class="op">=</span> <span class="fl">0.8</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co"># Use specific method with custom parameters</span></span></span>
+<span class="r-in"><span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu">cluster4d</span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">100</span>, </span></span>
+<span class="r-in"><span>                   method <span class="op">=</span> <span class="st">"slice_msf"</span>,</span></span>
+<span class="r-in"><span>                   num_runs <span class="op">=</span> <span class="fl">3</span>,  <span class="co"># slice_msf-specific parameter</span></span></span>
+<span class="r-in"><span>                   consensus <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co"># Get parameter suggestions for your data</span></span></span>
+<span class="r-in"><span><span class="va">n_vox</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">mask</span> <span class="op">&gt;</span> <span class="fl">0</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">n_time</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/dim.html" class="external-link">dim</a></span><span class="op">(</span><span class="va">vec</span><span class="op">)</span><span class="op">[</span><span class="fl">4</span><span class="op">]</span></span></span>
+<span class="r-in"><span><span class="va">params</span> <span class="op">&lt;-</span> <span class="fu"><a href="suggest_cluster4d_params.html">suggest_cluster4d_params</a></span><span class="op">(</span><span class="va">n_vox</span>, <span class="va">n_time</span>, priority <span class="op">=</span> <span class="st">"quality"</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu">cluster4d</span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, </span></span>
+<span class="r-in"><span>                   n_clusters <span class="op">=</span> <span class="va">params</span><span class="op">$</span><span class="va">n_clusters</span>,</span></span>
+<span class="r-in"><span>                   method <span class="op">=</span> <span class="va">params</span><span class="op">$</span><span class="va">recommended_method</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
+</code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside></div>

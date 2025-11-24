@@ -50,6 +50,7 @@
     <li><a class="dropdown-item" href="../articles/20-spatially-constrained-clustering.html">Spatially Constrained Clustering</a></li>
     <li><a class="dropdown-item" href="../articles/21-method-deep-dives.html">Method Deep Dives</a></li>
     <li><a class="dropdown-item" href="../articles/22-performance-memory.html">Performance &amp; Memory</a></li>
+    <li><a class="dropdown-item" href="../articles/25-benchmarks.html">Benchmarks</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Reference Maps</h6></li>
     <li><a class="dropdown-item" href="../articles/30-api-overview.html">API Overview</a></li>
     <li><a class="dropdown-item" href="../articles/31-objects-results.html">Objects &amp; Results</a></li>
@@ -264,28 +265,20 @@ Ground-truth Gaussian blobs (axial slice).
 <div class="section level2">
 <h2 id="quick-visual">Quick visual (toy blocks)<a class="anchor" aria-label="anchor" href="#quick-visual"></a>
 </h2>
-<p>A tiny, seeded toy illustrates a clear 2D grid of contiguous clusters
-(K=6) on a single axial slice. Voxels within each grid cell share a
-similar time course (high correlation), so clustering should recover the
-underlying block structure. Colors are arbitrary cluster IDs.</p>
+<p>Here’s a scikit-learn-style “blobs” example: three vertical bands
+with distinct time courses plus light noise. It’s tiny, deterministic,
+and easy to see what the algorithm is doing.</p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">toy</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/generate_synthetic_volume.html">generate_synthetic_volume</a></span><span class="op">(</span></span>
-<span>  scenario <span class="op">=</span> <span class="st">"checkerboard"</span>,</span>
-<span>  dims <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">12</span>, <span class="fl">12</span>, <span class="fl">1</span><span class="op">)</span>,</span>
-<span>  n_clusters <span class="op">=</span> <span class="fl">6</span>,</span>
-<span>  n_time <span class="op">=</span> <span class="fl">16</span>,</span>
-<span>  seed <span class="op">=</span> <span class="fl">123</span></span>
-<span><span class="op">)</span></span>
+<code class="sourceCode R"><span><span class="va">toy</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/make_block_synthetic.html">make_block_synthetic</a></span><span class="op">(</span>dims <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">12</span>, <span class="fl">12</span>, <span class="fl">1</span><span class="op">)</span>, ntime <span class="op">=</span> <span class="fl">60</span>, noise <span class="op">=</span> <span class="fl">0.1</span>, seed <span class="op">=</span> <span class="fl">7</span><span class="op">)</span></span>
 <span><span class="va">toy_res</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/cluster4d.html">cluster4d</a></span><span class="op">(</span></span>
-<span>  <span class="va">toy</span><span class="op">$</span><span class="va">vec</span>, <span class="va">toy</span><span class="op">$</span><span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">6</span>,</span>
-<span>  method <span class="op">=</span> <span class="st">"slic"</span>, spatial_weight <span class="op">=</span> <span class="fl">0.5</span>, connectivity <span class="op">=</span> <span class="fl">26</span>,</span>
-<span>  max_iterations <span class="op">=</span> <span class="fl">10</span></span>
+<span>  <span class="va">toy</span><span class="op">$</span><span class="va">vec</span>, <span class="va">toy</span><span class="op">$</span><span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">3</span>,</span>
+<span>  method <span class="op">=</span> <span class="st">"snic"</span>, max_iterations <span class="op">=</span> <span class="fl">1</span></span>
 <span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">toy_res</span>, slice <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">1</span>, <span class="fl">1</span>, <span class="fl">1</span><span class="op">)</span>, view <span class="op">=</span> <span class="st">"axial"</span><span class="op">)</span></span></code></pre></div>
 <div class="figure" style="text-align: center">
-<img src="01-getting-started_files/figure-html/quick-visual-1.png" class="r-plt" alt="Axial slice showing several contiguous colored regions." width="100%"><p class="caption">
-Toy axial slice clustered with K=6; contiguous blocks roughly follow a
-2×3 grid (colors are arbitrary cluster IDs).
+<img src="01-getting-started_files/figure-html/quick-visual-1.png" class="r-plt" alt="Axial slice showing three contiguous colored bands." width="100%"><p class="caption">
+Blocky synthetic with three temporal signatures. SNIC recovers the
+spatial bands cleanly.
 </p>
 </div>
 </div>

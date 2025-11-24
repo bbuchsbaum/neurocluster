@@ -34,6 +34,6 @@ meta_clust <- function(x, cuts, ...) {
 #' @seealso \code{\link[clue]{cl_consensus}}, \code{\link[clue]{as.cl_hard_partition}}, \code{\link[clue]{cl_ensemble}}
 #' @importFrom clue cl_consensus as.cl_hard_partition cl_ensemble
 #' @export
-merge_clus <- function(x, method, ...) {
-  UseMethod("merge_clus", x, method)
+merge_clus <- function(x, ...) {
+  UseMethod("merge_clus")
 }

@@ -241,10 +241,12 @@ struct BinnedAssignWorker : public Worker {
 
   // Optionally intersect with neighbor-assigned clusters to preserve locality
   inline void intersect_with_neighbor_clusters(int voxel_index) const {
+    const int knn = nn_index.ncol();
+    // Only prune when there are materially more clusters than immediate neighbors.
+    if (n_clusters <= knn) return;
     if (cand.empty()) return; // nothing to intersect; fall back later if needed
     // Mark which candidates are kept (we'll rebuild cand in-place)
     int write_pos = 0;
-    const int knn = nn_index.ncol();
     // Mark neighbor clusters from nn graph (within dthresh)
     // We'll use a small stamp array keyed by cluster id to avoid a set.
     // To avoid an extra array, we reuse seen_stamp with a new stamp value.
@@ -487,8 +489,10 @@ IntegerVector fused_assignment_binned(IntegerMatrix nn_index,
   };
 
   auto intersect_with_neighbor_clusters = [&](int i){
-    if (cand.empty()) return;
     const int knn = nn_index.ncol();
+    // Skip pruning when cluster count is small relative to neighbor count.
+    if (K <= knn) return;
+    if (cand.empty()) return;
     int nb_stamp_val = cur_stamp + 1;
     if (nb_stamp_val == std::numeric_limits<int>::max()) nb_stamp_val = 1;
     for (int j = 0; j < knn; ++j) {

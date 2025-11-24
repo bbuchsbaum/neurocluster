@@ -68,6 +68,7 @@ same structure as `supervoxel_cluster_fit()`.
 ``` r
 feature_mat <- matrix(rnorm(100 * 10), 100, 10)
 library(future)
+#> Warning: package ‘future’ was built under R version 4.5.2
 plan(multicore)
 cres <- supervoxel_cluster_time(t(feature_mat), K=20)
 #> Error in (function (.x, .f, ..., .progress = FALSE) {    map_("list", .x, .f, ..., .progress = .progress)})(.x = 1L, .f = function (...) {    NULL    NULL    ...furrr_out <- ...furrr_fn(...)    ...furrr_out}): ℹ In index: 1.

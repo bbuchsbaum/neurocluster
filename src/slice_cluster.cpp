@@ -12,6 +12,7 @@
 #include <queue>
 #include <limits>
 #include <cstring>
+#include <array>
 
 using namespace Rcpp;
 using namespace RcppParallel;
@@ -135,9 +136,12 @@ inline void build_dct_basis(int T, int r, std::vector<double> &phi) {
   }
 }
 
-inline double dot_col(const NumericMatrix &U, int i, int j, int r) {
-  const double *pi = &U(0,i), *pj = &U(0,j);
-  double s=0.0; for (int k=0;k<r;++k) s += pi[k]*pj[k];
+// Row-major voxel-major dot: U_flat is N x r laid out as contiguous blocks per voxel
+inline double dot_voxel(const std::vector<double> &U_flat, int i, int j, int r) {
+  const double *pi = &U_flat[(size_t)i * r];
+  const double *pj = &U_flat[(size_t)j * r];
+  double s = 0.0;
+  for (int k = 0; k < r; ++k) s += pi[k] * pj[k];
   return s;
 }
 
@@ -152,18 +156,18 @@ struct SliceSketchWorker : public Worker {
   const int nx, ny, nz, T, r;
   const bool rows_are_time;
   const double gamma;
-  NumericMatrix &U; // r x N
+  std::vector<double> &U_flat; // N x r, row-major per voxel
   NumericVector &W; // N
 
   SliceSketchWorker(const NumericMatrix &TS_, const IntegerVector &mask_,
                     const std::vector<double> &phi_,
                     int nx_, int ny_, int nz_, int T_, int r_, bool rows_are_time_,
-                    double gamma_, NumericMatrix &U_, NumericVector &W_)
+                    double gamma_, std::vector<double> &U_flat_, NumericVector &W_)
     : TS(TS_), mask(mask_), phi(phi_), nx(nx_), ny(ny_), nz(nz_), T(T_), r(r_),
-      rows_are_time(rows_are_time_), gamma(gamma_), U(U_), W(W_) {}
+      rows_are_time(rows_are_time_), gamma(gamma_), U_flat(U_flat_), W(W_) {}
 
   inline void get_ts(int v, std::vector<double> &buf) const {
-    buf.assign(T,0.0);
+    // buf already sized T
     if (rows_are_time) {
       // TS: T x N -> column v is contiguous (column-major)
       const double* col = &TS(0, v);
@@ -192,10 +196,11 @@ struct SliceSketchWorker : public Worker {
           double acc=0.0;
           const double* ph = &phi[k]; // phi[t*r+k]
           for (int t=0;t<T;++t) acc += zsig[t] * ph[t*r];
-          U(k,g)=acc; norm2 += acc*acc;
+          U_flat[(size_t)g * r + k] = acc;
+          norm2 += acc*acc;
         }
         norm2 = std::sqrt(std::max(1e-12, norm2));
-        for (int k=0;k<r;++k) U(k,g) /= norm2;
+        for (int k=0;k<r;++k) U_flat[(size_t)g * r + k] /= norm2;
       }
     }
   }
@@ -203,14 +208,14 @@ struct SliceSketchWorker : public Worker {
 
 // Optional z-smoothing across slices to reduce boundary seams
 struct ZSmoothWorker : public Worker {
-  NumericMatrix &U;
+  std::vector<double> &U_flat; // N x r
   const IntegerVector mask;
   const int nx, ny, nz, r;
   const double factor;
 
-  ZSmoothWorker(NumericMatrix &U_, const IntegerVector &mask_,
+  ZSmoothWorker(std::vector<double> &U_flat_, const IntegerVector &mask_,
                 int nx_, int ny_, int nz_, int r_, double factor_)
-    : U(U_), mask(mask_), nx(nx_), ny(ny_), nz(nz_), r(r_), factor(factor_) {}
+    : U_flat(U_flat_), mask(mask_), nx(nx_), ny(ny_), nz(nz_), r(r_), factor(factor_) {}
 
   void operator()(std::size_t k0, std::size_t k1) {
     if (factor <= 0.0) return;
@@ -224,7 +229,7 @@ struct ZSmoothWorker : public Worker {
           // copy column into buffer for stability
           for (int z = 0; z < nz; ++z) {
             int g = idx3d(x, y, z, nx, ny);
-            col_buf[z] = mask[g] ? U((int)k, g) : 0.0;
+            col_buf[z] = mask[g] ? U_flat[(size_t)g * r + (int)k] : 0.0;
           }
           // apply smoothing with reflected boundary
           for (int z = 0; z < nz; ++z) {
@@ -233,7 +238,7 @@ struct ZSmoothWorker : public Worker {
             double val = col_buf[z] * c_mid;
             val += (z > 0 ? col_buf[z - 1] : col_buf[z]) * c_side;
             val += (z < nz - 1 ? col_buf[z + 1] : col_buf[z]) * c_side;
-            U((int)k, g) = val;
+            U_flat[(size_t)g * r + (int)k] = val;
           }
         }
       }
@@ -242,74 +247,92 @@ struct ZSmoothWorker : public Worker {
 };
 
 // ---------------------------------------------------------------
-// Build in-slice edges with reliability-aware distance
-// d_ij = 1 - (w_i w_j) * (U_i . U_j)  (clamped to [0,2])
+// Build 3-D edges with cosine distance only
+// d_ij = 1 - (U_i . U_j)  (clamped to [0,2])
 // Optional mild spatial penalty for anisotropic voxels.
 // ---------------------------------------------------------------
 
-inline void build_slice_edges(
-  int z,
-  const IntegerVector &mask, const NumericMatrix &U, const NumericVector &W,
-  int nx, int ny, int r, int nbhd,
+inline void build_3d_edges(
+  const IntegerVector &mask, const std::vector<double> &U_flat,
+  int nx, int ny, int nz, int r, int nbhd,
   const NumericVector &voxdim, double spatial_beta,
-  std::vector<int> &gids, std::vector<int> &loc_of_plane, std::vector<Edge> &edges
+  std::vector<int> &gids, std::vector<Edge> &edges
 ) {
   gids.clear();
   edges.clear();
-  loc_of_plane.assign(nx*ny, -1);
+  const int N = nx * ny * nz;
+  gids.reserve(N);
+  std::vector<int> glob2loc(N, -1);
 
-  for (int y = 0; y < ny; ++y) {
-    for (int x = 0; x < nx; ++x) {
-      int g = idx3d(x, y, z, nx, ny);
-      if (!mask[g]) continue;
-      int plane = x + nx * y;
-      loc_of_plane[plane] = (int)gids.size();
-      gids.push_back(g);
+  for (int i = 0; i < N; ++i) {
+    if (mask[i]) {
+      glob2loc[i] = (int)gids.size();
+      gids.push_back(i);
     }
   }
   if (gids.empty()) return;
 
-  struct Off { int dx; int dy; double pen; };
-  std::vector<Off> offs;
-  offs.push_back({1, 0, 1.0});
-  offs.push_back({0, 1, 1.0});
+  const double dx = voxdim.size() >= 1 ? (double)voxdim[0] : 1.0;
+  const double dy = voxdim.size() >= 2 ? (double)voxdim[1] : 1.0;
+  const double dz = voxdim.size() >= 3 ? (double)voxdim[2] : 1.0;
+  const double minlen = std::max(1e-6, std::min({dx, dy, dz}));
+
+  std::vector<std::array<int,3>> offs;
+  // axial forward neighbors
+  offs.push_back({1, 0, 0});
+  offs.push_back({0, 1, 0});
+  offs.push_back({0, 0, 1});
   if (nbhd == 8) {
-    const double dx = voxdim.size() >= 1 ? (double)voxdim[0] : 1.0;
-    const double dy = voxdim.size() >= 2 ? (double)voxdim[1] : 1.0;
-    const double minlen = std::max(1e-6, std::min(dx, dy));
-    const double ddiag = std::sqrt(dx * dx + dy * dy) / minlen;
-    const double pen = 1.0 + spatial_beta * (ddiag - 1.0);
-    offs.push_back({1, 1, pen});
-    offs.push_back({1, -1, pen});
+    for (int dzs = 0; dzs <= 1; ++dzs) {
+      for (int dys = -1; dys <= 1; ++dys) {
+        for (int dxs = -1; dxs <= 1; ++dxs) {
+          if (dxs == 0 && dys == 0 && dzs == 0) continue;
+          if (dzs == 0 && dys == 0 && dxs <= 0) continue; // forward in-plane only once
+          if (dzs == 0 && std::abs(dxs) + std::abs(dys) <= 1) continue; // already axial
+          if (dzs == 1) {
+            if (dxs == 0 && dys == 0) continue; // already axial z
+          }
+          offs.push_back({dxs, dys, dzs});
+        }
+      }
+    }
   }
 
-  for (int y = 0; y < ny; ++y) {
-    for (int x = 0; x < nx; ++x) {
-      int i = loc_of_plane[x + nx * y];
-      if (i < 0) continue;
-      int gi = gids[i];
-      for (const auto &p : offs) {
-        int xn = x + p.dx;
-        int yn = y + p.dy;
-        if (xn < 0 || xn >= nx || yn < 0 || yn >= ny) continue;
-        int j = loc_of_plane[xn + nx * yn];
-        if (j < 0) continue;
-        int gj = gids[j];
+  edges.reserve((size_t)gids.size() * offs.size());
 
-        double wprod = std::max(0.0, (double)W[gi] * (double)W[gj]);
-        double sim = (wprod > 0.0) ? dot_col(U, gi, gj, r) : 0.0;
-        sim = std::max(-1.0, std::min(1.0, sim));
-        double d = 1.0 - (wprod * sim);
-        if (p.pen > 1.0) d *= p.pen;
-        d = std::max(0.0, std::min(2.0, d));
+  for (size_t idx = 0; idx < gids.size(); ++idx) {
+    int g = gids[idx];
+    int z = g / (nx * ny);
+    int rem = g % (nx * ny);
+    int y = rem / nx;
+    int x = rem % nx;
 
-        Edge e;
-        e.a = i;
-        e.b = j;
-        e.w = (float)d;
-        e.wq = quantize16(d);
-        edges.push_back(e);
-      }
+    for (const auto &o : offs) {
+      int xn = x + o[0];
+      int yn = y + o[1];
+      int zn = z + o[2];
+      if (xn < 0 || xn >= nx || yn < 0 || yn >= ny || zn < 0 || zn >= nz) continue;
+      int gn = idx3d(xn, yn, zn, nx, ny);
+      int j = glob2loc[gn];
+      if (j < 0) continue;
+
+      double sim = dot_voxel(U_flat, g, gn, r);
+      sim = std::max(-1.0, std::min(1.0, sim));
+      double d = 1.0 - sim;
+
+      double len = std::sqrt((double)o[0]*o[0]*dx*dx +
+                             (double)o[1]*o[1]*dy*dy +
+                             (double)o[2]*o[2]*dz*dz);
+      double factor = 1.0 + spatial_beta * (len / minlen - 1.0);
+      d *= factor;
+      d = std::max(0.0, std::min(2.0, d));
+
+      Edge e;
+      e.a = (int)idx;
+      e.b = j;
+      e.w = (float)d;
+      e.wq = quantize16(d);
+      edges.push_back(e);
     }
   }
 }
@@ -675,17 +698,18 @@ Rcpp::List slice_msf_runwise(
     int r = 12,
     double fh_scale = 0.32,     // FH scale (coarser when larger)
     int min_size = 80,
-    int nbhd = 8,               // in-slice 4 or 8
-    bool stitch_z = false,      // allow 3-D joining (vertical contact)
-    double theta_link = 0.85,   // centroid similarity for stitching
-    int min_contact = 1,        // min touching voxels across z to consider stitch
+    int nbhd = 8,               // 4 -> 6-neigh, 8 -> 26-neigh (forward)
+    bool stitch_z = false,      // legacy; ignored in volumetric mode
+    double theta_link = 0.85,   // legacy
+    int min_contact = 1,        // legacy
     bool rows_are_time = true,
     double gamma = 1.5,
     Rcpp::NumericVector voxel_dim = R_NilValue, // c(dx,dy,dz)
     double spatial_beta = 0.0,
     int target_k_global = -1,   // exact-K across volume (2-D if !stitch_z, else 3-D)
     int target_k_per_slice = -1, // exact-K per slice (ignored if stitch_z==TRUE)
-    double z_mult = 0.0
+    double z_mult = 0.0,
+    double w_threshold = 0.0     // drop voxels with W < w_threshold (0 disables)
 ) {
   if (vol_dim.size()!=3) stop("vol_dim must be c(nx,ny,nz)");
   const int nx=vol_dim[0], ny=vol_dim[1], nz=vol_dim[2];
@@ -704,176 +728,68 @@ Rcpp::List slice_msf_runwise(
 
   // --- sketches & weights (slice-parallel) ---
   NumericVector W(N);
-  NumericMatrix U(r, N);
+  std::vector<double> U_flat((size_t)N * r, 0.0); // voxel-major contiguous
   std::vector<double> phi; build_dct_basis(T, r, phi);
-  SliceSketchWorker skw(TS, mask, phi, nx, ny, nz, T, r, rows_are_time, gamma, U, W);
+  SliceSketchWorker skw(TS, mask, phi, nx, ny, nz, T, r, rows_are_time, gamma, U_flat, W);
   parallelFor(0, nz, skw);
 
   if (z_mult > 0.0) {
     double f = std::max(0.0, std::min(1.0, z_mult));
-    ZSmoothWorker zsw(U, mask, nx, ny, nz, r, f);
+    ZSmoothWorker zsw(U_flat, mask, nx, ny, nz, r, f);
     parallelFor(0, r, zsw);
   }
 
-  // --- per-slice FH segmentation ---
-  std::vector< std::vector<int> > slice_gids(nz);
-  std::vector< std::vector<int> > slice_labs(nz);
-  std::vector<int> slice_maxlab(nz,0);
+  // --- reliability-based masking (drop low-W voxels) ---
+  IntegerVector work_mask = clone(mask);
+  if (w_threshold > 0.0) {
+    for (int i = 0; i < N; ++i) {
+      if (work_mask[i] && W[i] < w_threshold) work_mask[i] = 0;
+    }
+  }
 
-  std::vector<int> loc_of_plane(nx * ny);
+  // --- volumetric FH segmentation ---
+  std::vector<int> gids;
   std::vector<Edge> edges;
-  edges.reserve(nx * ny * (nbhd == 8 ? 4 : 2));
+  build_3d_edges(work_mask, U_flat, nx, ny, nz, r, nbhd, voxdim, spatial_beta, gids, edges);
+  std::vector<int> labs_local;
+  segment_slice_fh((int)gids.size(), edges, fh_scale, min_size, labs_local);
 
-  for (int z=0; z<nz; ++z) {
-    std::vector<int> gids, labs_local;
-    build_slice_edges(z, mask, U, W, nx, ny, r, nbhd, voxdim, spatial_beta,
-                      gids, loc_of_plane, edges);
-    int ns = (int)gids.size();
-    if (ns>0) {
-      segment_slice_fh(ns, edges, fh_scale, min_size, labs_local);
-      slice_gids[z] = std::move(gids);
-      slice_labs[z] = std::move(labs_local);
-      slice_maxlab[z] = *std::max_element(slice_labs[z].begin(), slice_labs[z].end());
-    }
-  }
+  IntegerVector labels(N); // 0 outside mask
+  for (size_t i = 0; i < gids.size(); ++i) labels[gids[i]] = labs_local[i];
 
-  // --- map voxels to initial component ids (unique globally) ---
-  std::vector<int> comp_base(nz,0);
-  int total_comps=0;
-  for (int z=0; z<nz; ++z){ comp_base[z]=total_comps; total_comps+=slice_maxlab[z]; }
-
-  std::vector<int> voxel2comp(N, -1);
-  for (int z=0; z<nz; ++z) {
-    const auto &gids = slice_gids[z];
-    const auto &labs = slice_labs[z];
-    for (size_t i=0;i<gids.size();++i) if (labs[i]>0) {
-      voxel2comp[gids[i]] = comp_base[z] + (labs[i]-1);
-    }
-  }
-
-  // --- accumulate per-component sums & sizes ---
-  NumericMatrix comp_sum(r, total_comps);
-  std::vector<int> comp_sz(total_comps, 0);
-  for (int g=0; g<N; ++g) {
-    int c = voxel2comp[g];
-    if (c<0) continue;
-    comp_sz[c] += 1;
-    for (int k0=0;k0<r;++k0) comp_sum(k0,c) += U(k0,g);
-  }
-
-  // --- optional 3-D stitching across slices (vertical contact) ---
-  UF ufC(total_comps);
-  if (stitch_z && total_comps>0) {
-    struct Contact { int u; int v; double score; int count; };
-    std::vector<Contact> contacts;
-    contacts.reserve(std::max<size_t>(1, (size_t)N / 10));
-
-    for (int z=0; z<nz-1; ++z) {
-      for (int y=0;y<ny;++y) {
-        for (int x=0;x<nx;++x) {
-          int g0=idx3d(x,y,z,nx,ny);
-          int g1=idx3d(x,y,z+1,nx,ny);
-          if (!mask[g0]||!mask[g1]) continue;
-          int c0=voxel2comp[g0], c1=voxel2comp[g1];
-          if (c0<0 || c1<0 || c0==c1) continue;
-          int u=std::min(c0,c1), v=std::max(c0,c1);
-          double sim = dot_col(U, g0, g1, r);
-          contacts.push_back({u, v, sim, 1});
-        }
-      }
-    }
-
-    auto centroid_cos = [&](int a, int b) {
-      double dot=0.0, n0=0.0, n1=0.0;
-      for (int k=0;k<r;++k) {
-        double v0 = comp_sum(k,a);
-        double v1 = comp_sum(k,b);
-        dot += v0 * v1;
-        n0 += v0 * v0;
-        n1 += v1 * v1;
-      }
-      return (n0>0.0 && n1>0.0) ? dot / (std::sqrt(n0)*std::sqrt(n1)) : 0.0;
-    };
-
-    if (!contacts.empty()) {
-      std::sort(contacts.begin(), contacts.end(), [](const Contact &a, const Contact &b){
-        return (a.u < b.u) || (a.u == b.u && a.v < b.v);
-      });
-
-      int cur_u = contacts[0].u;
-      int cur_v = contacts[0].v;
-      double cur_sum = 0.0;
-      int cur_cnt = 0;
-
-      auto flush_pair = [&]() {
-        if (cur_cnt < min_contact) return;
-        double avg_sim = cur_sum / cur_cnt;
-        double gsim = centroid_cos(cur_u, cur_v);
-        if (avg_sim >= theta_link && gsim >= (theta_link - 0.1)) {
-          ufC.unite(cur_u, cur_v, 0.0f);
-        }
-      };
-
-      for (const auto &ct : contacts) {
-        if (ct.u != cur_u || ct.v != cur_v) {
-          flush_pair();
-          cur_u = ct.u;
-          cur_v = ct.v;
-          cur_sum = 0.0;
-          cur_cnt = 0;
-        }
-        cur_sum += ct.score;
-        cur_cnt += ct.count;
-      }
-      flush_pair();
-    }
-  }
-
-  // --- collapse components to stitched groups ---
-  std::vector<int> comp_root(total_comps);
-  std::unordered_map<int,int> root_index; root_index.reserve(total_comps);
-  int G=0;
-  for (int c=0;c<total_comps;++c) {
-    int r0 = stitch_z ? ufC.find(c) : c;
-    comp_root[c] = r0;
-    if (!root_index.count(r0)) root_index[r0] = G++;
-  }
-
-  // aggregate sums/sizes to group level
-  NumericMatrix grp_sum(r, G); std::vector<int> grp_sz(G,0);
-  for (int c=0;c<total_comps;++c) if (comp_sz[c]>0) {
-    int gidx = root_index[ comp_root[c] ];
-    grp_sz[gidx] += comp_sz[c];
-    for (int k0=0;k0<r;++k0) grp_sum(k0,gidx) += comp_sum(k0,c);
-  }
-
-  // voxel -> group index (0..G-1)
+  // --- aggregate per-component sums & sizes ---
+  int G = labs_local.empty() ? 0 : *std::max_element(labs_local.begin(), labs_local.end());
+  NumericMatrix grp_sum(r, G); std::vector<int> grp_sz(G, 0);
   std::vector<int> voxel2group(N, -1);
-  for (int v=0; v<N; ++v) {
-    int c = voxel2comp[v];
-    if (c<0) continue;
-    int gidx = root_index[ comp_root[c] ];
+  for (int v = 0; v < N; ++v) {
+    int lab = labels[v];
+    if (lab <= 0) continue;
+    int gidx = lab - 1;
     voxel2group[v] = gidx;
+    grp_sz[gidx] += 1;
+    for (int k0 = 0; k0 < r; ++k0) grp_sum(k0, gidx) += U_flat[(size_t)v * r + k0];
   }
+
+  // --- optional 3-D stitching (removed in volumetric mode) ---
+  if (false) { /* stitching disabled in volumetric mode */ }
 
   // --- optional exact-K agglomeration (RAG) ---
   UF ufG(G);
   if (target_k_per_slice>0 && !stitch_z) {
-    rag_agglomerate_to_K_per_slice(mask, nx, ny, nz, voxel2group, G,
+    rag_agglomerate_to_K_per_slice(work_mask, nx, ny, nz, voxel2group, G,
                                    target_k_per_slice, nbhd, grp_sum, grp_sz, ufG);
   } else if (target_k_global>0) {
     std::unordered_set<std::pair<int,int>, PairHash> pairs;
-    build_adjacency_pairs(mask, nx, ny, nz, voxel2group, nbhd,
-                          /*allow_vertical=*/stitch_z, pairs);
+    build_adjacency_pairs(work_mask, nx, ny, nz, voxel2group, nbhd,
+                          /*allow_vertical=*/true, pairs);
     rag_agglomerate_to_K_global(G, target_k_global, pairs, grp_sum, grp_sz, ufG);
   }
 
   // --- final labeling ---
-  IntegerVector labels(N); // 0 outside mask
   std::unordered_map<int,int> root2lab;
   int lab=1;
   for (int v=0; v<N; ++v) {
-    if (!mask[v] || voxel2group[v] < 0) { labels[v]=0; continue; }
+    if (!work_mask[v] || voxel2group[v] < 0) { labels[v]=0; continue; }
     int rG = ufG.find( voxel2group[v] );
     auto it = root2lab.find(rG);
     if (it==root2lab.end()) { root2lab.emplace(rG, lab); labels[v]=lab; lab++; }
@@ -881,17 +797,28 @@ Rcpp::List slice_msf_runwise(
   }
 
   // zero out features outside mask (for cleanliness)
-  for (int v=0; v<N; ++v) if (!mask[v]) { W[v]=0.0; for (int k0=0;k0<r;++k0) U(k0,v)=0.0; }
+  for (int v=0; v<N; ++v) if (!work_mask[v]) {
+    W[v]=0.0;
+    for (int k0=0;k0<r;++k0) U_flat[(size_t)v * r + k0]=0.0;
+  }
+
+  // Materialize r x N sketch matrix for return (backward compatible)
+  NumericMatrix U_out(r, N);
+  for (int v=0; v<N; ++v) {
+    for (int k0=0; k0<r; ++k0) {
+      U_out(k0, v) = U_flat[(size_t)v * r + k0];
+    }
+  }
 
   return List::create(
     _["labels"]  = labels,
     _["weights"] = W,
-    _["sketch"]  = U,
+    _["sketch"]  = U_out,
     _["params"]  = List::create(
       _["r"]=r, _["fh_scale"]=fh_scale, _["min_size"]=min_size, _["nbhd"]=nbhd,
       _["stitch_z"]=stitch_z, _["theta_link"]=theta_link, _["min_contact"]=min_contact,
       _["gamma"]=gamma, _["target_k_global"]=target_k_global, _["target_k_per_slice"]=target_k_per_slice,
-      _["z_mult"] = z_mult
+      _["z_mult"] = z_mult, _["w_threshold"]=w_threshold
     )
   );
 }

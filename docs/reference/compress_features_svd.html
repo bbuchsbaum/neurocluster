@@ -38,6 +38,7 @@ enabling 10-20x speedup in similarity computations."></head><body>
     <li><a class="dropdown-item" href="../articles/20-spatially-constrained-clustering.html">Spatially Constrained Clustering</a></li>
     <li><a class="dropdown-item" href="../articles/21-method-deep-dives.html">Method Deep Dives</a></li>
     <li><a class="dropdown-item" href="../articles/22-performance-memory.html">Performance &amp; Memory</a></li>
+    <li><a class="dropdown-item" href="../articles/25-benchmarks.html">Benchmarks</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Reference Maps</h6></li>
     <li><a class="dropdown-item" href="../articles/30-api-overview.html">API Overview</a></li>
     <li><a class="dropdown-item" href="../articles/31-objects-results.html">Objects &amp; Results</a></li>
@@ -185,16 +186,16 @@ variance_threshold, ensuring accuracy is never sacrificed for speed.</p>
 <span class="r-in"><span><span class="co"># Compress to 15 dimensions (typical for G3S)</span></span></span>
 <span class="r-in"><span><span class="va">compressed</span> <span class="op">&lt;-</span> <span class="fu">compress_features_svd</span><span class="op">(</span><span class="va">feature_mat</span>, n_components <span class="op">=</span> <span class="fl">15</span><span class="op">)</span></span></span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> Using randomized SVD (rsvd) with k=15</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>Initial n_components (15) only explained 9.7% variance. Trying with 25 components.</span>
+<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>Initial n_components (15) only explained 9.6% variance. Trying with 25 components.</span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">compressed</span><span class="op">$</span><span class="va">variance_explained</span><span class="op">)</span>  <span class="co"># Should be ~0.95</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 0.1559281</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 0.1560771</span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">ncol</a></span><span class="op">(</span><span class="va">compressed</span><span class="op">$</span><span class="va">features</span><span class="op">)</span><span class="op">)</span>      <span class="co"># Should be 15</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [1] 25</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># More aggressive compression</span></span></span>
 <span class="r-in"><span><span class="va">compressed_fast</span> <span class="op">&lt;-</span> <span class="fu">compress_features_svd</span><span class="op">(</span><span class="va">feature_mat</span>, n_components <span class="op">=</span> <span class="fl">10</span><span class="op">)</span></span></span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> Using randomized SVD (rsvd) with k=10</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>Initial n_components (10) only explained 6.6% variance. Trying with 20 components.</span>
+<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>Initial n_components (10) only explained 6.5% variance. Trying with 20 components.</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Conservative compression (preserve 98% variance)</span></span></span>
 <span class="r-in"><span><span class="va">compressed_accurate</span> <span class="op">&lt;-</span> <span class="fu">compress_features_svd</span><span class="op">(</span></span></span>

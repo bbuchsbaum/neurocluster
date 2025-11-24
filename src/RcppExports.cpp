@@ -64,6 +64,19 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// build_grid_adjacency_cpp
+arma::sp_mat build_grid_adjacency_cpp(const IntegerVector& mask_idx, const IntegerVector& dims, const int connectivity);
+RcppExport SEXP _neurocluster_build_grid_adjacency_cpp(SEXP mask_idxSEXP, SEXP dimsSEXP, SEXP connectivitySEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const IntegerVector& >::type mask_idx(mask_idxSEXP);
+    Rcpp::traits::input_parameter< const IntegerVector& >::type dims(dimsSEXP);
+    Rcpp::traits::input_parameter< const int >::type connectivity(connectivitySEXP);
+    rcpp_result_gen = Rcpp::wrap(build_grid_adjacency_cpp(mask_idx, dims, connectivity));
+    return rcpp_result_gen;
+END_RCPP
+}
 // rena_rnn_coarse_cpp
 List rena_rnn_coarse_cpp(const arma::mat& X, const arma::sp_mat& G, const NumericVector& grad_img, int stop_at, double lambda, int max_iter);
 RcppExport SEXP _neurocluster_rena_rnn_coarse_cpp(SEXP XSEXP, SEXP GSEXP, SEXP grad_imgSEXP, SEXP stop_atSEXP, SEXP lambdaSEXP, SEXP max_iterSEXP) {
@@ -637,6 +650,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_neurocluster_find_boundary_voxels_cpp", (DL_FUNC) &_neurocluster_find_boundary_voxels_cpp, 2},
     {"_neurocluster_compute_centroids_parallel_fast", (DL_FUNC) &_neurocluster_compute_centroids_parallel_fast, 4},
     {"_neurocluster_correlation_gradient_cpp", (DL_FUNC) &_neurocluster_correlation_gradient_cpp, 2},
+    {"_neurocluster_build_grid_adjacency_cpp", (DL_FUNC) &_neurocluster_build_grid_adjacency_cpp, 3},
     {"_neurocluster_rena_rnn_coarse_cpp", (DL_FUNC) &_neurocluster_rena_rnn_coarse_cpp, 6},
     {"_neurocluster_ward_on_supervoxels_cpp", (DL_FUNC) &_neurocluster_ward_on_supervoxels_cpp, 4},
     {"_neurocluster_compute_scores", (DL_FUNC) &_neurocluster_compute_scores, 7},
