@@ -497,6 +497,8 @@ knn_shrink <- function(bvec, mask, k = 5, connectivity = 27) {
 #' - **Memory considerations**: Parallel version uses slightly more RAM
 #' - **Disable for debugging**: Set `parallel = FALSE` for reproducible debugging
 #'
+#' @param num_threads Optional integer to override the number of threads used by
+#'   RcppParallel (defaults to package/global setting). Ignored if `parallel = FALSE`.
 supervoxels <- function(bvec, mask,
                         K = 500,
                         sigma1 = NULL,
@@ -508,6 +510,7 @@ supervoxels <- function(bvec, mask,
                         alpha = 0.5,
                         parallel = TRUE,
                         grain_size = 100,
+                        num_threads = NULL,
                         verbose = FALSE,
                         converge_thresh = 0.001) {
 
@@ -522,6 +525,15 @@ supervoxels <- function(bvec, mask,
   if (parallel && grepl("aarch64.*darwin", R.version$platform)) {
     if (verbose) message("supervoxels: disabling parallel on aarch64-darwin for stability")
     parallel <- FALSE
+  }
+
+  # Thread control for RcppParallel
+  if (parallel && !is.null(num_threads)) {
+    old_opts <- RcppParallel::setThreadOptions(numThreads = num_threads)
+    on.exit(RcppParallel::setThreadOptions(numThreads = old_opts$numThreads,
+                                           stackSize   = old_opts$stackSize),
+            add = TRUE)
+    if (verbose) message("supervoxels: using ", num_threads, " threads (RcppParallel)")
   }
   
   # Early check for K vs number of voxels

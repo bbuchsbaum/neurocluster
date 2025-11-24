@@ -1,10 +1,9 @@
-#' SLiCE-MSF: Slice-wise, Low-rank, Minimum-Spanning Forest Clustering
+#' SLiCE-MSF: Low-rank, Minimum-Spanning Forest Clustering (volumetric)
 #'
-#' Performs spatially constrained clustering on neuroimaging time series data using a 
-#' slice-based approach with optional 3D stitching. The algorithm applies DCT sketching
-#' for temporal compression, reliability weighting, and graph-based segmentation. While
-#' computationally efficient, the slice-based approach may create visible boundaries
-#' between z-slices (see Details for mitigation strategies).
+#' Performs spatially constrained clustering on neuroimaging time series using DCT
+#' sketching, reliability weighting, and graph-based segmentation on a **3-D graph**
+#' (no per-slice mode). Legacy slice/stitch options are retained for backward
+#' compatibility but are ignored.
 #'
 #' @param vec A \code{NeuroVec} or \code{SparseNeuroVec} instance supplying the time series data to cluster.
 #' @param mask A \code{NeuroVol} mask defining the voxels to include in the clustering result.
@@ -14,8 +13,7 @@
 #' @param target_k_global Target number of clusters across entire volume. When positive,
 #'   uses region adjacency graph (RAG) agglomeration to achieve exactly K clusters.
 #'   Default is -1 (no target, uses natural Felzenszwalb-Huttenlocher clustering).
-#' @param target_k_per_slice Target number of clusters per slice. Only used when positive
-#'   and stitch_z=FALSE. Useful for consistent parcellation across slices. Default is -1.
+#' @param target_k_per_slice Deprecated; volumetric mode only. Ignored and forced to -1.
 #' @param r DCT sketch rank (number of basis functions, excluding DC component). Higher
 #'   values preserve more temporal detail but increase computation. Range: 4-20, Default: 12.
 #' @param compactness Controls spatial compactness vs feature similarity balance (1-10).
@@ -29,15 +27,9 @@
 #'   smooth z-transitions. More than 5 has diminishing returns. Default is 3.
 #' @param consensus Logical. If TRUE and num_runs > 1, applies consensus fusion across
 #'   runs, improving stability and potentially reducing z-artifacts. Default is TRUE.
-#' @param stitch_z Logical. If TRUE, attempts to stitch 2D slice clusters into coherent
-#'   3D clusters by merging across z-boundaries. Essential for 3D continuity. Default is TRUE.
-#' @param theta_link Centroid correlation threshold for cross-slice stitching (0-1).
-#'   Lower values (0.70-0.80): Aggressive stitching, reduces z-plane artifacts but may
-#'   over-merge. Default (0.85): Balanced. Higher (0.90-0.95): Conservative, preserves
-#'   boundaries but more z-artifacts. Critical parameter for z-continuity.
-#' @param min_contact Minimum number of touching voxels between slices required for
-#'   stitching attempt. Lower (1-2): More connections, better continuity. Higher (3-5):
-#'   Stricter requirement, prevents spurious bridges. Default is 1.
+#' @param stitch_z Deprecated; volumetric edges already include z-neighbors. Ignored.
+#' @param theta_link Deprecated legacy stitching parameter (ignored).
+#' @param min_contact Deprecated legacy stitching parameter (ignored).
 #' @param nbhd Neighborhood connectivity for within-slice clustering. Options: 4 (von
 #'   Neumann), 6 (includes z but mapped to 8), 8 (Moore). Higher connectivity can
 #'   improve within-slice coherence. Default is 8.
@@ -288,6 +280,16 @@ slice_msf <- function(vec, mask,
   assert_that(r >= 1)
   assert_that(num_runs >= 1)
   assert_that(is.numeric(z_mult), length(z_mult) == 1, z_mult >= 0, z_mult <= 1)
+
+  # Deprecations: enforce volumetric behavior
+  if (target_k_per_slice > 0) {
+    warning("target_k_per_slice is deprecated; volumetric mode is always used. Ignoring and setting to -1.")
+    target_k_per_slice <- -1
+  }
+  if (stitch_z) {
+    warning("stitch_z is deprecated and ignored; volumetric edges already include z-neighbors.")
+    stitch_z <- FALSE
+  }
   
   # Check spatial dimension compatibility
   vec_dims <- dim(vec)[1:3]  # First 3 dimensions are spatial (x, y, z)
@@ -371,7 +373,7 @@ slice_msf <- function(vec, mask,
         fh_scale = fh_scale,
         min_size = min_size,
         nbhd = nbhd,
-        stitch_z = stitch_z,
+        stitch_z = FALSE,
         theta_link = theta_link,
         min_contact = min_contact,
         rows_are_time = TRUE,
@@ -487,7 +489,7 @@ slice_msf_single <- function(vec, mask,
                             k = 0.32,
                             min_size = 80,
                             nbhd = 8,
-                            stitch_z = TRUE,
+                            stitch_z = FALSE,
                             theta_link = 0.85,
                             min_contact = 1,
                             gamma = 1.5,
@@ -511,6 +513,13 @@ slice_msf_single <- function(vec, mask,
     message("Note: nbhd=6 is mapped to nbhd=8 for compatibility")
     nbhd <- 8
   }
+  if (stitch_z) {
+    warning("stitch_z is deprecated and ignored; volumetric edges already include z-neighbors.")
+    stitch_z <- FALSE
+  }
+  if (min_contact != 1 || theta_link != 0.85) {
+    warning("theta_link/min_contact are legacy stitching parameters and are ignored in volumetric mode.")
+  }
   
   # Extract data
   mask.idx <- which(mask > 0)
@@ -532,7 +541,7 @@ slice_msf_single <- function(vec, mask,
     fh_scale = k,
     min_size = min_size,
     nbhd = nbhd,
-    stitch_z = stitch_z,
+    stitch_z = FALSE,
     theta_link = theta_link,
     min_contact = min_contact,
     rows_are_time = TRUE,
