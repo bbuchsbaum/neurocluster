@@ -146,6 +146,7 @@ cluster4d_g3s <- function(vec, mask, K = 100,
   feature_mat_raw <- series(vec, mask.idx)  # T x N matrix
 
   n_timepoints <- nrow(feature_mat_raw)
+  use_cosine <- n_timepoints > 1
 
   if (verbose) {
     message("G3S: Starting with ", n_voxels, " voxels, ",
@@ -156,24 +157,35 @@ cluster4d_g3s <- function(vec, mask, K = 100,
   # Phase 1: Hyper-Compression
   # =============================================================================
 
-  if (verbose) {
-    message("Phase 1: SVD compression (", n_timepoints, " -> ", n_components, " dims)")
-  }
+  if (use_cosine) {
+    if (verbose) {
+      message("Phase 1: SVD compression (", n_timepoints, " -> ", n_components, " dims)")
+    }
 
-  compressed <- compress_features_svd(
-    feature_mat = t(feature_mat_raw),  # Needs N x T
-    n_components = n_components,
-    variance_threshold = variance_threshold,
-    use_irlba = use_irlba,
-    use_rsvd = use_rsvd
-  )
+    compressed <- compress_features_svd(
+      feature_mat = t(feature_mat_raw),  # Needs N x T
+      n_components = n_components,
+      variance_threshold = variance_threshold,
+      use_irlba = use_irlba,
+      use_rsvd = use_rsvd
+    )
 
-  feature_mat_compressed <- compressed$features  # N x M matrix (normalized)
-  actual_components <- compressed$n_components
+    feature_mat_compressed <- compressed$features  # N x M matrix (normalized)
+    actual_components <- compressed$n_components
+    variance_explained <- compressed$variance_explained
 
-  if (verbose) {
-    message("  Compressed to ", actual_components, " components (",
-            round(compressed$variance_explained * 100, 1), "% variance)")
+    if (verbose) {
+      message("  Compressed to ", actual_components, " components (",
+              round(variance_explained * 100, 1), "% variance)")
+    }
+  } else {
+    if (verbose) {
+      message("Phase 1: single timepoint detected; using Euclidean features without SVD")
+    }
+    feature_mat_compressed <- base::scale(t(feature_mat_raw), center = TRUE, scale = TRUE)
+    feature_mat_compressed[is.na(feature_mat_compressed)] <- 0
+    actual_components <- 1
+    variance_explained <- 1
   }
 
   # =============================================================================
@@ -188,7 +200,8 @@ cluster4d_g3s <- function(vec, mask, K = 100,
     feature_mat = feature_mat_compressed,
     coords = coords,
     K = K,
-    k_neighbors = min(26, n_voxels - 1)
+    k_neighbors = min(26, n_voxels - 1),
+    distance = if (use_cosine) "cosine" else "euclidean"
   )
 
   actual_K <- length(seed_indices)
@@ -276,18 +289,19 @@ cluster4d_g3s <- function(vec, mask, K = 100,
       K_actual = actual_K,
       n_components = actual_components,
       variance_threshold = variance_threshold,
-      variance_explained = compressed$variance_explained,
+      variance_explained = variance_explained,
       alpha = alpha,
       compactness = compactness,
-      max_refinement_iter = max_refinement_iter
+      max_refinement_iter = max_refinement_iter,
+      feature_metric = if (use_cosine) "cosine" else "euclidean"
     ),
     metadata = list(
       seed_indices = seed_indices,
-      compression_ratio = n_timepoints / actual_components,
-      svd_rotation = compressed$rotation,
-      svd_singular_values = compressed$singular_values,
-      svd_center = compressed$center,
-      svd_scale = compressed$scale
+      compression_ratio = if (use_cosine) n_timepoints / actual_components else 1,
+      svd_rotation = if (use_cosine) compressed$rotation else NULL,
+      svd_singular_values = if (use_cosine) compressed$singular_values else NULL,
+      svd_center = if (use_cosine) compressed$center else NULL,
+      svd_scale = if (use_cosine) compressed$scale else NULL
     ),
     compute_centers = TRUE,
     center_method = "mean"

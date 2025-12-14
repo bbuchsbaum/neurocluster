@@ -8,7 +8,7 @@ supervoxels(
   bvec,
   mask,
   K = 500,
-  sigma1 = 1,
+  sigma1 = NULL,
   sigma2 = 2.5,
   iterations = 50,
   connectivity = 27,
@@ -17,12 +17,15 @@ supervoxels(
   alpha = 0.5,
   parallel = TRUE,
   grain_size = 100,
+  num_threads = NULL,
   verbose = FALSE,
   converge_thresh = 0.001
 )
 }
 \arguments{
-\item{bvec}{A \code{\linkS4class{NeuroVec}} instance supplying the data to cluster.}
+\item{bvec}{A \code{\linkS4class{NeuroVec}} instance supplying the data to cluster.
+Can also be a 3D \code{\linkS4class{NeuroVol}} for structural image segmentation,
+which will be automatically converted to a single-timepoint NeuroVec internally.}
 
 \item{mask}{A \code{\linkS4class{NeuroVol}} mask defining the voxels to include. If numeric, nonzero = included.}
 
@@ -48,6 +51,9 @@ Default is TRUE. Parallel processing is automatically disabled for small dataset
 
 \item{grain_size}{Integer; the minimum number of voxels to process per parallel task.
 Default is 100. Smaller values provide better load balancing but increase overhead.}
+
+\item{num_threads}{Optional integer to override the number of threads used by
+RcppParallel (defaults to package/global setting). Ignored if \code{parallel = FALSE}.}
 
 \item{verbose}{Logical; whether to print detailed progress messages including convergence
 metrics. Default is FALSE.}

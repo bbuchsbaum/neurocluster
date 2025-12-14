@@ -4,15 +4,15 @@
 \alias{merge_clus}
 \title{Merge Clustering Results Using a Consensus Clustering Algorithm}
 \usage{
-merge_clus(x, method, ...)
+merge_clus(x, ...)
 }
 \arguments{
 \item{x}{A clustering result, typically a list or an object of class \code{"cluster_result"}.}
 
+\item{...}{Additional clustering results to be merged.}
+
 \item{method}{A character string indicating the consensus clustering algorithm to use. Default is "SE".
 See \code{\link[clue]{cl_consensus}} for available methods.}
-
-\item{...}{Additional clustering results to be merged.}
 }
 \value{
 A \code{\linkS4class{ClusteredNeuroVol}} instance.

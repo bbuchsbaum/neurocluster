@@ -1,0 +1,21 @@
+Package: neurocluster
+Type: Package
+Title: Spatially contrained clustering for neuroimaging data
+Version: 0.1.0
+Author: Bradley Buchsbaum
+Maintainer: Bradley Buchsbaum <brad.buchsbaum@gmail.com>
+Description: More about what it does (maybe more than one line)
+    Use four spaces when indenting paragraphs within the Description.
+License: What license is it under?
+Encoding: UTF-8
+LazyData: true
+Imports: Rcpp (>= 0.11.3), RcppParallel, RcppArmadillo, Matrix, FNN,
+        RANN, assertthat, clue, igraph, matrixStats, neighborweights,
+        neuroim2, neurosurf, purrr, future, future.apply
+LinkingTo: Rcpp, RcppParallel, RcppArmadillo
+RoxygenNote: 7.3.3
+Roxygen: list(markdown = TRUE)
+Suggests: testthat, knitr, rmarkdown, pkgdown, ggplot2, gt, rsvd
+VignetteBuilder: knitr
+Config/Needs/website: your-org/albersdown@v1.0.0, albersdown
+Built: R 4.5.1; aarch64-apple-darwin20; 2025-11-30 17:31:05 UTC; unix

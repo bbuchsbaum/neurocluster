@@ -11,7 +11,7 @@ slice_msf_single(
   k = 0.32,
   min_size = 80,
   nbhd = 8,
-  stitch_z = TRUE,
+  stitch_z = FALSE,
   theta_link = 0.85,
   min_contact = 1,
   gamma = 1.5,

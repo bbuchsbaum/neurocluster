@@ -9,10 +9,10 @@ cluster4d(
   mask,
   n_clusters = 100,
   method = c("supervoxels", "snic", "slic", "slice_msf", "flash3d", "g3s", "rena",
-    "rena_plus"),
+    "rena_plus", "acsc", "commute"),
   spatial_weight = 0.5,
-  max_iterations = 10,
-  connectivity = 26,
+  max_iterations = NULL,
+  connectivity = NULL,
   parallel = TRUE,
   verbose = FALSE,
   ...
@@ -37,6 +37,7 @@ may produce slightly different numbers of clusters due to algorithmic constraint
 \item \code{"flash3d"}: Fast Low-rank Approximate Superclusters
 \item \code{"g3s"}: Gradient-Guided Geodesic Supervoxels (NEW - recommended for best quality/speed)
 \item \code{"rena"}: Recursive Nearest Agglomeration (fast, balanced, topology-aware)
+\item \code{"acsc"}: Adaptive Correlation Superclustering (graph-based with boundary refinement)
 }}
 
 \item{spatial_weight}{Balance between spatial and feature similarity (0-1).
@@ -163,7 +164,8 @@ result <- cluster4d(vec, mask,
 \seealso{
 Method-specific functions: \code{\link{cluster4d_supervoxels}},
 \code{\link{cluster4d_snic}}, \code{\link{cluster4d_slic}},
-\code{\link{cluster4d_slice_msf}}, \code{\link{cluster4d_flash3d}}
+\code{\link{cluster4d_slice_msf}}, \code{\link{cluster4d_flash3d}},
+\code{\link{cluster4d_commute}}
 
 Legacy functions (deprecated): \code{\link{supervoxels}}, \code{\link{snic}},
 \code{\link{slic4d_supervoxels}}, \code{\link{slice_msf}}, \code{\link{supervoxels_flash3d}}

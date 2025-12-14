@@ -9,7 +9,7 @@ cluster4d_rena_plus(
   mask,
   n_clusters = 100,
   spatial_weight = 0.5,
-  r = 5,
+  r = 2,
   lambda = 1,
   grad_img = NULL,
   connectivity = 26,

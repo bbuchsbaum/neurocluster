@@ -208,7 +208,10 @@ find_gradient_seeds_g3s <- function(feature_mat,
                                    K,
                                    k_neighbors = 26,
                                    oversample_ratio = 3,
-                                   min_separation_factor = 0.5) {
+                                   min_separation_factor = 0.5,
+                                   distance = c("cosine", "euclidean")) {
+
+  distance <- match.arg(distance)
 
   if (!is.matrix(feature_mat)) feature_mat <- as.matrix(feature_mat)
   if (!is.matrix(coords)) coords <- as.matrix(coords)
@@ -229,8 +232,23 @@ find_gradient_seeds_g3s <- function(feature_mat,
   # k-NN for gradient and spacing checks
   knn <- FNN::get.knn(coords, k = k_neighbors)
 
-  # Compute local gradient via C++ helper (features supplied as N x M)
-  grad_vals <- calculate_local_gradient(t(feature_mat), knn$nn.index)
+  # Compute local gradient; use cosine for multi-feature (correlation-like)
+  # and Euclidean when working with single-feature 3D data.
+  grad_vals <- if (distance == "cosine") {
+    calculate_local_gradient(t(feature_mat), knn$nn.index)
+  } else {
+    vapply(seq_len(N), function(i) {
+      neighbor_indices <- knn$nn.index[i, ]
+      neighbor_indices <- neighbor_indices[neighbor_indices > 0]
+      if (length(neighbor_indices) == 0) return(0)
+
+      neighbor_feats <- feature_mat[neighbor_indices, , drop = FALSE]
+      diffs <- neighbor_feats -
+        matrix(feature_mat[i, ], nrow = length(neighbor_indices),
+               ncol = ncol(feature_mat), byrow = TRUE)
+      mean(rowSums(diffs * diffs))
+    }, numeric(1))
+  }
 
   # Candidate pool: lowest gradients
   candidate_count <- min(N, K * oversample_ratio)
@@ -388,5 +406,4 @@ find_gradient_seeds <- function(coords, grad_vals, K, min_separation_factor = 1.
 
   selected_seeds
 }
-
 

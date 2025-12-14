@@ -2,7 +2,7 @@
 % Please edit documentation in R/slice_cluster.R
 \name{slice_msf}
 \alias{slice_msf}
-\title{SLiCE-MSF: Slice-wise, Low-rank, Minimum-Spanning Forest Clustering}
+\title{SLiCE-MSF: Low-rank, Minimum-Spanning Forest Clustering (volumetric)}
 \usage{
 slice_msf(
   vec,
@@ -38,8 +38,7 @@ of included voxels.}
 uses region adjacency graph (RAG) agglomeration to achieve exactly K clusters.
 Default is -1 (no target, uses natural Felzenszwalb-Huttenlocher clustering).}
 
-\item{target_k_per_slice}{Target number of clusters per slice. Only used when positive
-and stitch_z=FALSE. Useful for consistent parcellation across slices. Default is -1.}
+\item{target_k_per_slice}{Deprecated; volumetric mode only. Ignored and forced to -1.}
 
 \item{r}{DCT sketch rank (number of basis functions, excluding DC component). Higher
 values preserve more temporal detail but increase computation. Range: 4-20, Default: 12.}
@@ -59,17 +58,11 @@ smooth z-transitions. More than 5 has diminishing returns. Default is 3.}
 \item{consensus}{Logical. If TRUE and num_runs > 1, applies consensus fusion across
 runs, improving stability and potentially reducing z-artifacts. Default is TRUE.}
 
-\item{stitch_z}{Logical. If TRUE, attempts to stitch 2D slice clusters into coherent
-3D clusters by merging across z-boundaries. Essential for 3D continuity. Default is TRUE.}
+\item{stitch_z}{Deprecated; volumetric edges already include z-neighbors. Ignored.}
 
-\item{theta_link}{Centroid correlation threshold for cross-slice stitching (0-1).
-Lower values (0.70-0.80): Aggressive stitching, reduces z-plane artifacts but may
-over-merge. Default (0.85): Balanced. Higher (0.90-0.95): Conservative, preserves
-boundaries but more z-artifacts. Critical parameter for z-continuity.}
+\item{theta_link}{Deprecated legacy stitching parameter (ignored).}
 
-\item{min_contact}{Minimum number of touching voxels between slices required for
-stitching attempt. Lower (1-2): More connections, better continuity. Higher (3-5):
-Stricter requirement, prevents spurious bridges. Default is 1.}
+\item{min_contact}{Deprecated legacy stitching parameter (ignored).}
 
 \item{nbhd}{Neighborhood connectivity for within-slice clustering. Options: 4 (von
 Neumann), 6 (includes z but mapped to 8), 8 (Moore). Higher connectivity can
@@ -108,11 +101,10 @@ A \code{list} of class \code{slice_msf_cluster_result} with the following elemen
 }
 }
 \description{
-Performs spatially constrained clustering on neuroimaging time series data using a
-slice-based approach with optional 3D stitching. The algorithm applies DCT sketching
-for temporal compression, reliability weighting, and graph-based segmentation. While
-computationally efficient, the slice-based approach may create visible boundaries
-between z-slices (see Details for mitigation strategies).
+Performs spatially constrained clustering on neuroimaging time series using DCT
+sketching, reliability weighting, and graph-based segmentation on a \strong{3-D graph}
+(no per-slice mode). Legacy slice/stitch options are retained for backward
+compatibility but are ignored.
 }
 \details{
 \subsection{Algorithm Overview}{

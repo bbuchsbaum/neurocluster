@@ -7,7 +7,9 @@
 snic(vec, mask, compactness = 5, K = 500, max_iter = 100)
 }
 \arguments{
-\item{vec}{A \code{NeuroVec} instance supplying the data to cluster.}
+\item{vec}{A \code{NeuroVec} instance supplying the data to cluster.
+Can also be a 3D \code{\linkS4class{NeuroVol}} for structural image segmentation,
+which will be automatically converted to a single-timepoint NeuroVec internally.}
 
 \item{mask}{A \code{NeuroVol} mask defining the voxels to include in the clustering result.
 If the mask contains \code{numeric} data, nonzero values will define the included voxels.

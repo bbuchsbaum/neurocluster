@@ -32,6 +32,12 @@ vec <- read_vec("fmri_data.nii.gz")
 # Cluster with default method (supervoxels)
 result <- cluster4d(vec, mask, n_clusters = 100)
 
+# 3D convenience: you can pass a single-volume NeuroVol directly;
+# it will be wrapped to a one-frame NeuroVec internally
+vol <- read_vol("anatomical.nii.gz")
+vol_mask <- vol > 0
+result_3d <- cluster4d(vol, vol_mask, n_clusters = 200, method = "slic")
+
 # Try different methods
 result_snic <- cluster4d(vec, mask, n_clusters = 100, method = "snic")
 result_msf <- cluster4d(vec, mask, n_clusters = 100, method = "slice_msf")
@@ -50,6 +56,7 @@ result_msf <- cluster4d(vec, mask, n_clusters = 100, method = "slice_msf")
 - **Characteristics**: Priority queue-based, single pass
 - **Key parameters**: `compactness`
 - **Parallelized**: No (inherently sequential)
+- **Single-volume note**: When input is a 3D `NeuroVol`, features are left unscaled to preserve raw Euclidean intensities for superpixel-style clustering.
 
 ### 3. SLIC - Simple Linear Iterative Clustering (`method = "slic"`)
 - **Best for**: Consistent cluster sizes, preservation of K
@@ -57,6 +64,7 @@ result_msf <- cluster4d(vec, mask, n_clusters = 100, method = "slice_msf")
 - **Key parameters**: `compactness`, `preserve_k`
 - **Parallelized**: Yes
 - **Note**: Requires slic4d_core C++ implementation
+- **Single-volume note**: Feature normalization defaults to per-timepoint z-scoring; with one timepoint this just mean-centers intensities, keeping Euclidean distances intact.
 
 ### 4. Slice-MSF (`method = "slice_msf"`)
 - **Best for**: Large datasets, parallel processing

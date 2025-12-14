@@ -88,11 +88,18 @@ NumericVector compute_masked_distances_cpp(NumericMatrix feature_mat,
                                            IntegerVector adjacency_j) {
     int n_edges = adjacency_i.size();
     int n_features = feature_mat.nrow();
+    int n_nodes = feature_mat.ncol();
     NumericVector distances(n_edges);
 
     for (int e = 0; e < n_edges; ++e) {
         int i = adjacency_i[e] - 1;  // Convert from 1-based to 0-based
         int j = adjacency_j[e] - 1;
+
+        // Guard against malformed adjacency indices; skip invalid edges
+        if (i < 0 || j < 0 || i >= n_nodes || j >= n_nodes) {
+            distances[e] = R_PosInf;
+            continue;
+        }
 
         double dist_sq = 0.0;
         for (int f = 0; f < n_features; ++f) {
@@ -128,20 +135,31 @@ IntegerVector find_1nn_subgraph_cpp(int n_nodes,
 
     int n_edges = adjacency_i.size();
 
+    // Process edges in deterministic order (by i then j)
+    std::vector<int> order(n_edges);
+    std::iota(order.begin(), order.end(), 0);
+    std::sort(order.begin(), order.end(), [&](int a, int b) {
+        if (adjacency_i[a] == adjacency_i[b]) return adjacency_j[a] < adjacency_j[b];
+        return adjacency_i[a] < adjacency_i[b];
+    });
+
     // For each edge, update nearest neighbor if this is the closest so far
-    for (int e = 0; e < n_edges; ++e) {
+    for (int idx = 0; idx < n_edges; ++idx) {
+        int e = order[idx];
         int i = adjacency_i[e] - 1;  // Convert from 1-based to 0-based
         int j = adjacency_j[e] - 1;
         double dist = distances[e];
 
         // Update i's nearest neighbor if j is closer
-        if (dist < min_distance[i]) {
+        if (dist < min_distance[i] ||
+            (dist == min_distance[i] && (nearest_neighbor[i] < 0 || j < nearest_neighbor[i]))) {
             min_distance[i] = dist;
             nearest_neighbor[i] = j;
         }
 
         // Update j's nearest neighbor if i is closer (undirected graph)
-        if (dist < min_distance[j]) {
+        if (dist < min_distance[j] ||
+            (dist == min_distance[j] && (nearest_neighbor[j] < 0 || i < nearest_neighbor[j]))) {
             min_distance[j] = dist;
             nearest_neighbor[j] = i;
         }

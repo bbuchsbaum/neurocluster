@@ -112,6 +112,172 @@ refine_boundaries_g3s_cpp <- function(labels, feature_mat, neighbor_indices, max
     .Call('_neurocluster_refine_boundaries_g3s_cpp', PACKAGE = 'neurocluster', labels, feature_mat, neighbor_indices, max_iter)
 }
 
+#' Normalize Volumes by Removing Mean Offset (Fast C++ Implementation)
+#'
+#' Removes the mean offset from each volume/timepoint in a matrix.
+#' This centers each volume to have zero mean across voxels.
+#'
+#' @param data Numeric matrix with voxels as rows and timepoints as columns
+#' @return Numeric matrix with each column (volume) centered to mean zero
+#'
+#' @details
+#' For each timepoint t, computes mean_t = mean(data[,t]) and subtracts
+#' it from all voxels: output[,t] = data[,t] - mean_t
+#'
+#' Uses RcppParallel for fast parallel computation across voxels.
+#'
+#' @export
+normalize_volumes_cpp <- function(data) {
+    .Call('_neurocluster_normalize_volumes_cpp', PACKAGE = 'neurocluster', data)
+}
+
+#' Detrend Voxel Timeseries (Fast C++ Implementation)
+#'
+#' Removes linear trend from each voxel's timeseries using fast
+#' parallel linear regression.
+#'
+#' @param data Numeric matrix with voxels as rows and timepoints as columns
+#' @return Numeric matrix with linear trend removed from each row (voxel)
+#'
+#' @details
+#' For each voxel, fits a linear model y = intercept + slope * t and
+#' subtracts the fitted values: residuals = y - fitted.
+#'
+#' Uses RcppParallel for fast parallel computation across voxels.
+#' The linear regression is computed efficiently using precomputed
+#' time statistics.
+#'
+#' @export
+detrend_time_cpp <- function(data) {
+    .Call('_neurocluster_detrend_time_cpp', PACKAGE = 'neurocluster', data)
+}
+
+#' Normalize Volumes and Detrend Timeseries (Fast C++ Implementation)
+#'
+#' Combined operation: first removes volume mean offsets, then removes
+#' linear trend from each voxel's timeseries. More efficient than
+#' calling both functions separately.
+#'
+#' @param data Numeric matrix with voxels as rows and timepoints as columns
+#' @return Numeric matrix with volume offsets and linear trends removed
+#'
+#' @details
+#' Performs two operations in a single parallel pass:
+#' 1. Centers each volume to zero mean
+#' 2. Removes linear trend from each voxel's (now centered) timeseries
+#'
+#' @export
+normalize_detrend_cpp <- function(data) {
+    .Call('_neurocluster_normalize_detrend_cpp', PACKAGE = 'neurocluster', data)
+}
+
+#' Generate DCT-II Basis Matrix
+#'
+#' Creates a discrete cosine transform (type II) basis matrix for detrending.
+#'
+#' @param n_time Number of timepoints
+#' @param n_basis Number of DCT basis functions (including constant)
+#' @return Numeric matrix (n_time x n_basis) with orthonormal DCT basis
+#'
+#' @details
+#' DCT basis functions are excellent for removing low-frequency drift in fMRI.
+#' The first basis is constant (mean), subsequent bases capture increasingly
+#' higher frequency components.
+#'
+#' @export
+make_dct_basis <- function(n_time, n_basis) {
+    .Call('_neurocluster_make_dct_basis', PACKAGE = 'neurocluster', n_time, n_basis)
+}
+
+#' Generate Polynomial Basis Matrix
+#'
+#' Creates a polynomial basis matrix for detrending.
+#'
+#' @param n_time Number of timepoints
+#' @param degree Polynomial degree (0 = constant, 1 = linear, 2 = quadratic, etc.)
+#' @return Numeric matrix (n_time x (degree+1)) with orthonormalized polynomial basis
+#'
+#' @details
+#' Uses Gram-Schmidt orthonormalization for numerical stability.
+#' Degree 0 = mean removal, 1 = linear detrend, 2 = quadratic, etc.
+#'
+#' @export
+make_poly_basis <- function(n_time, degree) {
+    .Call('_neurocluster_make_poly_basis', PACKAGE = 'neurocluster', n_time, degree)
+}
+
+#' Flexible Detrending with Basis Functions (Fast C++ Implementation)
+#'
+#' Removes trends from each voxel's timeseries by projecting out a basis.
+#' Supports polynomial or DCT (discrete cosine transform) basis functions.
+#'
+#' @param data Numeric matrix with voxels as rows and timepoints as columns
+#' @param basis Orthonormal basis matrix (n_time x n_basis) to project out.
+#'   Use make_dct_basis() or make_poly_basis() to generate.
+#' @return Numeric matrix with basis components removed from each row
+#'
+#' @details
+#' For orthonormal basis B, computes residuals as:
+#' y_detrend = y - B * (B^T * y)
+#'
+#' This is equivalent to regressing out the basis and keeping residuals.
+#'
+#' @examples
+#' \dontrun
+#' # Remove linear + quadratic trend (polynomial degree 2)
+#' basis <- make_poly_basis(n_time = 100, degree = 2)
+#' data_detrend <- detrend_basis_cpp(data, basis)
+#'
+#' # Remove low-frequency drift with DCT (first 5 components)
+#' basis <- make_dct_basis(n_time = 100, n_basis = 5)
+#' data_detrend <- detrend_basis_cpp(data, basis)
+#' }
+#'
+#' @export
+detrend_basis_cpp <- function(data, basis) {
+    .Call('_neurocluster_detrend_basis_cpp', PACKAGE = 'neurocluster', data, basis)
+}
+
+#' Polynomial Detrending (Convenience Function)
+#'
+#' Removes polynomial trend up to specified degree from each voxel.
+#'
+#' @param data Numeric matrix with voxels as rows and timepoints as columns
+#' @param degree Polynomial degree (0 = mean, 1 = linear, 2 = quadratic, etc.)
+#' @return Numeric matrix with polynomial trend removed
+#'
+#' @details
+#' Convenience wrapper that generates polynomial basis and calls detrend_basis_cpp.
+#' For degree=1, this is equivalent to detrend_time_cpp but slightly slower.
+#'
+#' @export
+detrend_poly_cpp <- function(data, degree = 1L) {
+    .Call('_neurocluster_detrend_poly_cpp', PACKAGE = 'neurocluster', data, degree)
+}
+
+#' DCT Detrending (Convenience Function)
+#'
+#' Removes low-frequency components using discrete cosine transform.
+#'
+#' @param data Numeric matrix with voxels as rows and timepoints as columns
+#' @param n_basis Number of DCT basis functions to remove (including constant).
+#'   Default 4 removes constant, linear, and first two cosine harmonics.
+#' @return Numeric matrix with low-frequency components removed
+#'
+#' @details
+#' DCT detrending is commonly used in fMRI preprocessing. The number of
+#' basis functions controls the high-pass filter cutoff:
+#' - n_basis = 1: mean removal only
+#' - n_basis = 2: ~ linear detrend
+#' - n_basis = 4-6: typical for fMRI (removes drift < ~0.01 Hz for TR=2s)
+#'
+#' Higher n_basis = more aggressive high-pass filtering.
+#'
+#' @export
+detrend_dct_cpp <- function(data, n_basis = 4L) {
+    .Call('_neurocluster_detrend_dct_cpp', PACKAGE = 'neurocluster', data, n_basis)
+}
+
 #' Compute masked distances for ReNA
 #'
 #' Computes squared Euclidean distances only for connected pairs in sparse adjacency.
@@ -245,3 +411,4 @@ compute_boundaryscore_3d_cpp <- function(volume, mask) {
 detect_boundaries_2d_cpp <- function(volume, mask) {
     .Call('_neurocluster_detect_boundaries_2d_cpp', PACKAGE = 'neurocluster', volume, mask)
 }
+

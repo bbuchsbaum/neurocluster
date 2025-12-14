@@ -1,0 +1,143 @@
+Loading required package: Matrix
+
+Attaching package: ‘neuroim2’
+
+The following object is masked from ‘package:base’:
+
+    scale
+
+Cluster ID Z-Ordering Verification
+===================================
+
+Loading test data...
+Data dimensions: 96 96 26 320 
+Mask voxels: 56542 
+
+
+
+Testing clustering algorithms with K=50...
+============================================================
+
+[1/6] Testing supervoxels...
+supervoxel_fit: sigma1 = 1 sigma2 = 2.5
+dthresh: 5.18714065020412
+supervoxels_fit: iter 1 -- num switches = 15803
+supervoxels_fit: iter 2 -- num switches = 17567
+supervoxels_fit: iter 3 -- num switches = 19198
+supervoxels_fit: iter 4 -- num switches = 20706
+supervoxels_fit: stopping - no improvement for 3 iterations
+
+============================================================
+SUPERVOXELS 
+============================================================
+Correlation between cluster ID and coordinates:
+  X-axis: 0.148 
+  Y-axis: -0.082 
+  Z-axis: 0.013  ←  [WEAK/NO ORDERING] 
+
+ No significant spatial ordering detected 
+
+Z-Distribution by Cluster ID Quintile:
+  Quintile 1 (IDs   1-9  ): mean z =   1.15 ± 28.98
+  Quintile 2 (IDs  10-19 ): mean z =  -8.01 ± 20.06
+  Quintile 3 (IDs  20-29 ): mean z =   5.34 ± 30.30
+  Quintile 4 (IDs  30-39 ): mean z =  10.25 ± 19.01
+  Quintile 5 (IDs  40-49 ): mean z =  -3.29 ± 22.75
+
+✓ No significant ordering detected
+Warning message:
+Quick-TRANSfer stage steps exceeded maximum (= 2827100) 
+
+[2/6] Testing snic...
+
+============================================================
+SNIC 
+============================================================
+Correlation between cluster ID and coordinates:
+  X-axis: 0.207 
+  Y-axis: -0.002 
+  Z-axis: -0.193  ←  [WEAK/NO ORDERING] 
+
+ No significant spatial ordering detected 
+
+Z-Distribution by Cluster ID Quintile:
+  Quintile 1 (IDs   1-10 ): mean z =  15.06 ± 5.57
+  Quintile 2 (IDs  11-20 ): mean z =  13.71 ± 5.24
+  Quintile 3 (IDs  21-30 ): mean z =  14.69 ± 4.76
+  Quintile 4 (IDs  31-40 ): mean z =   8.85 ± 5.41
+  Quintile 5 (IDs  41-50 ): mean z =  12.76 ± 6.08
+
+✓ No significant ordering detected
+
+[3/6] Testing slice_msf...
+
+============================================================
+SLICE_MSF 
+============================================================
+Correlation between cluster ID and coordinates:
+  X-axis: -0.005 
+  Y-axis: 0.106 
+  Z-axis: 0.885  ←  [STRONG ORDERING] 
+
+ Strong spatial ordering detected - randomization strongly recommended 
+
+Z-Distribution by Cluster ID Quintile:
+  Quintile 1 (IDs   1-10 ): mean z = -21.28 ± 15.38
+  Quintile 2 (IDs  11-20 ): mean z = -12.33 ± 6.86
+  Quintile 3 (IDs  21-30 ): mean z =   3.11 ± 10.49
+  Quintile 4 (IDs  31-40 ): mean z =  10.28 ± 10.31
+  Quintile 5 (IDs  41-50 ): mean z =  33.63 ± 13.47
+
+⚠ ORDERING DETECTED - Randomization recommended before visualization
+Warning message:
+In slice_msf(vec, mask, target_k_global = 50, num_runs = 1, consensus = FALSE) :
+  stitch_z is deprecated and ignored; volumetric edges already include z-neighbors.
+
+[4/6] Testing flash3d...
+
+============================================================
+FLASH3D (FIXED) 
+============================================================
+Correlation between cluster ID and coordinates:
+  X-axis: -0.009 
+  Y-axis: 0.594 
+  Z-axis: 0.825  ←  [STRONG ORDERING] 
+
+ Strong spatial ordering detected - randomization strongly recommended 
+
+Z-Distribution by Cluster ID Quintile:
+  Quintile 1 (IDs   1-10 ): mean z =   7.20 ± 2.66
+  Quintile 2 (IDs  11-20 ): mean z =   7.30 ± 1.49
+  Quintile 3 (IDs  21-30 ): mean z =  13.50 ± 2.12
+  Quintile 4 (IDs  31-40 ): mean z =  18.50 ± 1.84
+  Quintile 5 (IDs  41-50 ): mean z =  17.60 ± 1.58
+
+⚠ ORDERING DETECTED - Randomization recommended before visualization
+
+[5/6] Testing slic4d...
+  [ERROR] could not find function "slic4d" 
+
+[6/6] Testing acsc...
+  [ERROR] The total size of the 1 globals exported for future expression (‘FUN(X = structure(c(-340.359467298645, -387.359467298645, -355.359467298645,; -167.359467298645, -135.359467298645, -134.359467298645, -305.359467298645,; -275.359467298645, -199.359467298645, 85.6405327013548, -359.359467298645,; -115.359467298645, 83.6405327013548, 77.6405327013548, -121.359467298645,; -319.359467298645, -339.359467298645, -162.359467298645, -29.3594672986452,; -122.359467298645, -248.359467298645, -220.359467298645, 98.6405327013548,; ...; -76.3594672986452, -51.3594672986452, -74.3594672986452, -72.3594672986452,; -166.359467298645, -152.359467298645, -126.359467298645, -66.3594672986452,; -121.359467298645, -138.359467298645, -29.3594672986452, -55.3594672986452,’) is 725.31 MiB. This exceeds the maximum allowed size 500.00 MiB per by R option "future.globals.maxSize". This limit is set to protect against transfering too large objects to parallel workers by mistake, which may not be intended and could be costly. See help("future.globals.maxSize", package = "future") for further explainations and how to adjust or remove this threshold There is one global: ‘FUN’ (725.31 MiB of class ‘function’) 
+
+
+============================================================
+SUMMARY
+============================================================
+
+Algorithms with Z-Ordering (|r_z| > 0.3):
+  ✗ SLICE_MSF      : r_z =  0.885 (STRONG ordering)
+  ✗ FLASH3D        : r_z =  0.825 (STRONG ordering)
+
+Algorithms without Z-Ordering (|r_z| ≤ 0.3):
+  ✓ SUPERVOXELS    : r_z =  0.013
+  ✓ SNIC           : r_z = -0.193
+
+
+Recommendations:
+  1. For algorithms with z-ordering: Use randomize_cluster_ids() before visualization
+  2. Always use discrete color scales OR randomize IDs when using continuous scales
+  3. Report ordering status in publication methods sections
+
+See CLUSTER_ID_ORDERING.md for detailed guidance.
+

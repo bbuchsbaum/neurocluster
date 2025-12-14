@@ -116,8 +116,6 @@ supervoxel_cluster_fit <- function(feature_mat,
                                    verbose = FALSE,
                                    converge_thresh = 0.001) {
 
-  message("supervoxel_fit: sigma1 = ", sigma1, " sigma2 = ", sigma2)
-
   # Early parameter validation
   nvox <- nrow(coords)
   if (nvox == 0) {
@@ -168,13 +166,80 @@ supervoxel_cluster_fit <- function(feature_mat,
     feature_mat[is.na(feature_mat)] <- 0
   }
 
-  # If no initial clusters, do naive coordinate-based kmeans
+  # FIX 2: Adaptive sigma1 based on feature dimensionality
+  # For z-scored data, ||v1 - v2||^2 = 2*T for orthogonal signals (where T = n_features)
+  # We want sigma1 such that exp(-d^2/(2*sigma1^2)) gives meaningful discrimination
+  # Setting sigma1 = sqrt(T) gives exp(-1) ≈ 0.37 for orthogonal signals
+  n_features <- nrow(feature_mat)
+  if (is.null(sigma1)) {
+    sigma1 <- sqrt(n_features)
+    if (verbose) message(sprintf("supervoxels: sigma1 = %.2f (adaptive, sqrt of %d features)", sigma1, n_features))
+  }
+
+  # If no initial clusters, use gradient-based seeding for better initialization
   if (is.null(initclus)) {
-    init_centers <- coords[as.integer(seq(1, nvox, length.out = K)), , drop = FALSE]
-    kres <- stats::kmeans(coords, centers = init_centers, iter.max = 500)
+    grad_distance <- if (n_features == 1) "euclidean" else "cosine"
+    # FIX 5: Gradient-based seeding - place initial seeds in low-gradient regions
+    # Low gradient = center of homogeneous feature regions, not boundaries
+    # This improves initialization quality and helps the algorithm converge faster
+
+    seeds <- tryCatch({
+      if (verbose) {
+        message("supervoxels: Using functional gradient-based seeding (", grad_distance, ")...")
+      }
+
+      # Compute functional gradient - need features as N x T (rows=voxels, cols=features)
+      # feature_mat is T x N, so transpose it
+      feature_mat_transposed <- t(feature_mat)
+
+      # Normalize features for cosine-based gradient computation; leave Euclidean
+      # path unnormalized so magnitude differences are preserved for 3D inputs.
+      feature_mat_for_grad <- if (grad_distance == "cosine") {
+        row_norms <- sqrt(rowSums(feature_mat_transposed^2))
+        row_norms[row_norms == 0] <- 1  # Avoid division by zero
+        feature_mat_transposed / row_norms
+      } else {
+        feature_mat_transposed
+      }
+
+      # Find K seeds in low-gradient (stable, homogeneous) regions
+      gradient_seeds <- find_gradient_seeds_g3s(
+        feature_mat_for_grad,
+        coords,
+        K = K,
+        k_neighbors = min(26, nvox - 1),  # 26-connectivity or less
+        oversample_ratio = 3,
+        min_separation_factor = 0.5,  # Allow seeds reasonably close together
+        distance = grad_distance
+      )
+
+      if (length(gradient_seeds) < K) {
+        warning(sprintf("Gradient seeding found only %d of %d seeds, falling back to uniform",
+                       length(gradient_seeds), K))
+        NULL
+      } else {
+        gradient_seeds[1:K]
+      }
+    }, error = function(e) {
+      if (verbose) warning("Gradient-based seeding failed: ", e$message, ". Falling back to uniform.")
+      NULL
+    })
+
+    # If gradient seeding worked, use those seeds; otherwise fall back to uniform grid
+    if (!is.null(seeds) && length(seeds) == K) {
+      # Use gradient-based seeds as k-means centers
+      init_centers <- coords[seeds, , drop = FALSE]
+      kres <- stats::kmeans(coords, centers = init_centers, iter.max = 500)
+
+      if (verbose) message("supervoxels: Gradient seeding successful, ", K, " seeds placed in low-gradient regions")
+    } else {
+      # Fallback: uniform grid sampling
+      init_centers <- coords[as.integer(seq(1, nvox, length.out = K)), , drop = FALSE]
+      kres <- stats::kmeans(coords, centers = init_centers, iter.max = 500)
+    }
 
     clusid <- sort(unique(kres$cluster))
-    
+
     # CRITICAL FIX: Remap cluster IDs to be contiguous (1, 2, 3, ..., K)
     # This ensures centroids can be indexed by cluster_id - 1 in C++
     cluster_mapping <- setNames(1:length(clusid), clusid)
@@ -183,17 +248,30 @@ supervoxel_cluster_fit <- function(feature_mat,
     # Reorder centers to match the remapped cluster IDs
     # kres$centers rows correspond to original cluster IDs, need to reorder
     centers_reordered <- kres$centers[clusid, , drop = FALSE]
-    
-    # seeds are the nearest grid points to the reordered cluster centers
+
+    # Seeds are the nearest grid points to the reordered cluster centers
+    # (Use k-means centers, which may have shifted from initial gradient seeds)
     seeds <- FNN::get.knnx(coords, centers_reordered)$nn.index[,1]
     sp_centroids <- coords[seeds, , drop = FALSE]  # K x 3 matrix
 
-    # feature_mat is (features x voxels), need to get centroids as (features x K)
-    num_centroids <- feature_mat[, seeds, drop = FALSE]  # features x K matrix
-    
+    # FIX 4: Compute feature centroids as cluster AVERAGES, not seed voxels
+    # The seed voxel may belong to a different true cluster than other cluster members
+    # Using the average is more robust and representative
+    num_centroids <- matrix(0, nrow = nrow(feature_mat), ncol = K)
+    for (k in 1:K) {
+      cluster_members <- which(curclus == k)
+      if (length(cluster_members) == 1) {
+        # Single member: use that voxel's features
+        num_centroids[, k] <- feature_mat[, cluster_members]
+      } else {
+        # Multiple members: use mean of all members' features
+        num_centroids[, k] <- rowMeans(feature_mat[, cluster_members, drop = FALSE])
+      }
+    }
+
     # Transpose both to match C++ expectations: (dims x K) for both
     sp_centroids <- t(sp_centroids)  # Now 3 x K
-    num_centroids <- num_centroids    # Already features x K, no transpose needed
+    # num_centroids is already features x K, no transpose needed
 
   } else {
     # Use user-supplied initclus
@@ -226,8 +304,11 @@ supervoxel_cluster_fit <- function(feature_mat,
   prev_switches <- Inf
   no_improvement_count <- 0
   
-  # Use cheap-then-exact strategy: first 5 iterations spatial-only (alpha=0)
-  cheap_iters <- 1L  # keep only a single cheap pass; avoids locking-in bad spatial seeds
+  # FIX 1: Removed cheap_iters - use full alpha from iteration 1
+
+  # The old "cheap-then-exact" strategy (alpha=0 for first iteration) destroyed
+  # feature information when k-means initialization didn't align with feature clusters.
+  # Now we use full alpha from the start to properly weight features vs spatial.
   original_alpha <- alpha
 
   # Adaptive spatial binning (small K needs wider search)
@@ -239,21 +320,26 @@ supervoxel_cluster_fit <- function(feature_mat,
   bin_expand <- if (K < 10 || nvox < 5000) 2L else 1L
 
   while (iter <= iter.max && switches > 0) {
-    # Adjust alpha for cheap-then-exact strategy
-    current_alpha <- if (iter <= cheap_iters) 0 else original_alpha
+    # FIX 1: Always use full alpha (no more cheap_iters strategy)
+    current_alpha <- original_alpha
     
     # Sanitize neighbor indices before passing to C++
-    nn_indices <- neib$nn.index - 1  # Convert to 0-based
+    nn_indices <- neib$nn.index - 1L  # Convert to 0-based
     if (any(nn_indices < 0 | nn_indices >= nvox, na.rm = TRUE)) {
       warning("Invalid neighbor indices found. Coercing to valid range.")
-      nn_indices[is.na(nn_indices) | nn_indices < 0] <- 0
-      nn_indices[nn_indices >= nvox] <- nvox - 1
+      nn_indices[is.na(nn_indices) | nn_indices < 0] <- 0L
+      nn_indices[nn_indices >= nvox] <- nvox - 1L
     }
-    
+
+    # FIX 7: Convert curclus to 0-based for C++ (C++ uses 0-based centroid indexing)
+    # The C++ code iterates centroids as k=0 to K-1 and stores these 0-based indices
+    # in the spatial bins. When it returns assignments, they are also 0-based.
+    curclus_0based <- curclus - 1L
+
     # Use spatially-binned assignment for efficient candidate selection
     if (parallel && nvox > 1000) {
-      newclus <- fused_assignment_parallel_binned(
-        nn_indices, neib$nn.dist, curclus,
+      newclus_0based <- fused_assignment_parallel_binned(
+        nn_indices, neib$nn.dist, curclus_0based,
         t(coords), num_centroids, sp_centroids, feature_mat,
         dthresh, sigma1, sigma2, current_alpha,
         grain_size = max(1024L, as.integer(nvox / 32L)),
@@ -262,14 +348,17 @@ supervoxel_cluster_fit <- function(feature_mat,
       )
     } else {
       # Even sequential mode benefits from spatial binning
-      newclus <- fused_assignment_binned(
-        nn_indices, neib$nn.dist, curclus,
+      newclus_0based <- fused_assignment_binned(
+        nn_indices, neib$nn.dist, curclus_0based,
         t(coords), num_centroids, sp_centroids, feature_mat,
         dthresh, sigma1, sigma2, current_alpha,
         window_factor = window_factor,
         bin_expand = bin_expand
       )
     }
+
+    # Convert back to 1-based for R
+    newclus <- newclus_0based + 1L
     
     # Compute switches in R to avoid atomic contention in parallel C++ code
     switches <- sum(newclus != curclus)
@@ -394,10 +483,12 @@ knn_shrink <- function(bvec, mask, k = 5, connectivity = 27) {
 #'
 #' Cluster a \code{NeuroVec} instance into a set of spatially constrained clusters.
 #'
-#' @note Consider using \code{\link{cluster4d}} with \code{method = "supervoxels"} for a 
+#' @note Consider using \code{\link{cluster4d}} with \code{method = "supervoxels"} for a
 #' standardized interface across all clustering methods.
 #'
 #' @param bvec A \code{\linkS4class{NeuroVec}} instance supplying the data to cluster.
+#'   Can also be a 3D \code{\linkS4class{NeuroVol}} for structural image segmentation,
+#'   which will be automatically converted to a single-timepoint NeuroVec internally.
 #' @param mask A \code{\linkS4class{NeuroVol}} mask defining the voxels to include. If numeric, nonzero = included.
 #' @param K The number of clusters to find (default 500).
 #' @param sigma1 The bandwidth of the heat kernel for the data vectors.
@@ -514,6 +605,15 @@ supervoxels <- function(bvec, mask,
                         verbose = FALSE,
                         converge_thresh = 0.001) {
 
+  # Support 3D NeuroVol input by converting to single-timepoint NeuroVec
+
+  # This allows supervoxel segmentation of structural images (e.g., T1-weighted MRI)
+  if (inherits(bvec, "NeuroVol") && length(dim(bvec)) == 3) {
+    if (verbose) message("supervoxels: converting 3D NeuroVol to single-timepoint NeuroVec")
+    arr4d <- array(as.array(bvec), dim = c(dim(bvec), 1))
+    bvec <- neuroim2::NeuroVec(arr4d, neuroim2::add_dim(neuroim2::space(bvec), 1))
+  }
+
   mask.idx <- which(mask > 0)
   if (length(mask.idx) == 0) {
     stop("No nonzero voxels in mask.")
@@ -545,24 +645,28 @@ supervoxels <- function(bvec, mask,
   # coordinate grid in mm units
   coords <- index_to_coord(mask, mask.idx)
 
-  # initialization of cluster assignments
-  clusinit <- init_cluster(bvec, mask, coords, K, use_gradient)
-
   # gather scaled features (time x voxels); keep both orientations
-  feature_mat <- neuroim2::series(bvec, mask.idx)        # T x N
+  # NOTE: neuroim2::series returns a vector (not matrix) for single-timepoint data,
+  # so we ensure it's always a T x N matrix
+  feature_mat <- neuroim2::series(bvec, mask.idx)        # T x N (or vector if T=1)
+  if (!is.matrix(feature_mat)) {
+    # Single timepoint: convert vector to 1 x N matrix
+    feature_mat <- matrix(feature_mat, nrow = 1)
+  }
   feature_mat_vox <- t(as.matrix(feature_mat))           # N x T for downstream summaries
 
-  # Default sigma1 tuned for z-scored data and normalized heat kernel
-  if (is.null(sigma1)) {
-    sigma1 <- 1.0
-    if (verbose) message("supervoxels: sigma1 not provided; using default 1.0 for normalized data distance")
-  }
+  # sigma1 will be set adaptively in supervoxel_cluster_fit if NULL
+
+  # FIX 6: Let supervoxel_cluster_fit handle initialization with functional gradient seeding
+  # Previously, init_cluster was called here which used spatial gradient from a single volume.
+  # Now we pass initclus=NULL to trigger the new functional gradient seeding in supervoxel_cluster_fit,
+  # which considers the full feature space for better seed placement.
 
   # run the iterative fit
   ret <- supervoxel_cluster_fit(feature_mat, coords, K = K, sigma1 = sigma1, sigma2 = sigma2,
                                 iterations = iterations, connectivity = connectivity,
                                 use_medoid = use_medoid, alpha = alpha,
-                                initclus = clusinit, use_gradient = use_gradient,
+                                initclus = NULL, use_gradient = use_gradient,
                                 parallel = parallel, grain_size = grain_size,
                                 verbose = verbose, converge_thresh = converge_thresh)
 

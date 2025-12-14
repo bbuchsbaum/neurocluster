@@ -238,12 +238,19 @@ acsc <- function(bvec, mask,
   cluster_map <- array(0L, dim(mask))
   cluster_map[mask.idx] <- voxel_labels
 
+  # Safety: ensure we produced labels for all voxels
+  if (length(voxel_labels) != length(mask.idx)) {
+    stop("ACSC: voxel_labels length mismatch; expected ", length(mask.idx),
+         " got ", length(voxel_labels))
+  }
+
   # Create cluster_result compatible structure
   result <- structure(
     list(
       cluster = voxel_labels,
       clusvol = neuroim2::ClusteredNeuroVol(mask, clusters = voxel_labels),
       n_clusters = length(unique(voxel_labels[voxel_labels > 0])),
+      cluster_map = cluster_map,
       method = "acsc",
       parameters = list(
         alpha = alpha,
@@ -256,7 +263,6 @@ acsc <- function(bvec, mask,
         K = K
       ),
       metadata = list(
-        cluster_map = cluster_map,
         graph = graph,
         init_block_label = construct_block_label_array(block_id, mask)
       )
@@ -272,10 +278,12 @@ acsc <- function(bvec, mask,
 #' @keywords internal
 preprocess_time_series <- function(bvec, mask, correlation_metric) {
   mask.idx <- which(mask > 0)
-  feature_mat <- neuroim2::series(bvec, mask.idx)
+  feature_mat <- neuroim2::series(bvec, mask.idx)  # returns T x N
+  # Ensure rows = voxels, cols = timepoints
+  feature_mat <- t(as.matrix(feature_mat))  # now N x T
   
   # Handle single voxel case
-  if (length(mask.idx) == 1) {
+  if (nrow(feature_mat) == 1) {
     feature_mat <- matrix(feature_mat, nrow = 1)
   }
   
@@ -284,18 +292,15 @@ preprocess_time_series <- function(bvec, mask, correlation_metric) {
     stop("No time series data extracted from the input.")
   }
 
-  ## Ensure rows = voxels, cols = timepoints
-  if (nrow(feature_mat) < ncol(feature_mat)) {
-    feature_mat <- t(feature_mat)
-  }
-
   ## 1) Mean-center
   feature_mat <- base::scale(feature_mat, center = TRUE, scale = FALSE)
 
   ## 2) Detrend each voxel (using future_apply for parallelization)
-  feature_mat <- future.apply::future_apply(feature_mat, 1, function(x) {
-    stats::lm(x ~ seq_along(x))$residuals
-  })
+  feature_mat <- suppressWarnings(
+    future.apply::future_apply(feature_mat, 1, function(x) {
+      stats::lm(x ~ seq_along(x))$residuals
+    })
+  )
   feature_mat <- t(feature_mat)  # Keep shape as (voxels x time)
 
   ## "robust" placeholder:
@@ -492,6 +497,10 @@ expand_block_labels <- function(cluster_result, block_id, mask.idx) {
   block_labels <- igraph::membership(cluster_result)  # length = nb
   nb <- length(block_labels)
 
+  if (nb == 0) {
+    stop("ACSC: Louvain returned zero communities; graph may be empty")
+  }
+
   # Must recall how we assigned blocks in summarize_blocks
   # The easiest is to re-get unique_blocks from the cluster object if stored,
   # but we do it the same way:
@@ -523,6 +532,9 @@ force_exact_k <- function(labels, feature_mat, K_target) {
   labels <- as.integer(labels)
   valid <- labels[labels > 0]
   if (length(valid) == 0) return(labels)
+
+  # K_target cannot exceed number of voxels; kmeans also requires centers < nrow
+  K_target <- max(1L, min(K_target, nrow(feature_mat) - 1L))
 
   relabel <- function(lbl) {
     u <- sort(unique(lbl[lbl > 0]))

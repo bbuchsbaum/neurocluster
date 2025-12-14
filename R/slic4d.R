@@ -4,10 +4,12 @@
 #' 3D supervoxels using an enhanced SLIC-style algorithm with mask-aware seeding,
 #' gradient-based seed relocation, and exact K preservation.
 #' 
-#' @note Consider using \code{\link{cluster4d}} with \code{method = "slic"} for a 
+#' @note Consider using \code{\link{cluster4d}} with \code{method = "slic"} for a
 #' standardized interface across all clustering methods.
 #'
 #' @param bvec A \code{NeuroVec} with dims (X, Y, Z, T).
+#'   Can also be a 3D \code{\linkS4class{NeuroVol}} for structural image segmentation,
+#'   which will be automatically converted to a single-timepoint NeuroVec internally.
 #' @param mask A 3D \code{NeuroVol} (or logical array) indicating voxels to include.
 #' @param K Target number of supervoxels.
 #' @param compactness Spatial vs feature tradeoff (like SLIC 'm'). Larger = more compact.
@@ -71,6 +73,9 @@ slic4d_supervoxels <- function(bvec, mask,
                               min_size = 0L,
                               verbose = FALSE) {
   
+  # Allow single-volume NeuroVol by wrapping to NeuroVec
+  bvec <- ensure_neurovec(bvec)
+
   feature_norm <- match.arg(feature_norm)
   seed_method <- match.arg(seed_method)
   seed_relocate <- match.arg(seed_relocate)
@@ -78,6 +83,14 @@ slic4d_supervoxels <- function(bvec, mask,
   
   # Use common validation
   validate_cluster4d_inputs(bvec, mask, K, "slic4d_supervoxels")
+
+  n_timepoints <- if (length(dim(bvec)) >= 4) dim(bvec)[4] else 1L
+  if (n_timepoints <= 1 && seed_relocate == "correlation") {
+    if (verbose) {
+      message("slic4d_supervoxels: correlation relocation not applicable for single timepoint; using intensity gradient instead")
+    }
+    seed_relocate <- "intensity"
+  }
   
   # Handle mask input
   if (inherits(mask, "NeuroVol")) {
@@ -101,7 +114,11 @@ slic4d_supervoxels <- function(bvec, mask,
   
   # Feature matrix: voxel time series (N x T)
   # series() returns T x N, so we need to transpose
+  # Note: series() returns a vector for single-timepoint data
   feat <- neuroim2::series(bvec, mask_idx)
+  if (!is.matrix(feat)) {
+    feat <- matrix(feat, nrow = 1)  # 1 x N for single timepoint
+  }
   feat <- t(as.matrix(feat))  # Now N x T
   
   # Optional feature normalization

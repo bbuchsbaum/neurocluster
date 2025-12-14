@@ -235,3 +235,19 @@ test_that("supervoxels handles constant time series", {
   
   expect_s3_class(res, "cluster_result")
 })
+
+test_that("supervoxels accepts 3D NeuroVol input", {
+  # Test that supervoxels can handle 3D NeuroVol (structural images)
+  # This is useful for T1-weighted MRI segmentation
+  dims <- c(12, 12, 8)
+  vol_data <- array(rnorm(prod(dims)), dims)
+  vol <- NeuroVol(vol_data, NeuroSpace(dims, c(2, 2, 2)))
+  mask <- NeuroVol(array(1, dims), NeuroSpace(dims, c(2, 2, 2)))
+
+  # Should work with 3D NeuroVol input (automatically converted internally)
+  res <- supervoxels(vol, mask, K = 8, iterations = 5, verbose = FALSE)
+
+  expect_s3_class(res, "cluster_result")
+  expect_true(length(unique(res$cluster)) <= 8)
+  expect_true(length(res$cluster) == prod(dims))
+})

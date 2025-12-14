@@ -391,6 +391,99 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// normalize_volumes_cpp
+NumericMatrix normalize_volumes_cpp(NumericMatrix data);
+RcppExport SEXP _neurocluster_normalize_volumes_cpp(SEXP dataSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    rcpp_result_gen = Rcpp::wrap(normalize_volumes_cpp(data));
+    return rcpp_result_gen;
+END_RCPP
+}
+// detrend_time_cpp
+NumericMatrix detrend_time_cpp(NumericMatrix data);
+RcppExport SEXP _neurocluster_detrend_time_cpp(SEXP dataSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    rcpp_result_gen = Rcpp::wrap(detrend_time_cpp(data));
+    return rcpp_result_gen;
+END_RCPP
+}
+// normalize_detrend_cpp
+NumericMatrix normalize_detrend_cpp(NumericMatrix data);
+RcppExport SEXP _neurocluster_normalize_detrend_cpp(SEXP dataSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    rcpp_result_gen = Rcpp::wrap(normalize_detrend_cpp(data));
+    return rcpp_result_gen;
+END_RCPP
+}
+// make_dct_basis
+NumericMatrix make_dct_basis(int n_time, int n_basis);
+RcppExport SEXP _neurocluster_make_dct_basis(SEXP n_timeSEXP, SEXP n_basisSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< int >::type n_time(n_timeSEXP);
+    Rcpp::traits::input_parameter< int >::type n_basis(n_basisSEXP);
+    rcpp_result_gen = Rcpp::wrap(make_dct_basis(n_time, n_basis));
+    return rcpp_result_gen;
+END_RCPP
+}
+// make_poly_basis
+NumericMatrix make_poly_basis(int n_time, int degree);
+RcppExport SEXP _neurocluster_make_poly_basis(SEXP n_timeSEXP, SEXP degreeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< int >::type n_time(n_timeSEXP);
+    Rcpp::traits::input_parameter< int >::type degree(degreeSEXP);
+    rcpp_result_gen = Rcpp::wrap(make_poly_basis(n_time, degree));
+    return rcpp_result_gen;
+END_RCPP
+}
+// detrend_basis_cpp
+NumericMatrix detrend_basis_cpp(NumericMatrix data, NumericMatrix basis);
+RcppExport SEXP _neurocluster_detrend_basis_cpp(SEXP dataSEXP, SEXP basisSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type basis(basisSEXP);
+    rcpp_result_gen = Rcpp::wrap(detrend_basis_cpp(data, basis));
+    return rcpp_result_gen;
+END_RCPP
+}
+// detrend_poly_cpp
+NumericMatrix detrend_poly_cpp(NumericMatrix data, int degree);
+RcppExport SEXP _neurocluster_detrend_poly_cpp(SEXP dataSEXP, SEXP degreeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< int >::type degree(degreeSEXP);
+    rcpp_result_gen = Rcpp::wrap(detrend_poly_cpp(data, degree));
+    return rcpp_result_gen;
+END_RCPP
+}
+// detrend_dct_cpp
+NumericMatrix detrend_dct_cpp(NumericMatrix data, int n_basis);
+RcppExport SEXP _neurocluster_detrend_dct_cpp(SEXP dataSEXP, SEXP n_basisSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< int >::type n_basis(n_basisSEXP);
+    rcpp_result_gen = Rcpp::wrap(detrend_dct_cpp(data, n_basis));
+    return rcpp_result_gen;
+END_RCPP
+}
 // compute_masked_distances_cpp
 NumericVector compute_masked_distances_cpp(NumericMatrix feature_mat, IntegerVector adjacency_i, IntegerVector adjacency_j);
 RcppExport SEXP _neurocluster_compute_masked_distances_cpp(SEXP feature_matSEXP, SEXP adjacency_iSEXP, SEXP adjacency_jSEXP) {
@@ -670,6 +763,14 @@ static const R_CallMethodDef CallEntries[] = {
     {"_neurocluster_calculate_local_gradient", (DL_FUNC) &_neurocluster_calculate_local_gradient, 2},
     {"_neurocluster_g3s_propagate_cpp", (DL_FUNC) &_neurocluster_g3s_propagate_cpp, 7},
     {"_neurocluster_refine_boundaries_g3s_cpp", (DL_FUNC) &_neurocluster_refine_boundaries_g3s_cpp, 4},
+    {"_neurocluster_normalize_volumes_cpp", (DL_FUNC) &_neurocluster_normalize_volumes_cpp, 1},
+    {"_neurocluster_detrend_time_cpp", (DL_FUNC) &_neurocluster_detrend_time_cpp, 1},
+    {"_neurocluster_normalize_detrend_cpp", (DL_FUNC) &_neurocluster_normalize_detrend_cpp, 1},
+    {"_neurocluster_make_dct_basis", (DL_FUNC) &_neurocluster_make_dct_basis, 2},
+    {"_neurocluster_make_poly_basis", (DL_FUNC) &_neurocluster_make_poly_basis, 2},
+    {"_neurocluster_detrend_basis_cpp", (DL_FUNC) &_neurocluster_detrend_basis_cpp, 2},
+    {"_neurocluster_detrend_poly_cpp", (DL_FUNC) &_neurocluster_detrend_poly_cpp, 2},
+    {"_neurocluster_detrend_dct_cpp", (DL_FUNC) &_neurocluster_detrend_dct_cpp, 2},
     {"_neurocluster_compute_masked_distances_cpp", (DL_FUNC) &_neurocluster_compute_masked_distances_cpp, 3},
     {"_neurocluster_find_1nn_subgraph_cpp", (DL_FUNC) &_neurocluster_find_1nn_subgraph_cpp, 4},
     {"_neurocluster_find_connected_components_cpp", (DL_FUNC) &_neurocluster_find_connected_components_cpp, 2},

@@ -14,6 +14,10 @@
 #' @param noise_sd Standard deviation of additive Gaussian noise.
 #' @param amplitude_range Range used when scaling each voxel's amplitude.
 #' @param spacing_mm Physical voxel size supplied to the generated `NeuroSpace`.
+#' @param pattern_type Type of temporal patterns to generate. One of
+#'   `"orthogonal"` (QR-decomposition for maximally distinct signals, default),
+#'   `"harmonic"` (phase/frequency-shifted sinusoids), or `"random"` (random
+#'   linear combinations of harmonics).
 #' @param seed Optional seed for reproducibility.
 #'
 #' @return A list with elements `vec`, `mask`, `truth`, `coords`,
@@ -40,8 +44,10 @@ generate_synthetic_volume <- function(
     noise_sd = 0.05,
     amplitude_range = c(0.8, 1.2),
     spacing_mm = c(3, 3, 3),
+    pattern_type = c("orthogonal", "harmonic", "random"),
     seed = NULL) {
   scenario <- match.arg(scenario)
+  pattern_type <- match.arg(pattern_type)
   if (!is.null(seed)) set.seed(seed)
   coords <- as.matrix(expand.grid(x = seq_len(dims[1]),
                                   y = seq_len(dims[2]),
@@ -56,7 +62,7 @@ generate_synthetic_volume <- function(
   truth <- assignments$labels
   weights <- assignments$weights
   nvox <- length(truth)
-  patterns <- synthetic_time_patterns(n_clusters, n_time)
+  patterns <- synthetic_time_patterns(n_clusters, n_time, pattern_types = pattern_type)
   signals <- matrix(0, nrow = nvox, ncol = n_time)
   amp <- runif(nvox, amplitude_range[1], amplitude_range[2]) * weights
   for (k in seq_len(n_clusters)) {
@@ -81,25 +87,55 @@ generate_synthetic_volume <- function(
     weights = weights,
     dims = dims,
     n_clusters = n_clusters,
-    scenario = scenario
+    scenario = scenario,
+    pattern_type = pattern_type
   )
 }
 
+#' Generate synthetic temporal patterns for cluster signals
+#'
+#' Creates distinct temporal patterns for each cluster. Used internally by
+#' \code{\link{generate_synthetic_volume}} but exported for custom synthetic
+#' data generation.
+#'
+#' @param n_clusters Number of clusters/patterns to generate.
+#' @param n_time Number of time points.
+#' @param pattern_types Type of patterns: \code{"orthogonal"} (QR-decomposition
+#'   for maximally distinct signals), \code{"harmonic"} (phase/frequency-shifted
+#'   sinusoids), or \code{"random"} (random linear combinations of harmonics).
+#'
+#' @return A matrix of dimension \code{n_clusters x n_time} with one temporal
+#'   pattern per row.
+#' @export
 synthetic_time_patterns <- function(n_clusters, n_time,
-                                    pattern_types = c("harmonic", "random")) {
+                                    pattern_types = c("orthogonal", "harmonic", "random")) {
+
+  pattern_types <- match.arg(pattern_types)
   t_seq <- seq(0, 2 * pi, length.out = n_time)
   patterns <- matrix(0, nrow = n_clusters, ncol = n_time)
-  for (k in seq_len(n_clusters)) {
-    type <- if (length(pattern_types) == 1) pattern_types[1] else pattern_types[(k - 1) %% length(pattern_types) + 1]
-    if (type == "random") {
-      coeffs <- rnorm(3)
-      patterns[k, ] <- coeffs[1] * sin(t_seq) + coeffs[2] * cos(2 * t_seq) + coeffs[3]
-    } else {
-      freq <- runif(1, 0.6, 1.6)
-      phase <- runif(1, 0, 2 * pi)
-      patterns[k, ] <- sin(freq * t_seq + phase)
+
+  if (pattern_types == "orthogonal") {
+    # Use QR decomposition to create truly orthogonal signals
+    # This ensures each cluster has a maximally distinct temporal pattern
+    random_mat <- matrix(rnorm(n_time * n_clusters), nrow = n_time, ncol = n_clusters)
+    qr_decomp <- qr(random_mat)
+    Q <- qr.Q(qr_decomp)  # n_time x n_clusters orthonormal matrix
+    # Scale to reasonable amplitude and transpose to n_clusters x n_time
+    patterns <- t(Q) * sqrt(n_time)
+  } else {
+    # Legacy harmonic/random patterns (kept for backward compatibility)
+    for (k in seq_len(n_clusters)) {
+      type <- if (pattern_types == "harmonic") "harmonic" else "random"
+      if (type == "random") {
+        coeffs <- rnorm(3)
+        patterns[k, ] <- coeffs[1] * sin(t_seq) + coeffs[2] * cos(2 * t_seq) + coeffs[3]
+      } else {
+        freq <- runif(1, 0.6, 1.6)
+        phase <- runif(1, 0, 2 * pi)
+        patterns[k, ] <- sin(freq * t_seq + phase)
+      }
+      patterns[k, ] <- patterns[k, ] / max(abs(patterns[k, ]))
     }
-    patterns[k, ] <- patterns[k, ] / max(abs(patterns[k, ]))
   }
   patterns
 }

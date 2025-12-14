@@ -19,6 +19,7 @@
 #'     \item \code{"flash3d"}: Fast Low-rank Approximate Superclusters
 #'     \item \code{"g3s"}: Gradient-Guided Geodesic Supervoxels (NEW - recommended for best quality/speed)
 #'     \item \code{"rena"}: Recursive Nearest Agglomeration (fast, balanced, topology-aware)
+#'     \item \code{"acsc"}: Adaptive Correlation Superclustering (graph-based with boundary refinement)
 #'   }
 #' @param spatial_weight Balance between spatial and feature similarity (0-1).
 #'   Higher values emphasize spatial compactness. Default 0.5.
@@ -128,7 +129,8 @@
 #' @seealso 
 #' Method-specific functions: \code{\link{cluster4d_supervoxels}}, 
 #' \code{\link{cluster4d_snic}}, \code{\link{cluster4d_slic}},
-#' \code{\link{cluster4d_slice_msf}}, \code{\link{cluster4d_flash3d}}
+#' \code{\link{cluster4d_slice_msf}}, \code{\link{cluster4d_flash3d}},
+#' \code{\link{cluster4d_commute}}
 #' 
 #' Legacy functions (deprecated): \code{\link{supervoxels}}, \code{\link{snic}},
 #' \code{\link{slic4d_supervoxels}}, \code{\link{slice_msf}}, \code{\link{supervoxels_flash3d}}
@@ -137,29 +139,68 @@
 #' @importFrom neuroim2 NeuroVec NeuroVol ClusteredNeuroVol series index_to_coord spacing
 cluster4d <- function(vec, mask,
                      n_clusters = 100,
-                     method = c("supervoxels", "snic", "slic", "slice_msf", "flash3d", "g3s", "rena", "rena_plus"),
+                     method = c("supervoxels", "snic", "slic", "slice_msf", "flash3d", "g3s", "rena", "rena_plus", "acsc", "commute"),
                      spatial_weight = 0.5,
-                     max_iterations = 10,
-                     connectivity = 26,
+                     max_iterations = NULL,
+                     connectivity = NULL,
                      parallel = TRUE,
                      verbose = FALSE,
                      ...) {
 
+  # Allow users to pass a single-volume NeuroVol; wrap to NeuroVec for downstream code
+  vec <- ensure_neurovec(vec)
+
   method <- match.arg(method)
-  
+
+  # ------------------------------
+  # Method-specific sane defaults
+  # ------------------------------
+  if (is.null(max_iterations)) {
+    max_iterations <- switch(method,
+      supervoxels = 50,   # algorithm expects 30–50 iters for stability
+    flash3d    = 2,     # native FLASH rounds; keeps tests fair
+    snic       = 100,
+    slic       = 10,
+    slice_msf  = 10,
+    g3s        = 5,     # refinement iterations
+    rena       = 12,
+    rena_plus  = 12,
+    acsc       = 5,
+    commute    = 1,     # single pass (no iterative refinement)
+    10
+  )
+  }
+
+  if (is.null(connectivity)) {
+    connectivity <- switch(method,
+      supervoxels = 27,
+      snic        = 26,
+      slic        = 26,
+      slice_msf   = 26,
+      rena        = 26,
+      rena_plus   = 26,
+      acsc        = 26,
+      g3s         = 26,
+      flash3d     = NA_integer_,
+      26
+    )
+  }
+
   # Validate common inputs
   validate_cluster4d_inputs(vec, mask, n_clusters, paste0("cluster4d:", method))
-  
+
   # Validate spatial_weight
   if (!is.numeric(spatial_weight) || spatial_weight < 0 || spatial_weight > 1) {
     stop("spatial_weight must be between 0 and 1")
   }
-  
-  # Validate connectivity
-  if (!connectivity %in% c(6, 18, 26, 27)) {
-    stop("connectivity must be 6, 18, 26, or 27")
+
+  # Validate connectivity (only when method uses it)
+  if (!is.na(connectivity)) {
+    if (!connectivity %in% c(6, 18, 26, 27)) {
+      stop("connectivity must be 6, 18, 26, or 27")
+    }
   }
-  
+
   # Store original parameters
   orig_params <- list(
     n_clusters = n_clusters,
@@ -170,7 +211,7 @@ cluster4d <- function(vec, mask,
     parallel = parallel,
     verbose = verbose
   )
-  
+
   # Dispatch to method-specific implementation
   result <- switch(method,
     supervoxels = cluster4d_supervoxels(vec, mask, n_clusters, spatial_weight,
@@ -193,19 +234,77 @@ cluster4d <- function(vec, mask,
     rena_plus = cluster4d_rena_plus(vec, mask, n_clusters, spatial_weight,
                                     connectivity = connectivity,
                                     max_iterations = max_iterations,
-                                    verbose = verbose, ...)
+                                    verbose = verbose, ...),
+    acsc = cluster4d_acsc(vec, mask, n_clusters, spatial_weight,
+                          max_iterations, verbose, ...),
+    commute = cluster4d_commute(vec, mask, n_clusters, spatial_weight,
+                                verbose, ...)
   )
-  
+
   # Ensure result has cluster4d_result class
   if (!"cluster4d_result" %in% class(result)) {
     class(result) <- c("cluster4d_result", class(result))
   }
-  
+
   # Add original parameters if not present
   if (is.null(result$parameters)) {
     result$parameters <- orig_params
   }
-  
+
+  result
+}
+
+#' Cluster4d using commute-time spectral method
+#'
+#' Wrapper for commute_cluster with standardized interface.
+#'
+#' @inheritParams cluster4d
+#' @param ncomp Number of embedding components (defaults to sqrt(2K)).
+#' @return A cluster4d_result object
+#' @export
+#' @note Commute-time embedding is O(N^3) eigen; use only on small ROIs.
+cluster4d_commute <- function(vec, mask, n_clusters = 100,
+                             spatial_weight = 0.5,
+                             verbose = FALSE,
+                             ncomp = NULL,
+                             ...) {
+
+  # Map spatial_weight (0=all spatial, 1=all feature) to commute alpha (feature weight)
+  alpha <- 1 - spatial_weight
+  if (is.null(ncomp)) {
+    base <- ceiling(sqrt(n_clusters * 2))
+    n_vox <- sum(mask > 0)
+    # For small problems (<=2000 vox), allow richer embedding to capture structure
+    ncomp <- if (n_vox <= 2000) max(base, min(n_clusters * 2, n_vox - 1)) else base
+  }
+
+  result <- commute_cluster(
+    bvec = vec,
+    mask = mask,
+    K = n_clusters,
+    ncomp = ncomp,
+    alpha = alpha,
+    verbose = verbose,
+    ...
+  )
+
+  if (!"cluster4d_result" %in% class(result)) {
+    class(result) <- c("cluster4d_result", class(result))
+  }
+
+  result$method <- "commute"
+  result$n_clusters <- length(unique(result$cluster[!is.na(result$cluster)]))
+  dots <- list(...)
+  result$parameters <- c(
+    list(
+      n_clusters_requested = n_clusters,
+      spatial_weight = spatial_weight,
+      alpha = alpha,
+      ncomp = ncomp
+    ),
+    dots
+  )
+
   result
 }
 
@@ -431,40 +530,88 @@ cluster4d_slice_msf <- function(vec, mask, n_clusters = 100,
                                connectivity = 8,
                                parallel = TRUE,
                                verbose = FALSE,
-                               num_runs = 3,
-                               consensus = TRUE,
+                               num_runs = 1,
+                               consensus = FALSE,
                                stitch_z = TRUE,
                                theta_link = 0.85,
                                min_contact = 1,
                                r = 12,
                                gamma = 1.5,
+                               min_size = NULL,
                                ...) {
-  
+
   # Convert spatial_weight to compactness
   # slice_msf uses medium compactness values (1-10 typical)
   compactness <- spatial_weight * 10
-  
+
   # Map connectivity (slice_msf uses 2D connectivity)
   nbhd <- if (connectivity == 26) 8 else 4
-  
-  # Call slice_msf with all parameters
-  # Note: use_features is required when target_k_global is set with consensus
-  result <- slice_msf(
-    vec = vec,
-    mask = mask,
-    target_k_global = n_clusters,
-    compactness = compactness,
-    nbhd = nbhd,
-    num_runs = num_runs,
-    consensus = consensus,
-    use_features = consensus,  # Required for exact-K consensus
-    stitch_z = stitch_z,
-    theta_link = theta_link,
-    min_contact = min_contact,
-    r = r,
-    gamma = gamma,
-    ...
-  )
+
+  # Compute appropriate min_size based on expected cluster size if not specified
+  # Allow clusters as small as half the expected size to avoid forced merging
+  if (is.null(min_size)) {
+    n_voxels <- sum(mask > 0)
+    expected_size <- n_voxels / n_clusters
+    min_size <- max(1, floor(expected_size * 0.5))
+  }
+
+  # Helper to run slice_msf with overrides (used for retries)
+  run_once <- function(compactness_val, min_size_val) {
+    slice_msf(
+      vec = vec,
+      mask = mask,
+      target_k_global = n_clusters,
+      compactness = compactness_val,
+      min_size = min_size_val,
+      nbhd = nbhd,
+      num_runs = num_runs,
+      consensus = consensus,
+      use_features = consensus,  # Required for exact-K consensus
+      stitch_z = stitch_z,
+      theta_link = theta_link,
+      min_contact = min_contact,
+      r = r,
+      gamma = gamma,
+      ...
+    )
+  }
+
+  result <- run_once(compactness, min_size)
+
+  # Adaptive retries when we fail to reach or meaningfully overshoot the requested K.
+  # We want the initial FH segmentation to produce >K components so RAG merges have
+  # room to respect boundaries. If we come in under, tighten fh_scale (higher compactness)
+  # and relax min_size.
+  if (!inherits(result, "error") && n_clusters > 0) {
+    get_stats <- function(res) {
+      list(
+        found_k = length(unique(res$cluster[!is.na(res$cluster)])),
+        n_components_fh = if (!is.null(res$metadata$n_components_fh))
+          res$metadata$n_components_fh else NA_integer_
+      )
+    }
+
+    stats <- get_stats(result)
+    attempts <- 0
+    while (attempts < 2 &&
+           !is.na(stats$found_k) &&
+           (stats$found_k < n_clusters ||
+            (!is.na(stats$n_components_fh) &&
+             stats$n_components_fh < ceiling(1.4 * n_clusters)))) {
+
+      compactness <- min(10, compactness * 2.0)
+      min_size <- max(1, floor(min_size * 0.5))
+      attempts <- attempts + 1
+      if (verbose) message(
+        sprintf("slice_msf retry %d: fh tighter (compactness=%.2f) min_size=%d (found %d, fh comps %s)",
+                attempts, compactness, min_size,
+                stats$found_k,
+                ifelse(is.na(stats$n_components_fh), "NA", stats$n_components_fh))
+      )
+      result <- run_once(compactness, min_size)
+      stats <- get_stats(result)
+    }
+  }
   
   # Standardize result structure
   if (!"cluster4d_result" %in% class(result)) {
@@ -489,6 +636,7 @@ cluster4d_slice_msf <- function(vec, mask, n_clusters = 100,
       spatial_weight = spatial_weight,
       compactness = compactness,
       connectivity = connectivity,
+      min_size = min_size,
       num_runs = num_runs,
       consensus = consensus,
       stitch_z = stitch_z,
@@ -567,6 +715,86 @@ cluster4d_flash3d <- function(vec, mask, n_clusters = 100,
     ),
     dots  # Include any additional parameters passed through
   )
-  
+
+  result
+}
+
+#' Cluster4d using ACSC method
+#'
+#' Wrapper for Adaptive Correlation Superclustering algorithm with standardized interface.
+#' ACSC uses graph-based clustering with Louvain community detection and optional
+#' boundary refinement.
+#'
+#' @inheritParams cluster4d
+#' @param block_size Approximate side length of initial blocks. Default 2.
+#' @param refine Logical; whether to refine boundaries. Default TRUE.
+#' @param max_refine_iter Maximum iterations for boundary refinement. Default 5.
+#' @param ... Additional parameters passed to acsc
+#'
+#' @return A cluster4d_result object
+#' @export
+cluster4d_acsc <- function(vec, mask, n_clusters = 100,
+                           spatial_weight = 0.5,
+                           max_iterations = 5,
+                           verbose = FALSE,
+                           block_size = 2,
+                           refine = TRUE,
+                           max_refine_iter = NULL,
+                           ...) {
+
+  # Map spatial_weight to alpha (acsc uses alpha for correlation vs spatial balance)
+  # alpha = 0.5 means equal weight; higher alpha = more correlation-based
+  alpha <- 1 - spatial_weight
+
+  # Use max_iterations for refinement if max_refine_iter not specified
+
+  if (is.null(max_refine_iter)) {
+    max_refine_iter <- max_iterations
+  }
+
+  # Call acsc
+  result <- acsc(
+    bvec = vec,
+    mask = mask,
+    K = n_clusters,
+    block_size = block_size,
+    alpha = alpha,
+    refine = refine,
+    max_refine_iter = max_refine_iter,
+    ...
+  )
+
+  # Standardize result structure - acsc already returns cluster and clusvol
+  if (!"cluster4d_result" %in% class(result)) {
+    class(result) <- c("cluster4d_result", class(result))
+  }
+
+  # Ensure method is set
+  result$method <- "acsc"
+
+  # Compute centers if not present
+  if (is.null(result$centers)) {
+    mask.idx <- which(mask > 0)
+    features <- t(series(vec, mask.idx))  # N x T
+    coords <- index_to_coord(mask, mask.idx)
+    centers_info <- compute_cluster_centers(result$cluster, features, coords)
+    result$centers <- centers_info$centers
+    result$coord_centers <- centers_info$coord_centers
+  }
+
+  # Store parameters
+  dots <- list(...)
+  result$parameters <- c(
+    list(
+      n_clusters_requested = n_clusters,
+      spatial_weight = spatial_weight,
+      alpha = alpha,
+      block_size = block_size,
+      refine = refine,
+      max_refine_iter = max_refine_iter
+    ),
+    dots
+  )
+
   result
 }

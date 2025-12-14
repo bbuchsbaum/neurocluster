@@ -169,15 +169,50 @@ static void seed_blue_noise(const std::vector<int> &mask_lin, // Nmask, 0-based 
     return (iz * gy + iy) * gx + ix;
   };
 
-  // First pass: pick one representative per non-empty coarse cell
-  std::vector<int> reps;
-  reps.reserve(K*2);
+  // First pass: build cell membership lists to enable spatial-balanced selection
+  std::vector<std::vector<int>> cell_members(gcells);
   for (size_t vi = 0; vi < mask_lin.size(); ++vi) {
     int idx = mask_lin[vi];
     int c = cell_of(idx);
-    if (coarse[c] < 0) {
-      coarse[c] = (int)vi;
-      reps.push_back((int)vi);
+    cell_members[c].push_back((int)vi);
+  }
+
+  // Select voxel closest to each cell's geometric center (eliminates z-ordering bias)
+  std::vector<int> reps;
+  reps.reserve(K*2);
+  for (int64_t c = 0; c < gcells; ++c) {
+    if (cell_members[c].empty()) continue;
+
+    // Calculate coarse cell center in voxel coordinates
+    int iz = (int)(c / (gx * gy));
+    int rem = (int)(c - iz * (gx * gy));
+    int iy = rem / gx;
+    int ix = rem - iy * gx;
+    double cx = ((double)ix + 0.5) * (double)nx / (double)gx;
+    double cy = ((double)iy + 0.5) * (double)ny / (double)gy;
+    double cz = ((double)iz + 0.5) * (double)nz / (double)gz;
+
+    // Find voxel closest to cell center
+    int best_vi = -1;
+    double best_dist = std::numeric_limits<double>::infinity();
+    for (size_t i = 0; i < cell_members[c].size(); ++i) {
+      int vi = cell_members[c][i];
+      int idx = mask_lin[vi];
+      int zc = idx / (nx * ny);
+      int r = idx - zc * (nx * ny);
+      int yc = r / nx;
+      int xc = r - yc * nx;
+      double dx = (double)xc - cx;
+      double dy = (double)yc - cy;
+      double dz = (double)zc - cz;
+      double d2 = dx*dx + dy*dy + dz*dz;
+      if (d2 < best_dist) {
+        best_dist = d2;
+        best_vi = vi;
+      }
+    }
+    if (best_vi >= 0) {
+      reps.push_back(best_vi);
     }
   }
 

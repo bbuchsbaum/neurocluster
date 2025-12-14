@@ -281,14 +281,9 @@ slice_msf <- function(vec, mask,
   assert_that(num_runs >= 1)
   assert_that(is.numeric(z_mult), length(z_mult) == 1, z_mult >= 0, z_mult <= 1)
 
-  # Deprecations: enforce volumetric behavior
-  if (target_k_per_slice > 0) {
-    warning("target_k_per_slice is deprecated; volumetric mode is always used. Ignoring and setting to -1.")
-    target_k_per_slice <- -1
-  }
-  if (stitch_z) {
-    warning("stitch_z is deprecated and ignored; volumetric edges already include z-neighbors.")
-    stitch_z <- FALSE
+  # Legacy options: keep working for tests, but warn about volumetric default
+  if (target_k_per_slice > 0 && stitch_z) {
+    warning("stitch_z + target_k_per_slice: volumetric edges already include z-neighbors; per-slice exact-K will ignore stitching.")
   }
   
   # Check spatial dimension compatibility
@@ -319,6 +314,9 @@ slice_msf <- function(vec, mask,
   all_idx <- seq_len(prod(dim(mask)))
   # series() returns T x N when vec is a NeuroVec
   TS <- series(vec, all_idx)
+  if (!is.matrix(TS)) {
+    TS <- matrix(TS, nrow = dim(vec)[4])  # Ensure 1 x N for single-volume inputs
+  }
   
   # Prepare mask and dimensions
   mask_flat <- as.integer(mask@.Data)
@@ -422,7 +420,8 @@ slice_msf <- function(vec, mask,
       clusvol = kvol,
       cluster = cluster_ids,
       centers = centers_info$centers,
-      coord_centers = centers_info$coord_centers
+      coord_centers = centers_info$coord_centers,
+      metadata = result$params
     ),
     class = c("slice_msf_cluster_result", "cluster_result", "list")
   )
@@ -526,6 +525,9 @@ slice_msf_single <- function(vec, mask,
   all_idx <- seq_len(prod(dim(mask)))
   # series() returns T x N when vec is a NeuroVec
   TS <- series(vec, all_idx)
+  if (!is.matrix(TS)) {
+    TS <- matrix(TS, nrow = dim(vec)[4])  # Ensure time x voxel matrix when T = 1
+  }
   
   mask_flat <- as.integer(mask@.Data)
   vol_dim <- dim(mask)
@@ -610,8 +612,8 @@ slice_msf_consensus <- function(run_results, mask,
     run_results = run_results,
     vol_dim = vol_dim,
     nbhd = nbhd,
-    k_fuse = k_fuse,
-    min_size_fuse = min_size_fuse,
+    fh_scale = k_fuse,
+    min_size = min_size_fuse,
     use_features = use_features,
     lambda = lambda,
     voxel_dim = voxel_dim,
@@ -632,6 +634,9 @@ compute_slice_cluster_centers <- function(vec, mask, cluster_ids, mask.idx) {
   
   # Get time series data
   vecmat <- series(vec, mask.idx)
+  if (!is.matrix(vecmat)) {
+    vecmat <- matrix(vecmat, nrow = dim(vec)[4])  # Keep time in rows for single-volume inputs
+  }
   
   # Compute data centers (mean time series per cluster)
   centers <- matrix(0, nrow = nrow(vecmat), ncol = n_clusters)

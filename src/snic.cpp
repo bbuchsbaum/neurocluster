@@ -22,19 +22,20 @@ struct QueueElement {
     }
 };
 
-// Lightweight struct for centroids with in-place updates
+// Lightweight struct for centroids with lazy normalization
 struct Centroid {
     std::vector<double> sum_c;   // Sum of feature vectors
     double sum_x, sum_y, sum_z;  // Sum of coordinates
     int count;
 
-    // Cached averages (updated after each addition)
+    // Cached averages (spatial always up-to-date, features normalized lazily)
     std::vector<double> avg_c;
     double avg_x, avg_y, avg_z;
+    bool features_dirty;  // Flag for lazy normalization
 
     Centroid(int n_features, double x, double y, double z, const double* c_init)
         : sum_x(x), sum_y(y), sum_z(z), count(1),
-          avg_x(x), avg_y(y), avg_z(z) {
+          avg_x(x), avg_y(y), avg_z(z), features_dirty(false) {
         sum_c.resize(n_features);
         avg_c.resize(n_features);
         for(int i = 0; i < n_features; ++i) {
@@ -43,7 +44,7 @@ struct Centroid {
         }
     }
 
-    // In-place update - no allocations
+    // Fast in-place update - defers normalization
     void add_pixel(double x, double y, double z, const double* features, int n_features) {
         count++;
         sum_x += x;
@@ -54,10 +55,19 @@ struct Centroid {
         avg_y = sum_y / count;
         avg_z = sum_z / count;
 
-        // Update features and normalize (for fMRI correlation-based distance)
-        double sq_norm = 0.0;
+        // Update feature sums only - defer normalization
         for(int i = 0; i < n_features; ++i) {
             sum_c[i] += features[i];
+        }
+        features_dirty = true;  // Mark for lazy normalization
+    }
+
+    // Lazy normalization - only called when features are needed
+    void ensure_normalized(int n_features) {
+        if (!features_dirty) return;
+
+        double sq_norm = 0.0;
+        for(int i = 0; i < n_features; ++i) {
             avg_c[i] = sum_c[i] / count;
             sq_norm += avg_c[i] * avg_c[i];
         }
@@ -69,6 +79,7 @@ struct Centroid {
                 avg_c[i] /= norm;
             }
         }
+        features_dirty = false;
     }
 };
 
@@ -374,6 +385,10 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
     // Priority queue with lightweight struct
     std::priority_queue<QueueElement, std::vector<QueueElement>, std::greater<QueueElement>> Q;
 
+    // Track best known distance per voxel - allows re-queuing when a closer cluster is found
+    // This restores paper-faithful behavior while controlling queue size
+    std::vector<double> best_dist(nvoxels, std::numeric_limits<double>::max());
+
     // Initialize centroids
     std::vector<Centroid> C_store;
     C_store.reserve(K);
@@ -405,12 +420,14 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
         // Add to queue with tie-breaking distance
         double dist = (double)k / (K + 1);
         Q.push({vx, vy, vz, idx, k + 1, dist});
+        best_dist[idx] = dist;  // Mark seed with its distance
     }
 
     int nassigned = 0;
 
     // Main loop - process voxels in priority order
-    while (!Q.empty()) {
+    // OPTIMIZATION: Early termination when all voxels assigned
+    while (!Q.empty() && nassigned < nvoxels) {
         // Check for user interrupts periodically
         if (nassigned % 1000 == 0) {
             Rcpp::checkUserInterrupt();
@@ -428,7 +445,7 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
             L_ptr[l_index] = e.k_label;
             nassigned++;
 
-            // Update centroid in-place
+            // Update centroid in-place (fast - no normalization)
             const double* feat_ptr = &vecmat[0] + e.voxel_idx * n_features;
             double nx = norm_ptr[e.voxel_idx + norm_stride * 0];
             double ny = norm_ptr[e.voxel_idx + norm_stride * 1];
@@ -436,6 +453,9 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
 
             Centroid& ck = C_store[e.k_label - 1];
             ck.add_pixel(nx, ny, nz, feat_ptr, n_features);
+
+            // OPTIMIZATION: Lazy normalization - only normalize when needed for distance
+            ck.ensure_normalized(n_features);
 
             // Check 26-connected neighbors - inlined for performance
             for (int dz = -1; dz <= 1; ++dz) {
@@ -473,13 +493,17 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
                         double nny = norm_ptr[neigh_idx + norm_stride * 1];
                         double nnz = norm_ptr[neigh_idx + norm_stride * 2];
 
-                        // Compute distance
+                        // Compute distance (centroid already normalized via ensure_normalized)
                         double d = compute_dist_cpp(ck.avg_x, ck.avg_y, ck.avg_z, ck.avg_c.data(),
                                                     nnx, nny, nnz, n_feat_ptr,
                                                     n_features, s_inv, comp_inv);
 
-                        // Add to queue
-                        Q.push({nx_pos, ny_pos, nz_pos, neigh_idx, e.k_label, d});
+                        // Paper-faithful: only add to queue if this is a better path
+                        // This allows cluster competition while controlling queue size
+                        if (d < best_dist[neigh_idx]) {
+                            best_dist[neigh_idx] = d;
+                            Q.push({nx_pos, ny_pos, nz_pos, neigh_idx, e.k_label, d});
+                        }
                     }
                 }
             }

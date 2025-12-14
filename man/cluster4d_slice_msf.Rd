@@ -12,13 +12,14 @@ cluster4d_slice_msf(
   connectivity = 8,
   parallel = TRUE,
   verbose = FALSE,
-  num_runs = 3,
-  consensus = TRUE,
+  num_runs = 1,
+  consensus = FALSE,
   stitch_z = TRUE,
   theta_link = 0.85,
   min_contact = 1,
   r = 12,
   gamma = 1.5,
+  min_size = NULL,
   ...
 )
 }

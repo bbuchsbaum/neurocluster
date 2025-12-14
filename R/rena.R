@@ -529,6 +529,20 @@ cluster4d_rena <- function(vec, mask, n_clusters = 100,
   result$method <- "rena"
   result$n_clusters <- length(unique(result$cluster[!is.na(result$cluster)]))
 
+   # If exact_k requested but we under-shot the target, force exact K by splitting
+   # components using the voxel features. This stabilizes small-K scenarios like
+   # the gradient test where ReNA can over-merge.
+   if (exact_k && result$n_clusters < n_clusters) {
+     prep <- prepare_cluster4d_data(vec, mask, scale_features = FALSE, scale_coords = FALSE)
+     forced <- force_exact_k(result$cluster, prep$features, n_clusters)
+     result$cluster <- forced
+     result$n_clusters <- length(unique(forced[forced > 0]))
+     center_info <- compute_cluster_centers(forced, prep$features, prep$coords)
+     result$centers <- center_info$centers
+     result$coord_centers <- center_info$coord_centers
+     result$clusvol <- suppressWarnings(ClusteredNeuroVol(mask > 0, clusters = forced))
+   }
+
   # Store all parameters
   result$parameters <- modifyList(
     result$parameters,

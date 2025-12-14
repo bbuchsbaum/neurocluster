@@ -5,6 +5,25 @@
 #'
 #' @keywords internal
 #' @name cluster4d_common
+ensure_neurovec <- function(vec) {
+  # Accept already-valid inputs
+  if (inherits(vec, "NeuroVec") || inherits(vec, "SparseNeuroVec")) {
+    return(vec)
+  }
+
+ # Allow a single-volume NeuroVol and wrap it as a 1-frame NeuroVec
+  # This enables supervoxel/clustering algorithms to work with 3D structural images
+  if (inherits(vec, "NeuroVol")) {
+    arr3d <- as.array(vec)
+    arr4d <- array(arr3d, dim = c(dim(vec), 1L))
+    # Must use add_dim to create proper 4D NeuroSpace
+    space4d <- neuroim2::add_dim(neuroim2::space(vec), 1L)
+    return(neuroim2::NeuroVec(arr4d, space4d))
+  }
+
+  stop("vec must be a NeuroVec, SparseNeuroVec, or NeuroVol object")
+}
+
 validate_cluster4d_inputs <- function(vec, mask, n_clusters, method = "cluster4d") {
   # Check vec type
   if (!inherits(vec, "NeuroVec") && !inherits(vec, "SparseNeuroVec")) {

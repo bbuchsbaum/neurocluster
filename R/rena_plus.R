@@ -7,7 +7,7 @@
 #' @param bvec A \code{NeuroVec} providing voxel time-series.
 #' @param mask A \code{NeuroVol} mask; non-zero voxels are included.
 #' @param K Target number of clusters.
-#' @param r Over-clustering factor; coarsening stops at K' = ceiling(r * K). Default 5.
+#' @param r Over-clustering factor; coarsening stops at K' = ceiling(r * K). Default 2.
 #' @param lambda Gradient penalty strength (>=0). 0 disables edge weighting.
 #' @param grad_img Optional numeric vector: gradient/intensity per voxel. Either length = prod(dim(mask))
 #'   (in which case values are subset by mask) or length = number of masked voxels. If NULL, no gradient.
@@ -20,7 +20,7 @@
 #' @export
 rena_plus <- function(bvec, mask,
                       K = 100,
-                      r = 5,
+                      r = 2,
                       lambda = 1,
                       grad_img = NULL,
                       connectivity = 26,
@@ -144,7 +144,7 @@ rena_plus <- function(bvec, mask,
 #' @export
 cluster4d_rena_plus <- function(vec, mask, n_clusters = 100,
                                 spatial_weight = 0.5,
-                                r = 5,
+                                r = 2,
                                 lambda = 1,
                                 grad_img = NULL,
                                 connectivity = 26,

@@ -2,10 +2,10 @@
 % Please edit documentation in R/cluster4d_common.R
 \name{cluster4d_common}
 \alias{cluster4d_common}
-\alias{validate_cluster4d_inputs}
+\alias{ensure_neurovec}
 \title{Common Utilities for 4D Clustering Algorithms}
 \usage{
-validate_cluster4d_inputs(vec, mask, n_clusters, method = "cluster4d")
+ensure_neurovec(vec)
 }
 \description{
 Internal functions shared across all cluster4d methods for consistency

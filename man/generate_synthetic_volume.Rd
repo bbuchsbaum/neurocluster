@@ -13,6 +13,7 @@ generate_synthetic_volume(
   noise_sd = 0.05,
   amplitude_range = c(0.8, 1.2),
   spacing_mm = c(3, 3, 3),
+  pattern_type = c("orthogonal", "harmonic", "random"),
   seed = NULL
 )
 }
@@ -33,6 +34,11 @@ or \code{"checkerboard"}.}
 \item{amplitude_range}{Range used when scaling each voxel's amplitude.}
 
 \item{spacing_mm}{Physical voxel size supplied to the generated \code{NeuroSpace}.}
+
+\item{pattern_type}{Type of temporal patterns to generate. One of
+\code{"orthogonal"} (QR-decomposition for maximally distinct signals, default),
+\code{"harmonic"} (phase/frequency-shifted sinusoids), or \code{"random"} (random
+linear combinations of harmonics).}
 
 \item{seed}{Optional seed for reproducibility.}
 }

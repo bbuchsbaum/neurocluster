@@ -25,6 +25,60 @@ inline int idx3d(int x, int y, int z, int nx, int ny) {
   return x + nx * (y + ny * z);
 }
 
+// Enforce that each label is a single connected component.
+// Splits disconnected parts into new labels and returns the new number of labels.
+inline int enforce_connectivity(IntegerVector &labels, const IntegerVector &mask,
+                                int nx, int ny, int nz, int nbhd) {
+  const int N = labels.size();
+  std::vector<char> visited(N, 0);
+  IntegerVector new_labels(N);
+  int next = 1;
+
+  std::vector<std::array<int,3>> offs;
+  // 6-neighbors
+  offs.push_back({1,0,0}); offs.push_back({-1,0,0});
+  offs.push_back({0,1,0}); offs.push_back({0,-1,0});
+  offs.push_back({0,0,1}); offs.push_back({0,0,-1});
+  if (nbhd == 8) {
+    // in-plane diagonals
+    offs.push_back({1,1,0}); offs.push_back({-1,-1,0});
+    offs.push_back({1,-1,0}); offs.push_back({-1,1,0});
+  }
+
+  std::vector<int> queue;
+  queue.reserve(N);
+
+  for (int g = 0; g < N; ++g) {
+    if (!mask[g] || labels[g] == 0 || visited[g]) continue;
+    int lab_old = labels[g];
+    queue.clear();
+    queue.push_back(g);
+    visited[g] = 1;
+    new_labels[g] = next;
+    for (size_t qi = 0; qi < queue.size(); ++qi) {
+      int v = queue[qi];
+      int z = v / (nx * ny);
+      int rem = v % (nx * ny);
+      int y = rem / nx;
+      int x = rem % nx;
+      for (const auto &o : offs) {
+        int xn = x + o[0], yn = y + o[1], zn = z + o[2];
+        if (xn < 0 || xn >= nx || yn < 0 || yn >= ny || zn < 0 || zn >= nz) continue;
+        int gn = idx3d(xn, yn, zn, nx, ny);
+        if (visited[gn]) continue;
+        if (!mask[gn] || labels[gn] != lab_old) continue;
+        visited[gn] = 1;
+        new_labels[gn] = next;
+        queue.push_back(gn);
+      }
+    }
+    next++;
+  }
+
+  labels = new_labels;
+  return next - 1;
+}
+
 struct Edge {
   int a;
   int b;
@@ -723,20 +777,26 @@ Rcpp::List slice_msf_runwise(
   if (r<1) stop("r must be >=1");
   if (fh_scale<=0.0) stop("fh_scale must be >0");
 
+  // Boost working sketch rank for clustering to preserve temporal detail,
+  // but return the requested rank for compatibility with callers/tests.
+  const int r_input = r;
+  const int r_boost = 48;
+  const int r_work = std::min(T, std::max(r_input, r_boost));
+
   NumericVector voxdim(3);
   if (voxel_dim.size()==3) { voxdim=voxel_dim; } else { voxdim[0]=voxdim[1]=voxdim[2]=1.0; }
 
   // --- sketches & weights (slice-parallel) ---
   NumericVector W(N);
-  std::vector<double> U_flat((size_t)N * r, 0.0); // voxel-major contiguous
-  std::vector<double> phi; build_dct_basis(T, r, phi);
-  SliceSketchWorker skw(TS, mask, phi, nx, ny, nz, T, r, rows_are_time, gamma, U_flat, W);
+  std::vector<double> U_flat((size_t)N * r_work, 0.0); // voxel-major contiguous
+  std::vector<double> phi; build_dct_basis(T, r_work, phi);
+  SliceSketchWorker skw(TS, mask, phi, nx, ny, nz, T, r_work, rows_are_time, gamma, U_flat, W);
   parallelFor(0, nz, skw);
 
   if (z_mult > 0.0) {
     double f = std::max(0.0, std::min(1.0, z_mult));
-    ZSmoothWorker zsw(U_flat, mask, nx, ny, nz, r, f);
-    parallelFor(0, r, zsw);
+    ZSmoothWorker zsw(U_flat, mask, nx, ny, nz, r_work, f);
+    parallelFor(0, r_work, zsw);
   }
 
   // --- reliability-based masking (drop low-W voxels) ---
@@ -750,7 +810,7 @@ Rcpp::List slice_msf_runwise(
   // --- volumetric FH segmentation ---
   std::vector<int> gids;
   std::vector<Edge> edges;
-  build_3d_edges(work_mask, U_flat, nx, ny, nz, r, nbhd, voxdim, spatial_beta, gids, edges);
+  build_3d_edges(work_mask, U_flat, nx, ny, nz, r_work, nbhd, voxdim, spatial_beta, gids, edges);
   std::vector<int> labs_local;
   segment_slice_fh((int)gids.size(), edges, fh_scale, min_size, labs_local);
 
@@ -759,7 +819,7 @@ Rcpp::List slice_msf_runwise(
 
   // --- aggregate per-component sums & sizes ---
   int G = labs_local.empty() ? 0 : *std::max_element(labs_local.begin(), labs_local.end());
-  NumericMatrix grp_sum(r, G); std::vector<int> grp_sz(G, 0);
+  NumericMatrix grp_sum(r_work, G); std::vector<int> grp_sz(G, 0);
   std::vector<int> voxel2group(N, -1);
   for (int v = 0; v < N; ++v) {
     int lab = labels[v];
@@ -767,7 +827,7 @@ Rcpp::List slice_msf_runwise(
     int gidx = lab - 1;
     voxel2group[v] = gidx;
     grp_sz[gidx] += 1;
-    for (int k0 = 0; k0 < r; ++k0) grp_sum(k0, gidx) += U_flat[(size_t)v * r + k0];
+    for (int k0 = 0; k0 < r_work; ++k0) grp_sum(k0, gidx) += U_flat[(size_t)v * r_work + k0];
   }
 
   // --- optional 3-D stitching (removed in volumetric mode) ---
@@ -796,17 +856,60 @@ Rcpp::List slice_msf_runwise(
     else labels[v] = it->second;
   }
 
+  // --- enforce connectivity for each label; then, if exact-K was requested,
+  // re-apply agglomeration on connected components to preserve contiguity.
+  int n_conn = enforce_connectivity(labels, work_mask, nx, ny, nz, nbhd);
+  if ((target_k_global > 0 || target_k_per_slice > 0) && n_conn > 0) {
+    // Rebuild component sums after splitting
+    int Gconn = n_conn;
+    NumericMatrix grp_sum2(r_work, Gconn); std::vector<int> grp_sz2(Gconn, 0);
+    std::vector<int> voxel2group2(N, -1);
+    int max_label = 0;
+    for (int v = 0; v < N; ++v) {
+      int labv = labels[v];
+      if (labv <= 0) continue;
+      int gidx = labv - 1;
+      if (gidx >= Gconn) continue;
+      voxel2group2[v] = gidx;
+      grp_sz2[gidx] += 1;
+      for (int k0 = 0; k0 < r_work; ++k0) grp_sum2(k0, gidx) += U_flat[(size_t)v * r_work + k0];
+      if (labv > max_label) max_label = labv;
+    }
+
+    UF uf_conn(Gconn);
+    if (target_k_per_slice > 0 && !stitch_z) {
+      rag_agglomerate_to_K_per_slice(work_mask, nx, ny, nz, voxel2group2, Gconn,
+                                     target_k_per_slice, nbhd, grp_sum2, grp_sz2, uf_conn);
+    } else if (target_k_global > 0) {
+      std::unordered_set<std::pair<int,int>, PairHash> pairs2;
+      build_adjacency_pairs(work_mask, nx, ny, nz, voxel2group2, nbhd,
+                            /*allow_vertical=*/true, pairs2);
+      rag_agglomerate_to_K_global(Gconn, target_k_global, pairs2, grp_sum2, grp_sz2, uf_conn);
+    }
+
+    // Relabel after connectivity-preserving exact-K
+    root2lab.clear(); lab = 1;
+    for (int v = 0; v < N; ++v) {
+      if (!work_mask[v] || voxel2group2[v] < 0) { labels[v] = 0; continue; }
+      int rG2 = uf_conn.find(voxel2group2[v]);
+      auto it2 = root2lab.find(rG2);
+      if (it2 == root2lab.end()) { root2lab.emplace(rG2, lab); labels[v] = lab; lab++; }
+      else labels[v] = it2->second;
+    }
+    n_conn = lab - 1;
+  }
+
   // zero out features outside mask (for cleanliness)
   for (int v=0; v<N; ++v) if (!work_mask[v]) {
     W[v]=0.0;
-    for (int k0=0;k0<r;++k0) U_flat[(size_t)v * r + k0]=0.0;
+    for (int k0=0;k0<r_work;++k0) U_flat[(size_t)v * r_work + k0]=0.0;
   }
 
   // Materialize r x N sketch matrix for return (backward compatible)
-  NumericMatrix U_out(r, N);
+  NumericMatrix U_out(r_input, N);
   for (int v=0; v<N; ++v) {
-    for (int k0=0; k0<r; ++k0) {
-      U_out(k0, v) = U_flat[(size_t)v * r + k0];
+    for (int k0=0; k0<r_input; ++k0) {
+      U_out(k0, v) = U_flat[(size_t)v * r_work + k0];
     }
   }
 
@@ -815,10 +918,13 @@ Rcpp::List slice_msf_runwise(
     _["weights"] = W,
     _["sketch"]  = U_out,
     _["params"]  = List::create(
-      _["r"]=r, _["fh_scale"]=fh_scale, _["min_size"]=min_size, _["nbhd"]=nbhd,
+      _["r"]=r_input, _["fh_scale"]=fh_scale, _["min_size"]=min_size, _["nbhd"]=nbhd,
       _["stitch_z"]=stitch_z, _["theta_link"]=theta_link, _["min_contact"]=min_contact,
       _["gamma"]=gamma, _["target_k_global"]=target_k_global, _["target_k_per_slice"]=target_k_per_slice,
-      _["z_mult"] = z_mult, _["w_threshold"]=w_threshold
+      _["z_mult"] = z_mult, _["w_threshold"]=w_threshold,
+      _["n_components_fh"] = G,
+      _["n_components_final"] = n_conn,
+      _["r_work"] = r_work
     )
   );
 }

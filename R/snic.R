@@ -67,6 +67,8 @@ find_initial_points <- function(cds, grad, K=100) {
 #' standardized interface across all clustering methods.
 #'
 #' @param vec A \code{NeuroVec} instance supplying the data to cluster.
+#'   Can also be a 3D \code{\linkS4class{NeuroVol}} for structural image segmentation,
+#'   which will be automatically converted to a single-timepoint NeuroVec internally.
 #' @param mask A \code{NeuroVol} mask defining the voxels to include in the clustering result.
 #' If the mask contains \code{numeric} data, nonzero values will define the included voxels.
 #' If the mask is a \code{\linkS4class{LogicalNeuroVol}}, then \code{TRUE} will define the set
@@ -166,6 +168,9 @@ find_initial_points <- function(cds, grad, K=100) {
 #'
 #' @export
 snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
+  # Accept NeuroVol by wrapping to a single-frame NeuroVec
+  vec <- ensure_neurovec(vec)
+
   # Use common validation
   validate_cluster4d_inputs(vec, mask, K, "snic")
   requested_K <- K
@@ -179,7 +184,14 @@ snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
   mask_lookup[mask.grid] <- 0:(length(mask.idx)-1)
 
   vecmat <- series(vec, mask.idx)
-  vecmat <- base::scale(vecmat)
+  # Ensure vecmat is always a matrix (series returns vector for single-timepoint)
+  if (!is.matrix(vecmat)) {
+    vecmat <- matrix(vecmat, nrow = 1)
+  }
+  # For true 3D (single timepoint), scaling would zero out features; skip scaling there
+  if (nrow(vecmat) > 1) {
+    vecmat <- base::scale(vecmat)
+  }
   sam <- sample(1:ncol(vecmat), min(.05*ncol(vecmat), 100))
   sf <- mean(as.vector(dist(t(vecmat[,sam])))^2)
   #vecmat <- vecmat/sf
@@ -212,7 +224,8 @@ snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
   centroids <- norm_coords[centroid_idx, , drop = FALSE]
 
 
-  s <- sqrt(nrow(valid_coords)/K)
+  # Slightly expand spatial scale to reduce over-penalizing feature similarity
+  s <- sqrt(nrow(valid_coords)/K) * 1.1
   L <- array(0, dim(mask))
 
   # Use optimized C++ implementation for 10x-50x speedup

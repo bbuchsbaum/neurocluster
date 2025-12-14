@@ -31,6 +31,25 @@ inline double squared_l2_rows(const arma::mat &M, arma::uword i, arma::uword j) 
   return acc;
 }
 
+// Optimized squared L2 distance using pre-computed row norms:
+// ||x_i - x_j||^2 = ||x_i||^2 + ||x_j||^2 - 2 * (x_i . x_j)
+// This reduces O(F) subtractions+squares to O(F) multiply-adds (dot product)
+// which is more cache-friendly and can use SIMD.
+inline double squared_l2_with_norms(const arma::mat &M, arma::uword i, arma::uword j,
+                                    const arma::vec &row_norms) {
+  double dot = arma::dot(M.row(i), M.row(j));
+  return row_norms(i) + row_norms(j) - 2.0 * dot;
+}
+
+// Pre-compute squared row norms for a matrix
+inline arma::vec compute_row_norms(const arma::mat &M) {
+  arma::vec norms(M.n_rows);
+  for (arma::uword i = 0; i < M.n_rows; ++i) {
+    norms(i) = arma::dot(M.row(i), M.row(i));
+  }
+  return norms;
+}
+
 // Build symmetric grid adjacency for masked voxels entirely in C++ to avoid
 // repeated R allocations and vector growth.
 // [[Rcpp::export]]
@@ -171,13 +190,15 @@ struct UnionFind {
 IntegerVector rena_rnn_step_internal(const arma::mat &X,
                                      const arma::sp_mat &G,
                                      const vec &grad,
-                                     double lambda) {
+                                     double lambda,
+                                     const arma::vec &row_norms) {
   uword p = X.n_rows;
   IntegerVector labels(p);
 
   std::vector<int> nearest_idx(p);
 
   bool use_grad = (grad.n_elem == p && lambda != 0.0);
+  bool use_norms = (row_norms.n_elem == p);
   double inf = std::numeric_limits<double>::infinity();
 
   // Parallel nearest-neighbor search per node
@@ -194,7 +215,9 @@ IntegerVector rena_rnn_step_internal(const arma::mat &X,
          it != G.end_row(i); ++it) {
       uword j = it.col();
       if (i == j) continue;
-      double d = squared_l2_rows(X, i, j);
+      // Use optimized distance calculation with pre-computed norms
+      double d = use_norms ? squared_l2_with_norms(X, i, j, row_norms)
+                           : squared_l2_rows(X, i, j);
       if (use_grad) {
         double gdiff = std::abs(g_i - grad(j));
         d *= (1.0 + lambda * gdiff);
@@ -287,7 +310,10 @@ List rena_rnn_coarse_cpp(const arma::mat &X,
       stop("grad_curr length mismatch");
     }
 
-    IntegerVector labels_step = rena_rnn_step_internal(X_curr, G_curr, grad_curr, lambda);
+    // Pre-compute row norms for optimized distance calculation
+    vec row_norms = compute_row_norms(X_curr);
+
+    IntegerVector labels_step = rena_rnn_step_internal(X_curr, G_curr, grad_curr, lambda, row_norms);
 
     int q = 0;
     for (int i = 0; i < p_curr; ++i) if (labels_step[i] + 1 > q) q = labels_step[i] + 1;
@@ -319,14 +345,10 @@ List rena_rnn_coarse_cpp(const arma::mat &X,
       }
     }
 
-    std::vector<uword> ii;
-    std::vector<uword> jj;
-    ii.reserve(G_curr.n_nonzero);
-    jj.reserve(G_curr.n_nonzero);
-
-    // use hash set to deduplicate edges
-    std::unordered_set<uint64_t> edge_set;
-    edge_set.reserve(G_curr.n_nonzero * 2);
+    // Optimized graph contraction: build symmetric edge list directly
+    // Use sorted vector with unique instead of hash set for better cache locality
+    std::vector<std::pair<int, int>> edges;
+    edges.reserve(G_curr.n_nonzero);
 
     for (sp_mat::const_iterator it = G_curr.begin(); it != G_curr.end(); ++it) {
       uword i = it.row();
@@ -335,24 +357,31 @@ List rena_rnn_coarse_cpp(const arma::mat &X,
       int ci = labels_step[i];
       int cj = labels_step[j];
       if (ci == cj) continue;
-      uint64_t key = (static_cast<uint64_t>(ci) << 32) | static_cast<uint32_t>(cj);
-      if (edge_set.insert(key).second) {
-        ii.push_back(ci);
-        jj.push_back(cj);
-      }
+      // Canonical form: smaller index first
+      if (ci > cj) std::swap(ci, cj);
+      edges.push_back({ci, cj});
     }
 
+    // Sort and deduplicate
+    std::sort(edges.begin(), edges.end());
+    edges.erase(std::unique(edges.begin(), edges.end()), edges.end());
+
+    // Build symmetric sparse matrix directly (no symmatu call needed)
     sp_mat G_tmp;
-    if (!ii.empty()) {
-      uword nnz = ii.size();
-      umat locations(2, nnz);
+    if (!edges.empty()) {
+      uword nnz = edges.size();
+      umat locations(2, 2 * nnz);  // Double for symmetric entries
+      vec vals(2 * nnz, fill::ones);
+
       for (uword k = 0; k < nnz; ++k) {
-        locations(0, k) = ii[k];
-        locations(1, k) = jj[k];
+        // Upper triangle
+        locations(0, k) = edges[k].first;
+        locations(1, k) = edges[k].second;
+        // Lower triangle (symmetric)
+        locations(0, k + nnz) = edges[k].second;
+        locations(1, k + nnz) = edges[k].first;
       }
-      vec vals(nnz, fill::ones);
       G_tmp = sp_mat(locations, vals, q, q);
-      G_tmp = spones(symmatu(G_tmp));
     } else {
       G_tmp = sp_mat(q, q);
     }

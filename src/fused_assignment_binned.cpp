@@ -239,39 +239,22 @@ struct BinnedAssignWorker : public Worker {
     }
   }
 
-  // Optionally intersect with neighbor-assigned clusters to preserve locality
+  // DISABLED: This intersection was too restrictive and caused oscillation.
+  // The problem: in early iterations, neighbor assignments are wrong (from k-means).
+  // Filtering candidates to only neighbor-assigned clusters excluded the correct
+  // cluster if no neighbor happened to be correctly assigned yet.
+  //
+  // Instead, we now rely solely on spatial binning (gather_bin_candidates) which
+  // considers ALL clusters whose centroids are spatially nearby. The scoring
+  // function (alpha * feature_score + (1-alpha) * spatial_score) will select
+  // the best cluster based on both feature similarity and spatial proximity.
+  //
+  // This allows the algorithm to "discover" the correct cluster even if no
+  // neighbors are currently assigned to it, enabling proper convergence.
   inline void intersect_with_neighbor_clusters(int voxel_index) const {
-    const int knn = nn_index.ncol();
-    // Only prune when there are materially more clusters than immediate neighbors.
-    if (n_clusters <= knn) return;
-    if (cand.empty()) return; // nothing to intersect; fall back later if needed
-    // Mark which candidates are kept (we'll rebuild cand in-place)
-    int write_pos = 0;
-    // Mark neighbor clusters from nn graph (within dthresh)
-    // We'll use a small stamp array keyed by cluster id to avoid a set.
-    // To avoid an extra array, we reuse seen_stamp with a new stamp value.
-    int nb_stamp_val = cur_stamp + 1;
-    if (nb_stamp_val == std::numeric_limits<int>::max()) nb_stamp_val = 1; // extremely unlikely
-    // Temporarily mark nothing
-    // Now mark neighbor clusters
-    for (int j = 0; j < knn; ++j) {
-      int nb = nn_index(voxel_index, j);
-      if (nb < 0) continue;
-      double d = nn_dist(voxel_index, j);
-      if (dthresh > 0 && d > dthresh) continue;
-      int nb_cid = curclus[nb];
-      if (nb_cid >= 0 && nb_cid < n_clusters) {
-        seen_stamp[nb_cid] = nb_stamp_val;
-      }
-    }
-    // Keep only those cand IDs that were marked by neighbor clusters
-    for (size_t u = 0; u < cand.size(); ++u) {
-      int cid = cand[u];
-      if (seen_stamp[cid] == nb_stamp_val) {
-        cand[write_pos++] = cid;
-      }
-    }
-    cand.resize(write_pos);
+    // NO-OP: disabled to allow proper convergence
+    // Keeping function signature for backward compatibility with worker operator()
+    (void)voxel_index; // suppress unused parameter warning
   }
 
   inline int choose_best_for_voxel(int i) const {
@@ -488,27 +471,9 @@ IntegerVector fused_assignment_binned(IntegerMatrix nn_index,
     }
   };
 
+  // DISABLED: intersection was too restrictive - see parallel version for explanation
   auto intersect_with_neighbor_clusters = [&](int i){
-    const int knn = nn_index.ncol();
-    // Skip pruning when cluster count is small relative to neighbor count.
-    if (K <= knn) return;
-    if (cand.empty()) return;
-    int nb_stamp_val = cur_stamp + 1;
-    if (nb_stamp_val == std::numeric_limits<int>::max()) nb_stamp_val = 1;
-    for (int j = 0; j < knn; ++j) {
-      int nb = nn_index(i, j);
-      if (nb < 0) continue;
-      double d = nn_dist(i, j);
-      if (dthresh > 0 && d > dthresh) continue;
-      int nb_cid = curclus[nb];
-      if (nb_cid >= 0 && nb_cid < K) seen_stamp[nb_cid] = nb_stamp_val;
-    }
-    int w = 0;
-    for (size_t u = 0; u < cand.size(); ++u) {
-      int cid = cand[u];
-      if (seen_stamp[cid] == nb_stamp_val) cand[w++] = cid;
-    }
-    cand.resize(w);
+    (void)i; // NO-OP: disabled to allow proper convergence
   };
 
   for (int i = 0; i < n; ++i) {

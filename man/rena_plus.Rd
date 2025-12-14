@@ -8,7 +8,7 @@ rena_plus(
   bvec,
   mask,
   K = 100,
-  r = 5,
+  r = 2,
   lambda = 1,
   grad_img = NULL,
   connectivity = 26,
@@ -24,7 +24,7 @@ rena_plus(
 
 \item{K}{Target number of clusters.}
 
-\item{r}{Over-clustering factor; coarsening stops at K' = ceiling(r * K). Default 5.}
+\item{r}{Over-clustering factor; coarsening stops at K' = ceiling(r * K). Default 2.}
 
 \item{lambda}{Gradient penalty strength (>=0). 0 disables edge weighting.}
 
