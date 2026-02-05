@@ -192,7 +192,8 @@ compress_features_svd <- function(feature_mat,
 
   # Step 4: Create compressed features = U * diag(d)
   # This gives us the projection of each voxel onto the principal components
-  compressed <- svd_result$u %*% diag(svd_result$d, nrow = length(svd_result$d))
+  # Avoid allocating an explicit diagonal matrix: multiply each column of U by d.
+  compressed <- sweep(svd_result$u, 2, svd_result$d, `*`)
 
   # Step 5: Normalize each row to unit length for cosine similarity
   # For normalized vectors: cor(x, y) ≈ dot(x, y) when x and y are unit length

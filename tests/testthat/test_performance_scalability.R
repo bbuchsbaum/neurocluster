@@ -4,6 +4,60 @@ library(neuroim2)
 # Performance Benchmarking and Scalability Tests
 # Tests for computational performance and memory usage patterns
 
+gc_used_mb <- function(gc_matrix) {
+  used_idx <- match("used", colnames(gc_matrix))
+  if (is.na(used_idx) || used_idx + 1 > ncol(gc_matrix)) {
+    stop("Unexpected gc() column layout; cannot find used (Mb)")
+  }
+  sum(gc_matrix[, used_idx + 1])
+}
+
+gc_peak_mb <- function(gc_matrix) {
+  # "max used (Mb)" since last gc(reset = TRUE)
+  max_used_idx <- match("max used", colnames(gc_matrix))
+  if (is.na(max_used_idx) || max_used_idx + 1 > ncol(gc_matrix)) {
+    stop("Unexpected gc() column layout; cannot find max used (Mb)")
+  }
+  sum(gc_matrix[, max_used_idx + 1])
+}
+
+bench_expr <- function(expr) {
+  expr <- substitute(expr)
+
+  gc0 <- gc(reset = TRUE)
+  base_used <- gc_used_mb(gc0)
+
+  start <- proc.time()[["elapsed"]]
+  value <- eval(expr, envir = parent.frame())
+  elapsed <- proc.time()[["elapsed"]] - start
+
+  gc1 <- gc()
+  used <- gc_used_mb(gc1)
+  peak <- gc_peak_mb(gc1)
+
+  list(
+    value = value,
+    elapsed_sec = elapsed,
+    used_mb = used,
+    peak_mb = peak,
+    delta_used_mb = used - base_used,
+    delta_peak_mb = peak - base_used
+  )
+}
+
+fmt_time <- function(seconds) {
+  if (is.na(seconds) || !is.finite(seconds)) return("NA")
+  if (seconds < 1) {
+    return(sprintf("%.1f ms", seconds * 1000))
+  }
+  sprintf("%.2f s", seconds)
+}
+
+fmt_mem <- function(mb) {
+  if (is.na(mb) || !is.finite(mb)) return("NA")
+  sprintf("%.1f MB", mb)
+}
+
 test_that("algorithm performance scales appropriately with data size", {
   skip_on_cran()  # Skip performance tests on CRAN
   
@@ -45,24 +99,25 @@ test_that("algorithm performance scales appropriately with data size", {
     vec <- do.call(concat, vec_list)
     
     # Benchmark SLiCE-MSF performance
-    start_time <- Sys.time()
-    gc()  # Clean memory before timing
-    
-    result <- slice_msf(vec, mask, r = min(12, ntime-1), 
-                       min_size = max(10, nvox/20), 
-                       compactness = 3, num_runs = 1)
-    
-    end_time <- Sys.time()
-    computation_time <- as.numeric(difftime(end_time, start_time, units = "secs"))
-    
-    # Memory usage after computation
-    memory_used <- sum(gc()[, 2])
+    bench <- bench_expr(
+      slice_msf(
+        vec,
+        mask,
+        r = min(12, ntime - 1),
+        min_size = max(10, nvox / 20),
+        compactness = 3,
+        num_runs = 1
+      )
+    )
+    result <- bench$value
+    computation_time <- bench$elapsed_sec
     
     performance_results[[size_name]] <- list(
       nvox = nvox,
       ntime = ntime,
       time_sec = computation_time,
-      memory_mb = memory_used,
+      memory_used_mb = bench$used_mb,
+      memory_peak_delta_mb = bench$delta_peak_mb,
       n_clusters = length(unique(result$cluster))
     )
     
@@ -73,8 +128,8 @@ test_that("algorithm performance scales appropriately with data size", {
     expect_true(!is.null(result),
                 info = sprintf("%s dataset should produce valid result", size_name))
     
-    cat(sprintf("%s: %d voxels, %d timepoints, %.1f sec, %.1f MB, %d clusters\n",
-                size_name, nvox, ntime, computation_time, memory_used, 
+    cat(sprintf("%s: %d voxels, %d timepoints, %s, peak +%s, %d clusters\n",
+                size_name, nvox, ntime, fmt_time(computation_time), fmt_mem(bench$delta_peak_mb),
                 performance_results[[size_name]]$n_clusters))
   }
   
@@ -116,26 +171,20 @@ test_that("memory usage is reasonable and stable", {
   vec <- do.call(concat, vec_list)
   
   # Baseline memory usage
-  gc()
-  baseline_memory <- sum(gc()[, 2])
-  
-  # Test memory usage during single run
-  memory_before <- sum(gc()[, 2])
-  result_single <- slice_msf(vec, mask, r = 8, min_size = 15, 
-                            compactness = 3, num_runs = 1)
-  gc()
-  memory_after_single <- sum(gc()[, 2])
-  
-  single_memory_increase <- memory_after_single - memory_before
-  
-  # Test memory usage during multi-run consensus
-  memory_before_multi <- sum(gc()[, 2])
-  result_multi <- slice_msf(vec, mask, r = 8, min_size = 15,
-                           compactness = 3, num_runs = 5, consensus = TRUE)
-  gc()
-  memory_after_multi <- sum(gc()[, 2])
-  
-  multi_memory_increase <- memory_after_multi - memory_before_multi
+  gc0 <- gc(reset = TRUE)
+  baseline_memory <- gc_used_mb(gc0)
+
+  # Test memory usage during single run (peak since reset)
+  bench_single <- bench_expr(slice_msf(vec, mask, r = 8, min_size = 15,
+                                      compactness = 3, num_runs = 1))
+  result_single <- bench_single$value
+  single_memory_increase <- bench_single$delta_peak_mb
+
+  # Test memory usage during multi-run consensus (peak since reset)
+  bench_multi <- bench_expr(slice_msf(vec, mask, r = 8, min_size = 15,
+                                     compactness = 3, num_runs = 5, consensus = TRUE))
+  result_multi <- bench_multi$value
+  multi_memory_increase <- bench_multi$delta_peak_mb
   
   # Memory usage should be reasonable
   expect_true(single_memory_increase < 100,  # <100MB for single run
@@ -161,7 +210,7 @@ test_that("memory usage is reasonable and stable", {
   # Test memory cleanup
   rm(result_single, result_multi)
   gc()
-  final_memory <- sum(gc()[, 2])
+  final_memory <- gc_used_mb(gc())
   
   memory_cleanup_ratio <- (final_memory - baseline_memory) / baseline_memory
   expect_true(memory_cleanup_ratio < 1.0,  # Should return close to baseline
@@ -216,13 +265,9 @@ test_that("algorithm comparison performance", {
     times <- numeric(3)
     
     for (run in 1:3) {
-      gc()
-      start_time <- Sys.time()
-      
-      result <- algorithms[[alg_name]]()
-      
-      end_time <- Sys.time()
-      times[run] <- as.numeric(difftime(end_time, start_time, units = "secs"))
+      bench <- bench_expr(algorithms[[alg_name]]())
+      result <- bench$value
+      times[run] <- bench$elapsed_sec
       
       # Validate result
       expect_true(!is.null(result),
@@ -238,8 +283,9 @@ test_that("algorithm comparison performance", {
       max_time = max(times)
     )
     
-    cat(sprintf("%s: %.2f ± %.2f seconds (range: %.2f-%.2f)\n", 
-                alg_name, mean(times), sd(times), min(times), max(times)))
+    cat(sprintf("%s: %s ± %s (range: %s-%s)\n",
+                alg_name, fmt_time(mean(times)), fmt_time(sd(times)),
+                fmt_time(min(times)), fmt_time(max(times))))
     
     # Each algorithm should complete in reasonable time
     expect_true(max(times) < 60,
@@ -283,11 +329,9 @@ test_that("parameter impact on performance", {
   for (i in seq_along(r_values)) {
     r <- min(r_values[i], ntime - 1)
     
-    start_time <- Sys.time()
-    result <- slice_msf(vec, mask, r = r, min_size = 10, compactness = 3, num_runs = 1)
-    end_time <- Sys.time()
-    
-    r_times[i] <- as.numeric(difftime(end_time, start_time, units = "secs"))
+    bench <- bench_expr(slice_msf(vec, mask, r = r, min_size = 10, compactness = 3, num_runs = 1))
+    result <- bench$value
+    r_times[i] <- bench$elapsed_sec
     
     expect_true(!is.null(result),
                 info = sprintf("r=%d should produce valid result", r))
@@ -299,7 +343,7 @@ test_that("parameter impact on performance", {
   
   cat(sprintf("DCT rank performance: r=%s → times=%s\n", 
               paste(r_values, collapse=","), 
-              paste(sprintf("%.2f", r_times), collapse=",")))
+              paste(sprintf("%s", vapply(r_times, fmt_time, character(1))), collapse=",")))
   
   # Test num_runs impact
   num_runs_values <- c(1, 3, 5)
@@ -308,12 +352,10 @@ test_that("parameter impact on performance", {
   for (i in seq_along(num_runs_values)) {
     num_runs <- num_runs_values[i]
     
-    start_time <- Sys.time()
-    result <- slice_msf(vec, mask, r = 6, min_size = 10, compactness = 3, 
-                       num_runs = num_runs, consensus = (num_runs > 1))
-    end_time <- Sys.time()
-    
-    runs_times[i] <- as.numeric(difftime(end_time, start_time, units = "secs"))
+    bench <- bench_expr(slice_msf(vec, mask, r = 6, min_size = 10, compactness = 3,
+                                 num_runs = num_runs, consensus = (num_runs > 1)))
+    result <- bench$value
+    runs_times[i] <- bench$elapsed_sec
     
     expect_true(!is.null(result))
     if (num_runs > 1) {
@@ -333,8 +375,8 @@ test_that("parameter impact on performance", {
   
   cat(sprintf("Num runs performance: runs=%s → times=%s → per_run=%s\n",
               paste(num_runs_values, collapse=","),
-              paste(sprintf("%.2f", runs_times), collapse=","),
-              paste(sprintf("%.2f", time_per_run), collapse=",")))
+              paste(sprintf("%s", vapply(runs_times, fmt_time, character(1))), collapse=","),
+              paste(sprintf("%s", vapply(time_per_run, fmt_time, character(1))), collapse=",")))
 })
 
 test_that("large dataset stress testing", {
@@ -400,20 +442,14 @@ test_that("large dataset stress testing", {
   gc()
   
   # Stress test clustering
-  start_time <- Sys.time()
-  memory_before <- sum(gc()[, 2])
-  
-  result_stress <- slice_msf(vec_stress, mask_stress,
-                            r = 15,
-                            min_size = 50,
-                            compactness = 4,
-                            num_runs = 1)
-  
-  end_time <- Sys.time()
-  memory_after <- sum(gc()[, 2])
-  
-  stress_time <- as.numeric(difftime(end_time, start_time, units = "secs"))
-  stress_memory <- memory_after - memory_before
+  bench_stress <- bench_expr(slice_msf(vec_stress, mask_stress,
+                                     r = 15,
+                                     min_size = 50,
+                                     compactness = 4,
+                                     num_runs = 1))
+  result_stress <- bench_stress$value
+  stress_time <- bench_stress$elapsed_sec
+  stress_memory <- bench_stress$delta_peak_mb
   
   # Validate stress test results
   expect_true(!is.null(result_stress),
@@ -433,8 +469,8 @@ test_that("large dataset stress testing", {
   expect_true(stress_memory < 2000,  # Should use <2GB additional memory
               info = sprintf("Stress test used %.1f MB memory", stress_memory))
   
-  cat(sprintf("Stress test: %d voxels, %d timepoints, %.1f sec, %.1f MB, %d clusters\n",
-              nvox_stress, ntime_stress, stress_time, stress_memory, n_clusters_stress))
+  cat(sprintf("Stress test: %d voxels, %d timepoints, %s, peak +%s, %d clusters\n",
+              nvox_stress, ntime_stress, fmt_time(stress_time), fmt_mem(stress_memory), n_clusters_stress))
   
   # Clean up
   rm(result_stress, vec_stress)
@@ -468,13 +504,9 @@ test_that("performance regression detection", {
   times <- numeric(5)  # Multiple runs for stability
   
   for (run in 1:5) {
-    gc()
-    start_time <- Sys.time()
-    
-    result <- slice_msf(vec, mask, r = 6, min_size = 8, compactness = 3, num_runs = 1)
-    
-    end_time <- Sys.time()
-    times[run] <- as.numeric(difftime(end_time, start_time, units = "secs"))
+    bench <- bench_expr(slice_msf(vec, mask, r = 6, min_size = 8, compactness = 3, num_runs = 1))
+    result <- bench$value
+    times[run] <- bench$elapsed_sec
     
     expect_true(!is.null(result))
     expect_true(length(unique(result$cluster)) > 1)
@@ -502,7 +534,7 @@ test_that("performance regression detection", {
     test_date = Sys.time()
   )
   
-  cat(sprintf("Performance baseline: %.2f ± %.2f seconds\n", mean_time, sd_time))
+  cat(sprintf("Performance baseline: %s ± %s\n", fmt_time(mean_time), fmt_time(sd_time)))
   
   expect_true(TRUE)  # Test completed successfully
 })

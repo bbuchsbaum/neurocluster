@@ -43,26 +43,30 @@ struct GridIndex {
   int nx, ny, nz;
   double step;
   NumericMatrix center_coords;
-  NumericVector mins;
-  GridIndex(int nx_, int ny_, int nz_, double cellStep, NumericMatrix center_coords_, NumericVector mins_)
-    : nx(nx_), ny(ny_), nz(nz_), step(cellStep), center_coords(center_coords_), mins(mins_) {}
+  // Store bbox minima as plain doubles; this is called from parallel code.
+  double minx, miny, minz;
+  GridIndex(int nx_, int ny_, int nz_, double cellStep, NumericMatrix center_coords_,
+            double minx_, double miny_, double minz_)
+    : nx(nx_), ny(ny_), nz(nz_), step(cellStep), center_coords(center_coords_),
+      minx(minx_), miny(miny_), minz(minz_) {}
   inline int cell_of_center(const int k) const {
     double x = center_coords(k,0), y = center_coords(k,1), z = center_coords(k,2);
-    int gx = std::max(0, std::min(nx-1, (int)std::floor((x - mins[0]) / step)));
-    int gy = std::max(0, std::min(ny-1, (int)std::floor((y - mins[1]) / step)));
-    int gz = std::max(0, std::min(nz-1, (int)std::floor((z - mins[2]) / step)));
+    int gx = std::max(0, std::min(nx-1, (int)std::floor((x - minx) / step)));
+    int gy = std::max(0, std::min(ny-1, (int)std::floor((y - miny) / step)));
+    int gz = std::max(0, std::min(nz-1, (int)std::floor((z - minz) / step)));
     return gx + nx * (gy + ny * gz);
   }
   inline int cell_of_point(const double x, const double y, const double z) const {
-    int gx = std::max(0, std::min(nx-1, (int)std::floor((x - mins[0]) / step)));
-    int gy = std::max(0, std::min(ny-1, (int)std::floor((y - mins[1]) / step)));
-    int gz = std::max(0, std::min(nz-1, (int)std::floor((z - mins[2]) / step)));
+    int gx = std::max(0, std::min(nx-1, (int)std::floor((x - minx) / step)));
+    int gy = std::max(0, std::min(ny-1, (int)std::floor((y - miny) / step)));
+    int gz = std::max(0, std::min(nz-1, (int)std::floor((z - minz) / step)));
     return gx + nx * (gy + ny * gz);
   }
 };
 
 struct AssignWorker : public Worker {
   RMatrix<double> feats, coords, center_feats, center_coords;
+  const RVector<double> center_feat_norm2;
   GridIndex &gindex;
   double compact2, step_mm;
   RVector<int> labels;
@@ -71,24 +75,40 @@ struct AssignWorker : public Worker {
                NumericMatrix coords_,
                NumericMatrix center_feats_,
                NumericMatrix center_coords_,
+               NumericVector center_feat_norm2_,
                GridIndex &gindex_,
                double compactness,
                double step_mm_,
                IntegerVector labels_,
                NumericVector dists_)
     : feats(feats_), coords(coords_), center_feats(center_feats_), center_coords(center_coords_),
+      center_feat_norm2(center_feat_norm2_),
       gindex(gindex_), compact2(compactness*compactness), step_mm(step_mm_),
       labels(labels_), dists(dists_) {}
   void operator()(std::size_t begin, std::size_t end) {
     int F = feats.ncol();
     int nx = gindex.nx, ny = gindex.ny, nz = gindex.nz;
+    std::vector<double> xrow((size_t)F);
     for (std::size_t i = begin; i < end; ++i) {
       double xi = coords(i,0), yi = coords(i,1), zi = coords(i,2);
       int c = gindex.cell_of_point(xi, yi, zi);
       int gz = c / (nx*ny);
       int gy = (c - gz*nx*ny) / nx;
       int gx = c - gz*nx*ny - gy*nx;
-      double best = dists[i]; int bestk = labels[i];
+
+      // Compute ||x||^2 and cache the voxel feature row once; this avoids
+      // re-reading `feats(i, f)` repeatedly for each candidate center.
+      double xnorm2 = 0.0;
+      for (int f = 0; f < F; ++f) {
+        double x = feats(i, f);
+        xrow[(size_t)f] = x;
+        xnorm2 += x * x;
+      }
+
+      // IMPORTANT: do not use the previous iteration's `dists[i]` as an upper bound.
+      // Centers move between iterations, so the old distance is not comparable.
+      double best = std::numeric_limits<double>::infinity();
+      int bestk = labels[i];
       for (int dz = -1; dz <= 1; ++dz) {
         int cz = gz + dz; if (cz < 0 || cz >= nz) continue;
         for (int dy = -1; dy <= 1; ++dy) {
@@ -98,11 +118,12 @@ struct AssignWorker : public Worker {
             int cellIndex = cx + nx * (cy + ny * cz);
             int k = gindex.first[cellIndex];
             while (k != -1) {
-              double df2 = 0.0;
-              for (int f = 0; f < F; ++f) {
-                double d = feats(i,f) - center_feats(k,f);
-                df2 += d*d;
-              }
+              // Feature distance squared via norms + dot product:
+              // ||x-c||^2 = ||x||^2 + ||c||^2 - 2 x·c
+              double dot = 0.0;
+              for (int f = 0; f < F; ++f) dot += xrow[(size_t)f] * center_feats(k, f);
+              double df2 = xnorm2 + center_feat_norm2[k] - 2.0 * dot;
+              if (df2 < 0.0) df2 = 0.0;
               double dxs = xi - center_coords(k,0);
               double dys = yi - center_coords(k,1);
               double dzs = zi - center_coords(k,2);
@@ -368,6 +389,29 @@ Rcpp::List slic4d_core(NumericMatrix feats,
 
   const int N = feats.nrow();
   const int F = feats.ncol();
+  if (coords.nrow() != N || coords.ncol() != 3) {
+    stop("coords must have dimensions N x 3 where N = nrow(feats)");
+  }
+  if (mask_lin_idx.size() != N) {
+    stop("mask_lin_idx must have length N where N = nrow(feats)");
+  }
+  if (dims.size() != 3) {
+    stop("dims must be an integer vector of length 3: c(nx, ny, nz)");
+  }
+  if (voxmm.size() != 3) {
+    stop("voxmm must be numeric length 3: c(dx, dy, dz)");
+  }
+  {
+    const int64_t nx = (int64_t)dims[0], ny = (int64_t)dims[1], nz = (int64_t)dims[2];
+    if (nx <= 0 || ny <= 0 || nz <= 0) stop("dims entries must be positive");
+    const int64_t nlin = nx * ny * nz;
+    for (int i = 0; i < N; ++i) {
+      const int lin = mask_lin_idx[i];
+      if (lin < 0 || (int64_t)lin >= nlin) {
+        stop("mask_lin_idx must be 0-based linear indices in [0, prod(dims))");
+      }
+    }
+  }
   if (K < 2 || K > N) stop("K must be in [2, N]");
   if (N < 2) stop("Need at least 2 voxels");
   // Note: removed setThreadOptions as it doesn't exist in RcppParallel
@@ -435,7 +479,7 @@ Rcpp::List slic4d_core(NumericMatrix feats,
   int cnx = std::max(1, (int)std::floor(dx / cellStep));
   int cny = std::max(1, (int)std::floor(dy / cellStep));
   int cnz = std::max(1, (int)std::floor(dz / cellStep));
-  GridIndex gindex(cnx, cny, cnz, cellStep, center_coords, NumericVector::create(minx,miny,minz));
+  GridIndex gindex(cnx, cny, cnz, cellStep, center_coords, minx, miny, minz);
   gindex.first.assign(cnx*cny*cnz, -1);
   gindex.next.assign(K, -1);
   build_index(gindex);
@@ -445,11 +489,30 @@ Rcpp::List slic4d_core(NumericMatrix feats,
   for (int i=0;i<N;++i) { labels[i]=0; dists[i]=std::numeric_limits<double>::infinity(); }
 
   // Outer iterations
+  // NOTE: RcppParallel's TBB backend has been observed to hang on some platforms
+  // for very small problems. Respect `n_threads` (and problem size) by running
+  // the assignment step serially when requested.
+  const bool serial_assign = (n_threads <= 1) || (N < 2000);
   NumericMatrix prev_center_coords = clone(center_coords);
   NumericMatrix prev_center_feats  = clone(center_feats);
   for (int it=0; it<max_iter; ++it) {
-    AssignWorker worker(feats, coords, center_feats, center_coords, gindex, compactness, step_mm, labels, dists);
-    parallelFor(0, (size_t)N, worker, 2000);
+    NumericVector center_feat_norm2(K);
+    for (int k=0; k<K; ++k) {
+      double acc = 0.0;
+      for (int f=0; f<F; ++f) {
+        double v = center_feats(k, f);
+        acc += v * v;
+      }
+      center_feat_norm2[k] = acc;
+    }
+
+    AssignWorker worker(feats, coords, center_feats, center_coords, center_feat_norm2,
+                        gindex, compactness, step_mm, labels, dists);
+    if (serial_assign) {
+      worker(0, (size_t)N);
+    } else {
+      parallelFor(0, (size_t)N, worker, 2000);
+    }
 
     // Update
     std::vector<double> sumf((size_t)K*F, 0.0);
@@ -489,7 +552,16 @@ Rcpp::List slic4d_core(NumericMatrix feats,
     // counts
     std::vector<int> cnt(K,0); for (int i=0;i<N;++i) cnt[ labels[i] ]++;
     auto distance_D = [&](int i, int k)->double{
-      double df2=0.0; for (int f=0; f<F; ++f){ double d=feats(i,f)-center_feats(k,f); df2+=d*d; }
+      double xnorm2 = 0.0, cnorm2 = 0.0, dot = 0.0;
+      for (int f=0; f<F; ++f) {
+        double x = feats(i, f);
+        double c = center_feats(k, f);
+        xnorm2 += x * x;
+        cnorm2 += c * c;
+        dot += x * c;
+      }
+      double df2 = xnorm2 + cnorm2 - 2.0 * dot;
+      if (df2 < 0.0) df2 = 0.0;
       double dxs=coords(i,0)-center_coords(k,0), dys=coords(i,1)-center_coords(k,1), dzs=coords(i,2)-center_coords(k,2);
       double ds2=(dxs*dxs+dys*dys+dzs*dzs)/(step_mm*step_mm);
       return df2 + compactness*compactness*ds2;
@@ -518,12 +590,23 @@ Rcpp::List slic4d_core(NumericMatrix feats,
       // small refinements
       for (int it2=0; it2<topup_iters; ++it2) {
         // rebuild index
-        GridIndex gi(cnx, cny, cnz, cellStep, center_coords, NumericVector::create(minx,miny,minz));
+        GridIndex gi(cnx, cny, cnz, cellStep, center_coords, minx, miny, minz);
         gi.first.assign(cnx*cny*cnz, -1); gi.next.assign(K, -1);
         for (int k=0;k<K;++k){ int cell=gi.cell_of_center(k); gi.next[k]=gi.first[cell]; gi.first[cell]=k; }
         for (int i=0;i<N;++i) dists[i]=std::numeric_limits<double>::infinity();
-        AssignWorker w2(feats, coords, center_feats, center_coords, gi, compactness, step_mm, labels, dists);
-        parallelFor(0, (size_t)N, w2, 2000);
+        NumericVector center_feat_norm2_2(K);
+        for (int k=0; k<K; ++k) {
+          double acc = 0.0;
+          for (int f=0; f<F; ++f) { double v = center_feats(k, f); acc += v * v; }
+          center_feat_norm2_2[k] = acc;
+        }
+        AssignWorker w2(feats, coords, center_feats, center_coords, center_feat_norm2_2,
+                        gi, compactness, step_mm, labels, dists);
+        if (serial_assign) {
+          w2(0, (size_t)N);
+        } else {
+          parallelFor(0, (size_t)N, w2, 2000);
+        }
         std::fill(cnt.begin(), cnt.end(), 0);
         std::vector<double> sumf2((size_t)K*F, 0.0);
         std::vector<double> sx(K,0.0), sy(K,0.0), sz(K,0.0);

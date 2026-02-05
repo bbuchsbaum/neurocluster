@@ -230,9 +230,10 @@ rena <- function(bvec, mask,
     }
 
     # 1. Compute distances for connected pairs
-    adj_indices <- Matrix::which(current_adjacency > 0, arr.ind = TRUE)
-    adj_i <- adj_indices[, 1]
-    adj_j <- adj_indices[, 2]
+    # Use `summary()` to extract sparse structure without materializing a dense logical matrix.
+    adj_summary <- Matrix::summary(current_adjacency)
+    adj_i <- adj_summary$i
+    adj_j <- adj_summary$j
 
     # Only keep upper triangle (undirected graph)
     upper_tri <- adj_i < adj_j
@@ -334,9 +335,9 @@ rena <- function(bvec, mask,
   # If exact_k requested but we stopped above K (e.g., no-progress), attempt a final prune
   if (exact_k && current_n_clusters > K) {
     # Rebuild edge list from current adjacency
-    adj_indices <- Matrix::which(current_adjacency > 0, arr.ind = TRUE)
-    adj_i <- adj_indices[, 1]
-    adj_j <- adj_indices[, 2]
+    adj_summary <- Matrix::summary(current_adjacency)
+    adj_i <- adj_summary$i
+    adj_j <- adj_summary$j
 
     upper_tri <- adj_i < adj_j
     adj_i <- adj_i[upper_tri]

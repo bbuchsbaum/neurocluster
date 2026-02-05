@@ -176,10 +176,11 @@ snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
   requested_K <- K
   
   mask.idx <- which(mask>0)
-  valid_coords <- index_to_grid(mask, mask.idx)
-  norm_coords <- sweep(valid_coords, 2, spacing(mask), "/")
-
   mask.grid <- index_to_grid(mask, mask.idx)
+  valid_coords <- mask.grid
+  # Use physical coordinates (mm) for spatial distances and center reporting.
+  norm_coords <- as.matrix(index_to_coord(mask, mask.idx))
+
   mask_lookup <- array(-1L, dim(mask))
   mask_lookup[mask.grid] <- 0:(length(mask.idx)-1)
 
@@ -192,19 +193,12 @@ snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
   if (nrow(vecmat) > 1) {
     vecmat <- base::scale(vecmat)
   }
-  sam <- sample(1:ncol(vecmat), min(.05*ncol(vecmat), 100))
-  sf <- mean(as.vector(dist(t(vecmat[,sam])))^2)
-  #vecmat <- vecmat/sf
-
-  #ncd <- quantile(as.vector(dist(norm_coords[sam,])^2),.01)
-  #norm_coords <- norm_coords/ncd
-
 
   refvol <- vols(vec)[[1]]
   grad <- spatial_gradient(refvol, mask)
   grad_vals <- grad[mask.idx]
 
-  init <- find_initial_points(valid_coords, grad_vals, K)
+  init <- find_initial_points(norm_coords, grad_vals, K)
   centroid_idx <- init$selected
   actual_K <- length(centroid_idx)
 
@@ -224,9 +218,21 @@ snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
   centroids <- norm_coords[centroid_idx, , drop = FALSE]
 
 
-  # Slightly expand spatial scale to reduce over-penalizing feature similarity
-  s <- sqrt(nrow(valid_coords)/K) * 1.1
-  L <- array(0, dim(mask))
+  # Spatial scale: compute an expected seed spacing (S, in mm) and pass S^2 because
+  # the C++ distance uses squared spatial distances (ds) divided by `s`.
+  extents <- apply(norm_coords, 2, function(x) diff(range(x)))
+  extents <- pmax(extents, 1e-6)
+  if (extents[3] < min(extents[1:2]) / 4) {
+    area <- extents[1] * extents[2]
+    S <- sqrt(area / K)
+  } else {
+    vol <- prod(extents)
+    S <- (vol / K)^(1/3)
+  }
+  S <- S * 1.1
+  s <- S * S
+
+  L <- array(0L, dim(mask))
 
   # Use optimized C++ implementation for 10x-50x speedup
   ret = snic_main_optimized(L, mask@.Data,
@@ -248,7 +254,7 @@ snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
   # Prepare data for center computation
   data_prep <- list(
     features = t(vecmat),  # Transpose to N x T for compute_cluster_centers
-    coords = valid_coords,
+    coords = norm_coords,
     mask_idx = mask.idx,
     n_voxels = length(mask.idx),
     dims = dim(mask),

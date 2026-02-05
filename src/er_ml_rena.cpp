@@ -25,8 +25,21 @@ inline double squared_l2_rows(const arma::mat &M, arma::uword i, arma::uword j) 
   const arma::uword n = M.n_cols;
   double acc = 0.0;
   for (arma::uword k = 0; k < n; ++k) {
-    double d = M(i, k) - M(j, k);
+    const double* col = M.colptr(k);
+    double d = col[i] - col[j];
     acc += d * d;
+  }
+  return acc;
+}
+
+// Dot product between two rows, implemented in a column-major friendly way to
+// avoid per-call BLAS overhead (significant when called for many neighbor pairs).
+inline double dot_rows(const arma::mat &M, arma::uword i, arma::uword j) {
+  const arma::uword n = M.n_cols;
+  double acc = 0.0;
+  for (arma::uword k = 0; k < n; ++k) {
+    const double* col = M.colptr(k);
+    acc += col[i] * col[j];
   }
   return acc;
 }
@@ -37,15 +50,21 @@ inline double squared_l2_rows(const arma::mat &M, arma::uword i, arma::uword j) 
 // which is more cache-friendly and can use SIMD.
 inline double squared_l2_with_norms(const arma::mat &M, arma::uword i, arma::uword j,
                                     const arma::vec &row_norms) {
-  double dot = arma::dot(M.row(i), M.row(j));
+  double dot = dot_rows(M, i, j);
   return row_norms(i) + row_norms(j) - 2.0 * dot;
 }
 
 // Pre-compute squared row norms for a matrix
 inline arma::vec compute_row_norms(const arma::mat &M) {
-  arma::vec norms(M.n_rows);
-  for (arma::uword i = 0; i < M.n_rows; ++i) {
-    norms(i) = arma::dot(M.row(i), M.row(i));
+  arma::vec norms(M.n_rows, fill::zeros);
+  const arma::uword nrows = M.n_rows;
+  const arma::uword ncols = M.n_cols;
+  for (arma::uword k = 0; k < ncols; ++k) {
+    const double* col = M.colptr(k);
+    for (arma::uword i = 0; i < nrows; ++i) {
+      double v = col[i];
+      norms(i) += v * v;
+    }
   }
   return norms;
 }

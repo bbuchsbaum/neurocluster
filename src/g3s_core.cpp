@@ -199,23 +199,27 @@ IntegerVector g3s_propagate_cpp(const NumericMatrix& feature_mat,
   for (int k = 0; k < K; ++k) {
     int idx = seed_indices[k] - 1;
     if (idx < 0 || idx >= N) continue;
+    if (labels[idx] != 0) continue; // skip duplicates defensively
 
-    centroids.emplace_back(M,
-                           coords(idx, 0), coords(idx, 1), coords(idx, 2),
-                           &feature_mat(0, idx),
-                           normalize_features);
-    labels[idx] = k + 1;
+    const int new_label = static_cast<int>(centroids.size()) + 1;
+    centroids.emplace_back(
+      M,
+      coords(idx, 0), coords(idx, 1), coords(idx, 2),
+      &feature_mat(0, idx),
+      normalize_features
+    );
+    labels[idx] = new_label;
 
     for (int n = 0; n < K_neighbors; ++n) {
       int neigh = neighbor_indices(idx, n) - 1;
       if (neigh < 0 || neigh >= N) continue;
       if (labels[neigh] != 0) continue;
 
-      double cost = g3s_cost(centroids[k],
+      double cost = g3s_cost(centroids.back(),
                              coords(neigh, 0), coords(neigh, 1), coords(neigh, 2),
                              &feature_mat(0, neigh),
                              M, alpha, compactness);
-      pq.push({neigh, k + 1, cost});
+      pq.push({neigh, new_label, cost});
     }
   }
 

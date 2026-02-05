@@ -120,6 +120,38 @@ slic4d_supervoxels <- function(bvec, mask,
     feat <- matrix(feat, nrow = 1)  # 1 x N for single timepoint
   }
   feat <- t(as.matrix(feat))  # Now N x T
+
+  # Thread control for RcppParallel (used inside `slic4d_core`).
+  # For very small problems, forcing single-threaded execution avoids thread
+  # startup overhead and reduces the chance of test hangs on some systems.
+  n_threads_eff <- as.integer(n_threads)
+  if (n_threads_eff == 0L && length(mask_idx) < 2000L) {
+    n_threads_eff <- 1L
+  }
+  if (requireNamespace("RcppParallel", quietly = TRUE) && n_threads_eff > 0L) {
+    old_opts <- RcppParallel::setThreadOptions(numThreads = n_threads_eff)
+    on.exit({
+      tryCatch({
+        # setThreadOptions() return type varies across RcppParallel versions:
+        # - list(numThreads=..., stackSize=...)
+        # - atomic scalar / NULL (meaning "default"/"auto" in some versions)
+        if (is.list(old_opts) && !is.null(old_opts$numThreads)) {
+          if (!is.null(old_opts$stackSize)) {
+            RcppParallel::setThreadOptions(numThreads = old_opts$numThreads, stackSize = old_opts$stackSize)
+          } else {
+            RcppParallel::setThreadOptions(numThreads = old_opts$numThreads)
+          }
+        } else if (is.null(old_opts)) {
+          # Some versions return NULL for the prior state.
+          tryCatch(RcppParallel::setThreadOptions(numThreads = "auto"), error = function(e) NULL)
+        } else if (is.character(old_opts)) {
+          tryCatch(RcppParallel::setThreadOptions(numThreads = old_opts), error = function(e) NULL)
+        } else {
+          RcppParallel::setThreadOptions(numThreads = as.integer(old_opts)[1])
+        }
+      }, error = function(e) NULL)
+    }, add = TRUE)
+  }
   
   # Optional feature normalization
   if (feature_norm == "zscale") {
@@ -208,7 +240,7 @@ slic4d_supervoxels <- function(bvec, mask,
     compactness = as.numeric(compactness),
     max_iter = as.integer(max_iter),
     step_mm = as.numeric(step_mm),
-    n_threads = as.integer(n_threads),
+    n_threads = as.integer(n_threads_eff),
     seed_method = seed_method,
     enforce_connectivity = isTRUE(enforce_connectivity) || isTRUE(strict_connectivity),
     min_size = as.integer(min_size),

@@ -6,7 +6,6 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
-#include <map>
 #include <atomic>
 
 using namespace Rcpp;
@@ -16,21 +15,14 @@ using namespace RcppParallel;
 // Helper Functions
 // =============================================================================
 
-/**
- * Fast correlation for pre-normalized (unit-length) vectors
- *
- * For unit-length vectors: cor(x, y) = dot(x, y)
- * This eliminates the need for expensive standard deviation calculations
- *
- * @param x Pointer to first normalized vector
- * @param y Pointer to second normalized vector
- * @param n Length of vectors
- * @return Correlation coefficient
- */
-inline double fast_correlation_normalized(const double* x, const double* y, int n) {
+// Dot product between a *row* of an R matrix (column-major) and a contiguous centroid.
+// The row is strided by n_rows in memory: x[t] lives at base[row + n_rows * t].
+inline double fast_row_dot_strided(const double* base, int row, int n_rows,
+                                  const double* centroid, int n_time) {
   double dot = 0.0;
-  for (int i = 0; i < n; i++) {
-    dot += x[i] * y[i];
+  const double* x0 = base + row;
+  for (int t = 0; t < n_time; ++t) {
+    dot += x0[n_rows * t] * centroid[t];
   }
   return dot;
 }
@@ -55,58 +47,56 @@ inline void normalize_vector(double* vec, int n) {
   }
 }
 
-/**
- * Compute cluster centroids from labeled voxels
- *
- * @param feature_mat Matrix of voxel features (voxels x time)
- * @param labels Vector of cluster labels for each voxel
- * @param n_voxels Number of voxels
- * @param n_time Number of time points
- * @return Map from label to normalized centroid vector
- */
-std::map<int, std::vector<double>> compute_centroids(
-    const double* feature_mat,
-    const int* labels,
-    int n_voxels,
-    int n_time) {
+// Dense centroid table for labels in [0, max_label].
+struct CentroidTable {
+  int max_label;
+  int n_time;
+  std::vector<double> data; // (max_label+1) * n_time, contiguous per label
+  std::vector<int> counts;  // (max_label+1)
+};
 
-  std::map<int, std::vector<double>> centroid_sums;
-  std::map<int, int> counts;
+static CentroidTable compute_centroid_table(const double* feature_mat,
+                                            const int* labels,
+                                            int n_voxels,
+                                            int n_time) {
+  int max_label = 0;
+  for (int i = 0; i < n_voxels; ++i) {
+    if (labels[i] > max_label) max_label = labels[i];
+  }
 
-  // Accumulate sums per cluster
-  for (int i = 0; i < n_voxels; i++) {
+  CentroidTable tab;
+  tab.max_label = max_label;
+  tab.n_time = n_time;
+  tab.data.assign((size_t)(max_label + 1) * (size_t)n_time, 0.0);
+  tab.counts.assign((size_t)(max_label + 1), 0);
+
+  // R matrices are column-major: feature_mat is (voxels x time).
+  const int stride = n_voxels;
+  for (int i = 0; i < n_voxels; ++i) {
     int label = labels[i];
-
-    if (centroid_sums.find(label) == centroid_sums.end()) {
-      centroid_sums[label] = std::vector<double>(n_time, 0.0);
-      counts[label] = 0;
+    if (label < 0) continue;
+    if (label > max_label) continue;
+    tab.counts[(size_t)label] += 1;
+    double* sum = &tab.data[(size_t)label * (size_t)n_time];
+    const double* x0 = feature_mat + i;
+    for (int t = 0; t < n_time; ++t) {
+      sum[t] += x0[stride * t];
     }
-
-    std::vector<double>& sum = centroid_sums[label];
-    for (int t = 0; t < n_time; t++) {
-      sum[t] += feature_mat[i * n_time + t];
-    }
-    counts[label]++;
   }
 
-  // Compute means and normalize
-  std::map<int, std::vector<double>> centroids;
-  for (auto& kv : centroid_sums) {
-    int label = kv.first;
-    std::vector<double>& sum = kv.second;
-    int count = counts[label];
-
-    std::vector<double> centroid(n_time);
-    for (int t = 0; t < n_time; t++) {
-      centroid[t] = sum[t] / count;
+  // Convert sums to means and normalize in-place.
+  for (int label = 0; label <= max_label; ++label) {
+    int c = tab.counts[(size_t)label];
+    if (c <= 0) continue;
+    double inv = 1.0 / (double)c;
+    double* centroid = &tab.data[(size_t)label * (size_t)n_time];
+    for (int t = 0; t < n_time; ++t) {
+      centroid[t] *= inv;
     }
-
-    // Normalize to unit length
-    normalize_vector(centroid.data(), n_time);
-    centroids[label] = centroid;
+    normalize_vector(centroid, n_time);
   }
 
-  return centroids;
+  return tab;
 }
 
 // =============================================================================
@@ -126,9 +116,11 @@ struct BoundaryRefinementWorker : public Worker {
   const RMatrix<int> neighbor_indices;    // Voxels x 6 nearest neighbors
   const RVector<int> boundary_voxels;     // Indices of boundary voxels
 
-  // Centroid data
-  const std::map<int, std::vector<double>>& centroids;
-  int n_time;
+  // Centroid table (dense)
+  const CentroidTable& centroids;
+  const int n_time;
+  const int n_voxels;
+  const double* feat_base;
 
   // Output data (write to separate indices, no contention)
   RVector<int> output_labels;
@@ -140,7 +132,7 @@ struct BoundaryRefinementWorker : public Worker {
       const IntegerVector& curr_labels,
       const IntegerMatrix& nbr_indices,
       const IntegerVector& boundary_vox,
-      const std::map<int, std::vector<double>>& cents,
+      const CentroidTable& cents,
       IntegerVector& out_labels,
       std::atomic<int>& counter)
     : feature_mat(feat_mat),
@@ -149,6 +141,8 @@ struct BoundaryRefinementWorker : public Worker {
       boundary_voxels(boundary_vox),
       centroids(cents),
       n_time(feat_mat.ncol()),
+      n_voxels(feat_mat.nrow()),
+      feat_base(feat_mat.begin()),
       output_labels(out_labels),
       changes_counter(counter) {}
 
@@ -181,15 +175,13 @@ struct BoundaryRefinementWorker : public Worker {
       int best_label = current_label;
 
       for (int candidate_label : candidate_labels) {
-        auto it = centroids.find(candidate_label);
-        if (it == centroids.end()) continue;  // Skip if centroid not found
+        if (candidate_label < 0 || candidate_label > centroids.max_label) continue;
+        if (centroids.counts[(size_t)candidate_label] <= 0) continue;
+        const double* centroid = &centroids.data[(size_t)candidate_label * (size_t)n_time];
 
-        const std::vector<double>& centroid = it->second;
-
-        // Compute correlation (both vectors are normalized, so just dot product)
-        const double* voxel_features = &feature_mat(voxel_idx, 0);
-        double correlation = fast_correlation_normalized(
-          voxel_features, centroid.data(), n_time);
+        // Compute correlation (both vectors are normalized, so just dot product).
+        // feature_mat is column-major, so rows are strided.
+        double correlation = fast_row_dot_strided(feat_base, voxel_idx, n_voxels, centroid, n_time);
 
         if (correlation > best_correlation) {
           best_correlation = correlation;
@@ -248,8 +240,8 @@ List refine_boundaries_cpp(
   for (int iter = 0; iter < max_iter; iter++) {
     total_iterations++;
 
-    // Compute centroids for current labeling
-    std::map<int, std::vector<double>> centroids = compute_centroids(
+    // Compute centroids for current labeling (dense + stride-correct)
+    CentroidTable centroids = compute_centroid_table(
       feature_mat_normalized.begin(),
       current_labels.begin(),
       n_voxels,

@@ -306,6 +306,29 @@ slice_msf <- function(vec, mask,
   if (length(mask.idx) == 0) {
     stop("No valid voxels found in mask. Mask must contain at least one positive value.")
   }
+
+  # For very small test problems, avoid spinning up many RcppParallel threads.
+  # This reduces overhead and prevents rare hangs on some platforms/CI.
+  if (length(mask.idx) < 2000L && requireNamespace("RcppParallel", quietly = TRUE)) {
+    old_opts <- RcppParallel::setThreadOptions(numThreads = 1L)
+    on.exit({
+      tryCatch({
+        if (is.list(old_opts) && !is.null(old_opts$numThreads)) {
+          if (!is.null(old_opts$stackSize)) {
+            RcppParallel::setThreadOptions(numThreads = old_opts$numThreads, stackSize = old_opts$stackSize)
+          } else {
+            RcppParallel::setThreadOptions(numThreads = old_opts$numThreads)
+          }
+        } else if (is.null(old_opts)) {
+          tryCatch(RcppParallel::setThreadOptions(numThreads = "auto"), error = function(e) NULL)
+        } else if (is.character(old_opts)) {
+          tryCatch(RcppParallel::setThreadOptions(numThreads = old_opts), error = function(e) NULL)
+        } else {
+          RcppParallel::setThreadOptions(numThreads = as.integer(old_opts)[1])
+        }
+      }, error = function(e) NULL)
+    }, add = TRUE)
+  }
   effective_k <- if (target_k_global > 0) target_k_global else min(100, length(mask.idx))
   validate_cluster4d_inputs(vec, mask, effective_k, "slice_msf")
   

@@ -133,40 +133,46 @@ compute_cluster_centers <- function(labels, features, coords, method = "mean") {
   centers <- matrix(0, nrow = n_clusters, ncol = ncol(features))
   coord_centers <- matrix(0, nrow = n_clusters, ncol = 3)
   
-  # Compute centers for each cluster
-  for (i in seq_along(unique_labels)) {
-    label <- unique_labels[i]
-    cluster_mask <- labels == label
-    
-    if (sum(cluster_mask) == 0) next
-    
-    if (method == "mean") {
-      # Mean centers
-      if (sum(cluster_mask) == 1) {
-        centers[i, ] <- features[cluster_mask, ]
-        coord_centers[i, ] <- coords[cluster_mask, ]
-      } else {
-        centers[i, ] <- colMeans(features[cluster_mask, , drop = FALSE])
-        coord_centers[i, ] <- colMeans(coords[cluster_mask, , drop = FALSE])
-      }
-    } else if (method == "medoid") {
+  if (method == "mean") {
+    # Fast path: compute group means using rowsum() (C-accelerated) instead of per-cluster loops.
+    grp <- factor(labels, levels = unique_labels)
+    counts <- as.numeric(tabulate(as.integer(grp), nbins = n_clusters))
+    counts[counts == 0] <- NA_real_
+
+    # Ensure row order matches factor level order (and `counts`) by reordering.
+    centers_sum <- rowsum(features, grp, reorder = TRUE)
+    coord_sum <- rowsum(coords, grp, reorder = TRUE)
+
+    centers <- centers_sum / counts
+    coord_centers <- coord_sum / counts
+    # rowsum() attaches dimnames; keep outputs consistent with other methods.
+    dimnames(centers) <- NULL
+    dimnames(coord_centers) <- NULL
+  } else if (method == "medoid") {
+    # Compute centers for each cluster
+    for (i in seq_along(unique_labels)) {
+      label <- unique_labels[i]
+      cluster_mask <- labels == label
+      if (sum(cluster_mask) == 0) next
+
       # Medoid centers (point closest to mean)
       cluster_features <- features[cluster_mask, , drop = FALSE]
       cluster_coords <- coords[cluster_mask, , drop = FALSE]
-      
+
       if (nrow(cluster_features) == 1) {
         centers[i, ] <- cluster_features
         coord_centers[i, ] <- cluster_coords
       } else {
-        # Find medoid in feature space
         cluster_mean <- colMeans(cluster_features)
         distances <- apply(cluster_features, 1, function(x) sum((x - cluster_mean)^2))
         medoid_idx <- which.min(distances)
-        
+
         centers[i, ] <- cluster_features[medoid_idx, ]
         coord_centers[i, ] <- cluster_coords[medoid_idx, ]
       }
     }
+  } else {
+    stop("Unknown center method: ", method)
   }
   
   list(

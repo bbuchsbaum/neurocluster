@@ -251,23 +251,14 @@ supervoxel_cluster_fit <- function(feature_mat,
 
     # Seeds are the nearest grid points to the reordered cluster centers
     # (Use k-means centers, which may have shifted from initial gradient seeds)
-    seeds <- FNN::get.knnx(coords, centers_reordered)$nn.index[,1]
+    seeds <- FNN::get.knnx(coords, centers_reordered, k = 1)$nn.index[, 1]
     sp_centroids <- coords[seeds, , drop = FALSE]  # K x 3 matrix
 
-    # FIX 4: Compute feature centroids as cluster AVERAGES, not seed voxels
-    # The seed voxel may belong to a different true cluster than other cluster members
-    # Using the average is more robust and representative
-    num_centroids <- matrix(0, nrow = nrow(feature_mat), ncol = K)
-    for (k in 1:K) {
-      cluster_members <- which(curclus == k)
-      if (length(cluster_members) == 1) {
-        # Single member: use that voxel's features
-        num_centroids[, k] <- feature_mat[, cluster_members]
-      } else {
-        # Multiple members: use mean of all members' features
-        num_centroids[, k] <- rowMeans(feature_mat[, cluster_members, drop = FALSE])
-      }
-    }
+    # Compute feature centroids as cluster AVERAGES, not seed voxels.
+    # Vectorized implementation is substantially faster than looping over K.
+    counts <- tabulate(curclus, nbins = K)
+    cluster_sums <- rowsum(t(feature_mat), factor(curclus, levels = seq_len(K)), reorder = TRUE)
+    num_centroids <- t(cluster_sums / pmax(counts, 1))
 
     # Transpose both to match C++ expectations: (dims x K) for both
     sp_centroids <- t(sp_centroids)  # Now 3 x K
@@ -295,7 +286,18 @@ supervoxel_cluster_fit <- function(feature_mat,
   neib <- FNN::get.knn(coords, k = connectivity)
   # dthresh is the median distance among the 'connectivity'-th neighbor
   dthresh <- stats::median(neib$nn.dist[, connectivity, drop = FALSE])
-  message("dthresh: ", dthresh)
+  if (verbose) message("dthresh: ", dthresh)
+
+  coords_t <- t(coords)
+
+  # Precompute and sanitize neighbor indices once (constant across iterations).
+  nn_indices <- neib$nn.index - 1L  # Convert to 0-based
+  if (any(nn_indices < 0 | nn_indices >= nvox, na.rm = TRUE)) {
+    warning("Invalid neighbor indices found. Coercing to valid range.")
+    nn_indices[is.na(nn_indices) | nn_indices < 0] <- 0L
+    nn_indices[nn_indices >= nvox] <- nvox - 1L
+  }
+  nn_dist <- neib$nn.dist
 
   iter <- 1
   switches <- 1
@@ -319,38 +321,33 @@ supervoxel_cluster_fit <- function(feature_mat,
   }
   bin_expand <- if (K < 10 || nvox < 5000) 2L else 1L
 
+  use_parallel_assignment <- parallel && nvox > 1000
+  grain_size_eff <- max(1024L, as.integer(nvox / 32L))
+
   while (iter <= iter.max && switches > 0) {
     # FIX 1: Always use full alpha (no more cheap_iters strategy)
     current_alpha <- original_alpha
     
-    # Sanitize neighbor indices before passing to C++
-    nn_indices <- neib$nn.index - 1L  # Convert to 0-based
-    if (any(nn_indices < 0 | nn_indices >= nvox, na.rm = TRUE)) {
-      warning("Invalid neighbor indices found. Coercing to valid range.")
-      nn_indices[is.na(nn_indices) | nn_indices < 0] <- 0L
-      nn_indices[nn_indices >= nvox] <- nvox - 1L
-    }
-
     # FIX 7: Convert curclus to 0-based for C++ (C++ uses 0-based centroid indexing)
     # The C++ code iterates centroids as k=0 to K-1 and stores these 0-based indices
     # in the spatial bins. When it returns assignments, they are also 0-based.
     curclus_0based <- curclus - 1L
 
     # Use spatially-binned assignment for efficient candidate selection
-    if (parallel && nvox > 1000) {
+    if (use_parallel_assignment) {
       newclus_0based <- fused_assignment_parallel_binned(
-        nn_indices, neib$nn.dist, curclus_0based,
-        t(coords), num_centroids, sp_centroids, feature_mat,
+        nn_indices, nn_dist, curclus_0based,
+        coords_t, num_centroids, sp_centroids, feature_mat,
         dthresh, sigma1, sigma2, current_alpha,
-        grain_size = max(1024L, as.integer(nvox / 32L)),
+        grain_size = grain_size_eff,
         window_factor = window_factor,
         bin_expand = bin_expand
       )
     } else {
       # Even sequential mode benefits from spatial binning
       newclus_0based <- fused_assignment_binned(
-        nn_indices, neib$nn.dist, curclus_0based,
-        t(coords), num_centroids, sp_centroids, feature_mat,
+        nn_indices, nn_dist, curclus_0based,
+        coords_t, num_centroids, sp_centroids, feature_mat,
         dthresh, sigma1, sigma2, current_alpha,
         window_factor = window_factor,
         bin_expand = bin_expand
@@ -370,7 +367,7 @@ supervoxel_cluster_fit <- function(feature_mat,
       # Use fast parallel centroid computation
       if (parallel && nvox > 1000 && n_actual_clusters > 50) {
         cent_result <- compute_centroids_parallel_fast(
-          as.integer(newclus - 1L), feature_mat, t(coords), as.integer(K)
+          as.integer(newclus - 1L), feature_mat, coords_t, as.integer(K)
         )
         num_centroids <- cent_result$centers
         sp_centroids <- cent_result$coord_centers
@@ -398,15 +395,22 @@ supervoxel_cluster_fit <- function(feature_mat,
     # Check for convergence
     switch_ratio <- switches / nvox
     if (verbose) {
-      message("supervoxels_fit: iter ", iter, " -- num switches = ", switches, 
-              " (", round(switch_ratio * 100, 2), "% of voxels)")
-    } else {
-      message("supervoxels_fit: iter ", iter, " -- num switches = ", switches)
+      message(
+        "supervoxels_fit: iter ",
+        iter,
+        " -- num switches = ",
+        switches,
+        " (",
+        round(switch_ratio * 100, 2),
+        "% of voxels)"
+      )
     }
     
     # Early convergence check
     if (switch_ratio < converge_thresh) {
-      message("supervoxels_fit: converged at iteration ", iter, " (switch ratio < ", converge_thresh, ")")
+      if (verbose) {
+        message("supervoxels_fit: converged at iteration ", iter, " (switch ratio < ", converge_thresh, ")")
+      }
       break
     }
     
@@ -414,7 +418,9 @@ supervoxel_cluster_fit <- function(feature_mat,
     if (switches >= prev_switches) {
       no_improvement_count <- no_improvement_count + 1
       if (no_improvement_count >= 3) {
-        message("supervoxels_fit: stopping - no improvement for 3 iterations")
+        if (verbose) {
+          message("supervoxels_fit: stopping - no improvement for 3 iterations")
+        }
         break
       }
     } else {
@@ -630,9 +636,23 @@ supervoxels <- function(bvec, mask,
   # Thread control for RcppParallel
   if (parallel && !is.null(num_threads)) {
     old_opts <- RcppParallel::setThreadOptions(numThreads = num_threads)
-    on.exit(RcppParallel::setThreadOptions(numThreads = old_opts$numThreads,
-                                           stackSize   = old_opts$stackSize),
-            add = TRUE)
+    on.exit({
+      tryCatch({
+        if (is.list(old_opts) && !is.null(old_opts$numThreads)) {
+          if (!is.null(old_opts$stackSize)) {
+            RcppParallel::setThreadOptions(numThreads = old_opts$numThreads, stackSize = old_opts$stackSize)
+          } else {
+            RcppParallel::setThreadOptions(numThreads = old_opts$numThreads)
+          }
+        } else if (is.null(old_opts)) {
+          tryCatch(RcppParallel::setThreadOptions(numThreads = "auto"), error = function(e) NULL)
+        } else if (is.character(old_opts)) {
+          tryCatch(RcppParallel::setThreadOptions(numThreads = old_opts), error = function(e) NULL)
+        } else {
+          RcppParallel::setThreadOptions(numThreads = as.integer(old_opts)[1])
+        }
+      }, error = function(e) NULL)
+    }, add = TRUE)
     if (verbose) message("supervoxels: using ", num_threads, " threads (RcppParallel)")
   }
   
@@ -821,7 +841,6 @@ supervoxel_cluster_time <- function(feature_mat,
 #' }
 #'
 #' @export
-#' @import neurosurf
 supervoxel_cluster_surface <- function(bsurf,
                                        K = 500,
                                        sigma1 = 1,
@@ -830,9 +849,13 @@ supervoxel_cluster_surface <- function(bsurf,
                                        connectivity = 6,
                                        use_medoid = FALSE) {
 
-  mask.idx <- indices(bsurf)
-  coords <- coords(bsurf)[mask.idx, , drop = FALSE]
-  feature_mat <- series(bsurf, mask.idx)
+  if (!requireNamespace("neurosurf", quietly = TRUE)) {
+    stop("supervoxel_cluster_surface() requires the 'neurosurf' package. Please install it to use surface clustering.")
+  }
+
+  mask.idx <- neurosurf::indices(bsurf)
+  coords <- neurosurf::coords(bsurf)[mask.idx, , drop = FALSE]
+  feature_mat <- neuroim2::series(bsurf, mask.idx)
 
   ret <- supervoxel_cluster_fit(feature_mat, coords, K = K,
                                 sigma1 = sigma1, sigma2 = sigma2,
@@ -841,8 +864,8 @@ supervoxel_cluster_surface <- function(bsurf,
                                 use_medoid = use_medoid)
 
   # create a NeuroSurface storing clusters
-  kvol <- NeuroSurface(
-    geometry = geometry(bsurf),
+  kvol <- neurosurf::NeuroSurface(
+    geometry = neurosurf::geometry(bsurf),
     indices = mask.idx,
     data = ret$clusters
   )

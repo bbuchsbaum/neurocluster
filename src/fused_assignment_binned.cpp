@@ -150,6 +150,9 @@ struct BinnedAssignWorker : public Worker {
   const int bin_expand;       // how many neighbor cells to visit (±bin_expand)
   const double window_radius2; // squared world radius to accept a centroid candidate
 
+  // Cached centroid norms (feature space): ||c||^2 for each cluster centroid
+  const std::vector<double> centroid_norm2;
+
   // Output
   RVector<int> out;
 
@@ -186,6 +189,18 @@ struct BinnedAssignWorker : public Worker {
       grid(grid_),
       bin_expand(bin_expand_),
       window_radius2(window_radius_ * window_radius_),
+      centroid_norm2([&] {
+        const int D = data_centroids_.nrow();
+        const int K = data_centroids_.ncol();
+        std::vector<double> out((size_t)K, 0.0);
+        for (int k = 0; k < K; ++k) {
+          const double *c = &data_centroids_(0, k);
+          double acc = 0.0;
+          for (int j = 0; j < D; ++j) acc += c[j] * c[j];
+          out[(size_t)k] = acc;
+        }
+        return out;
+      }()),
       out(out_),
       cand(),
       seen_stamp(n_clusters, 0),
@@ -288,6 +303,10 @@ struct BinnedAssignWorker : public Worker {
     const double vy = coords(1, i);
     const double vz = coords(2, i);
 
+    // Cache ||x||^2 once per voxel (saves work when testing many candidate centroids)
+    double xnorm2 = 0.0;
+    for (int j = 0; j < D; ++j) xnorm2 += x[j] * x[j];
+
     double best_score = -std::numeric_limits<double>::infinity();
     int best_cluster = curclus[i];
 
@@ -295,12 +314,12 @@ struct BinnedAssignWorker : public Worker {
       const int cid = cand[t];
       const double *c = &data_centroids(0, cid);
 
-      // data distance squared
-      double dd2 = 0.0;
-      for (int j = 0; j < D; ++j) {
-        double diff = x[j] - c[j];
-        dd2 += diff * diff;
-      }
+      // data distance squared via norms + dot product:
+      // ||x-c||^2 = ||x||^2 + ||c||^2 - 2 x·c
+      double dot = 0.0;
+      for (int j = 0; j < D; ++j) dot += x[j] * c[j];
+      double dd2 = xnorm2 + centroid_norm2[(size_t)cid] - 2.0 * dot;
+      if (dd2 < 0.0) dd2 = 0.0; // numeric guard
 
       // spatial distance squared
       double dx = vx - coord_centroids(0, cid);
@@ -423,6 +442,15 @@ IntegerVector fused_assignment_binned(IntegerMatrix nn_index,
 
   IntegerVector out(n);
 
+  // Cache ||c||^2 for all centroid feature vectors once per call
+  std::vector<double> centroid_norm2((size_t)K, 0.0);
+  for (int k = 0; k < K; ++k) {
+    const double *c = &data_centroids(0, k);
+    double acc = 0.0;
+    for (int j = 0; j < D; ++j) acc += c[j] * c[j];
+    centroid_norm2[(size_t)k] = acc;
+  }
+
   std::vector<int> seen_stamp((size_t)K, 0);
   int cur_stamp = 1;
   std::vector<int> cand; cand.reserve(64);
@@ -511,6 +539,9 @@ IntegerVector fused_assignment_binned(IntegerMatrix nn_index,
     const int Dloc = D;
     const double *x = &data(0, i);
 
+    double xnorm2 = 0.0;
+    for (int j = 0; j < Dloc; ++j) xnorm2 += x[j] * x[j];
+
     double best_score = -std::numeric_limits<double>::infinity();
     int best_cluster = curclus[i];
 
@@ -518,11 +549,10 @@ IntegerVector fused_assignment_binned(IntegerMatrix nn_index,
       const int cid = cand[t];
       const double *c = &data_centroids(0, cid);
 
-      double dd2 = 0.0;
-      for (int j = 0; j < Dloc; ++j) {
-        double diff = x[j] - c[j];
-        dd2 += diff * diff;
-      }
+      double dot = 0.0;
+      for (int j = 0; j < Dloc; ++j) dot += x[j] * c[j];
+      double dd2 = xnorm2 + centroid_norm2[(size_t)cid] - 2.0 * dot;
+      if (dd2 < 0.0) dd2 = 0.0;
 
       double dx = vx - coord_centroids(0, cid);
       double dy = vy - coord_centroids(1, cid);

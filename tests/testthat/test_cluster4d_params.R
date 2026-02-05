@@ -3,6 +3,19 @@ library(neurocluster)
 library(neuroim2)
 
 test_that("method-specific parameters are properly passed through", {
+  # Avoid rare hangs on some systems by forcing single-threaded RcppParallel
+  # for this tiny synthetic dataset.
+  if (requireNamespace("RcppParallel", quietly = TRUE)) {
+    tryCatch(RcppParallel::setThreadOptions(numThreads = 1L), error = function(e) NULL)
+  }
+
+  # Guard against indefinite hangs: fail fast with a useful stack trace.
+  with_time_limit <- function(expr, elapsed = 20) {
+    setTimeLimit(elapsed = elapsed, transient = TRUE)
+    on.exit(setTimeLimit(elapsed = Inf, transient = FALSE), add = TRUE)
+    force(expr)
+  }
+
   # Create small test data
   mask <- NeuroVol(array(1, c(8, 8, 4)), NeuroSpace(c(8, 8, 4)))
   vec <- replicate(10, NeuroVol(array(runif(8*8*4), c(8, 8, 4)),
@@ -11,14 +24,14 @@ test_that("method-specific parameters are properly passed through", {
   
   # Test supervoxels-specific parameters
   if (exists("supervoxels")) {
-    result_sv <- cluster4d(vec, mask, n_clusters = 5, 
-                          method = "supervoxels",
-                          sigma1 = 2.0,  # supervoxels-specific
-                          sigma2 = 3.0,  # supervoxels-specific
-                          use_gradient = FALSE,  # supervoxels-specific
-                          converge_thresh = 0.01,  # supervoxels-specific
-                          max_iterations = 2,
-                          verbose = FALSE)
+    result_sv <- with_time_limit(cluster4d(vec, mask, n_clusters = 5, 
+                                         method = "supervoxels",
+                                         sigma1 = 2.0,  # supervoxels-specific
+                                         sigma2 = 3.0,  # supervoxels-specific
+                                         use_gradient = FALSE,  # supervoxels-specific
+                                         converge_thresh = 0.01,  # supervoxels-specific
+                                         max_iterations = 2,
+                                         verbose = FALSE))
     
     expect_s3_class(result_sv, "cluster4d_result")
     # Check that parameters were recorded
@@ -28,15 +41,15 @@ test_that("method-specific parameters are properly passed through", {
   
   # Test SLIC-specific parameters
   if (exists("slic4d_core")) {
-    result_slic <- cluster4d(vec, mask, n_clusters = 5,
-                            method = "slic",
-                            preserve_k = TRUE,  # SLIC-specific
-                            seed_relocate = "correlation",  # SLIC-specific
-                            seed_relocate_radius = 2,  # SLIC-specific
-                            n_components = 5,  # SLIC-specific
-                            feature_norm = "l2",  # SLIC-specific
-                            max_iterations = 2,
-                            verbose = FALSE)
+    result_slic <- with_time_limit(cluster4d(vec, mask, n_clusters = 5,
+                                           method = "slic",
+                                           preserve_k = TRUE,  # SLIC-specific
+                                           seed_relocate = "correlation",  # SLIC-specific
+                                           seed_relocate_radius = 2,  # SLIC-specific
+                                           n_components = 5,  # SLIC-specific
+                                           feature_norm = "l2",  # SLIC-specific
+                                           max_iterations = 2,
+                                           verbose = FALSE))
     
     expect_s3_class(result_slic, "cluster4d_result")
     expect_equal(result_slic$parameters$preserve_k, TRUE)
@@ -44,16 +57,16 @@ test_that("method-specific parameters are properly passed through", {
   }
   
   # Test slice_msf-specific parameters
-  result_msf <- cluster4d(vec, mask, n_clusters = 5,
-                         method = "slice_msf",
-                         num_runs = 2,  # slice_msf-specific
-                         consensus = FALSE,  # slice_msf-specific
-                         stitch_z = FALSE,  # slice_msf-specific
-                         theta_link = 0.9,  # slice_msf-specific
-                         min_contact = 2,  # slice_msf-specific
-                         r = 6,  # slice_msf-specific
-                         gamma = 2.0,  # slice_msf-specific
-                         verbose = FALSE)
+  result_msf <- with_time_limit(cluster4d(vec, mask, n_clusters = 5,
+                                        method = "slice_msf",
+                                        num_runs = 2,  # slice_msf-specific
+                                        consensus = FALSE,  # slice_msf-specific
+                                        stitch_z = FALSE,  # slice_msf-specific
+                                        theta_link = 0.9,  # slice_msf-specific
+                                        min_contact = 2,  # slice_msf-specific
+                                        r = 6,  # slice_msf-specific
+                                        gamma = 2.0,  # slice_msf-specific
+                                        verbose = FALSE))
   
   expect_s3_class(result_msf, "cluster4d_result")
   expect_equal(result_msf$parameters$num_runs, 2)
