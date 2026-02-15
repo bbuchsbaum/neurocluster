@@ -65,6 +65,21 @@ test_that("Gaussian blobs are recovered across major clustering methods", {
     verbose = FALSE
   )
   expect_gt(cluster_purity(f3$cluster, data$truth), 0.6)
+
+  # Corr-SLIC (correlation-embedded local SLIC)
+  cs <- cluster4d(
+    vec = data$vec,
+    mask = data$mask,
+    n_clusters = data$n_clusters,
+    method = "corr_slic",
+    spatial_weight = 0.5,
+    embedding_dim = 64,
+    max_iterations = 5,
+    connectivity = 6,
+    parallel = FALSE,
+    verbose = FALSE
+  )
+  expect_gt(cluster_purity(cs$cluster, data$truth), 0.45)
 })
 
 test_that("Layered scenario remains consistent across methods", {

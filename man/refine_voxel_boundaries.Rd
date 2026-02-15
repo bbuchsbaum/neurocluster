@@ -9,7 +9,8 @@ refine_voxel_boundaries(
   feature_mat,
   coords,
   max_iter,
-  use_cpp = TRUE
+  use_cpp = TRUE,
+  dims = NULL
 )
 }
 \arguments{

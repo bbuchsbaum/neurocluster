@@ -7,9 +7,9 @@
 knn_shrink(bvec, mask, k = 5, connectivity = 27)
 }
 \arguments{
-\item{bvec}{A \code{\linkS4class{NeuroVec}} instance (the data).}
+\item{bvec}{A \code{\link[neuroim2:NeuroVec-class]{NeuroVec}} instance (the data).}
 
-\item{mask}{A \code{\linkS4class{NeuroVol}} mask defining the voxels to include. If numeric, nonzero = included.}
+\item{mask}{A \code{\link[neuroim2:NeuroVol-class]{NeuroVol}} mask defining the voxels to include. If numeric, nonzero = included.}
 
 \item{k}{The number of nearest neighbors to average over.}
 
@@ -22,13 +22,14 @@ A \code{SparseNeuroVec} or similar object with the smoothed data.
 Replace each voxel by the mean of its k nearest neighbors in its local spatial neighborhood.
 }
 \examples{
-mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
+\dontrun{
+mask <- neuroim2::NeuroVol(array(1, c(20,20,20)), neuroim2::NeuroSpace(c(20,20,20)))
 bvec <- replicate(10,
-                  NeuroVol(array(runif(20*20*20), c(20,20,20)),
-                           NeuroSpace(c(20,20,20))),
+                  neuroim2::NeuroVol(array(runif(20*20*20), c(20,20,20)),
+                           neuroim2::NeuroSpace(c(20,20,20))),
                   simplify=FALSE)
-bvec <- do.call(concat, bvec)
-
+bvec <- do.call(neuroim2::concat, bvec)
 sbvec <- knn_shrink(bvec, mask, k=3)
+}
 
 }

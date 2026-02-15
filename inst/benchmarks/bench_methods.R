@@ -8,11 +8,25 @@
 # it avoids adding new dependencies to the package.
 
 suppressPackageStartupMessages({
-  library(neurocluster)
+  if (file.exists("DESCRIPTION") && requireNamespace("pkgload", quietly = TRUE)) {
+    pkgload::load_all(".", quiet = TRUE, export_all = FALSE, helpers = FALSE)
+  } else {
+    library(neurocluster)
+  }
   library(neuroim2)
 })
 
 set.seed(123)
+
+# Thread/parallel fairness control for methods that support parallel execution.
+# Use NEUROCLUSTER_BENCH_THREADS=1 to force single-thread runs.
+bench_threads <- suppressWarnings(as.integer(Sys.getenv("NEUROCLUSTER_BENCH_THREADS", "0")))
+if (is.na(bench_threads)) bench_threads <- 0L
+if (bench_threads > 0L) {
+  Sys.setenv(OMP_NUM_THREADS = as.character(bench_threads))
+  Sys.setenv(RCPP_PARALLEL_NUM_THREADS = as.character(bench_threads))
+}
+bench_parallel <- bench_threads != 1L
 
 choose_k <- function(mask, truth_k = NULL, max_k = 60) {
   if (!is.null(truth_k) && truth_k > 0) return(truth_k)
@@ -168,23 +182,31 @@ method_grid <- list(
   ),
   slice_msf = list(
     # Use volumetric (3-D) graph version by always enabling z connectivity.
-    list(param_id = 1, r = 8, min_size = 6, compactness = 3, stitch_z = TRUE),
-    list(param_id = 2, r = 12, min_size = 10, compactness = 4, stitch_z = TRUE),
-    list(param_id = 3, r = 8, min_size = 6, compactness = 1.5, stitch_z = TRUE) # more data-weighted
+    list(param_id = 1, r = 12, min_size = 2, compactness = 2.5, gamma = 1.0, nbhd = 8, z_mult = 0.5, stitch_z = TRUE, num_runs = 1, consensus = FALSE),
+    list(param_id = 2, r = 8, min_size = 2, compactness = 1.5, gamma = 1.0, nbhd = 8, z_mult = 0.5, stitch_z = TRUE, num_runs = 1, consensus = FALSE),
+    list(param_id = 3, r = 12, min_size = 2, compactness = 2.5, gamma = 1.0, nbhd = 4, z_mult = 0.0, stitch_z = TRUE, num_runs = 1, consensus = FALSE)
   ),
   supervoxels = list(
     list(param_id = 1, alpha = 0.3, iterations = 30, sigma1 = 1.0, sigma2 = 1.8, use_gradient = FALSE, connectivity = 6),
     list(param_id = 2, alpha = 0.4, iterations = 30, sigma1 = 1.0, sigma2 = 2.0, use_gradient = FALSE, connectivity = 18)
   ),
   flash3d = list(
-    list(param_id = 1, dctM = 8, lambda_t = 1.0, lambda_s = 0.6, bits = 64),
-    list(param_id = 2, dctM = 12, lambda_t = 1.0, lambda_s = 0.6, bits = 64),
-    list(param_id = 3, dctM = 16, lambda_t = 1.4, lambda_s = 0.3, bits = 128) # data-heavy / higher temporal weight
+    list(param_id = 1, dctM = 8, lambda_t = 1.0, lambda_s = 0.15, bits = 64, rounds = 2),
+    list(param_id = 2, dctM = 16, lambda_t = 1.4, lambda_s = 0.35, bits = 64, rounds = 4),
+    list(param_id = 3, dctM = 16, lambda_t = 1.4, lambda_s = 0.25, bits = 64, rounds = 4)
   ),
   slic = list(
     list(param_id = 1, spatial_weight = 0.1, connectivity = 26),
     list(param_id = 2, spatial_weight = 0.25, connectivity = 26),
     list(param_id = 3, spatial_weight = 0.05, connectivity = 26) # more data-weighted
+  ),
+  corr_slic = list(
+    list(param_id = 1, tuned = TRUE)
+  ),
+  brs_slic = list(
+    list(param_id = 1, spatial_weight = 0.05, embedding_dim = 24, sketch_repeats = 1, connectivity = 6, max_iterations = 3, boundary_passes = 1, global_passes = 0, refine_spatial_weight = 0.01, refine_l2_weight = 0.02),
+    list(param_id = 2, spatial_weight = 0.05, embedding_dim = 24, sketch_repeats = 1, connectivity = 6, max_iterations = 3, boundary_passes = 1, global_passes = 0, refine_spatial_weight = 0.00, refine_l2_weight = 0.08),
+    list(param_id = 3, spatial_weight = 0.05, embedding_dim = 24, sketch_repeats = 1, connectivity = 6, max_iterations = 3, boundary_passes = 2, global_passes = 0, refine_spatial_weight = 0.00, refine_l2_weight = 0.08)
   ),
   g3s = list(
     list(param_id = 1, spatial_weight = 0.15),
@@ -199,6 +221,7 @@ method_grid <- list(
       super_alpha = 0.3, super_sigma1 = 1.0, super_sigma2 = 1.8, super_connectivity = 6,
       flash_dctM = 8, flash_lambda_t = 1.0, flash_lambda_s = 0.6, flash_bits = 64,
       slic_spatial_weight = 0.1, slic_connectivity = 26,
+      corrslic_spatial_weight = 0.08, corrslic_embedding_dim = "auto", corrslic_sketch_repeats = 1, corrslic_connectivity = 6, corrslic_assign_stride = 1, corrslic_quantize_assign = TRUE, corrslic_embedding_basis = "dct", corrslic_embedding_whiten = FALSE, corrslic_refine_exact_iters = 1, corrslic_refine_boundary_only = TRUE,
       g3s_spatial_weight = 0.15,
       rena_conn = 6,
       rena_plus_conn = 6,
@@ -222,6 +245,64 @@ method_grid <- list(
     list(param_id = 2, spatial_weight = 0.1, ncomp = NA)
   )
 )
+
+corr_slic_family <- function(dataset_name) {
+  if (dataset_name %in% c("blobs_small", "block_small")) return("clean_blobs")
+  if (dataset_name %in% c("blobs_noisy", "blobs_overlap_soft")) return("noisy_blobs")
+  if (dataset_name %in% c("z_layers_soft")) return("layered")
+  if (dataset_name %in% c("touching_blobs", "braided_tubes")) return("topology")
+  "clean_blobs"
+}
+
+corr_slic_tuned <- list(
+  clean_blobs = list(
+    spatial_weight = 0.05, embedding_dim = 24L, adaptive_embedding = FALSE,
+    embedding_basis = "hash", embedding_whiten = FALSE,
+    sketch_repeats = 1L,
+    quantize_assign = TRUE, assign_stride = 3L,
+    max_iterations = 4L,
+    refine_exact_iters = 0L, refine_boundary_only = TRUE,
+    refine_stride = 1L,
+    seed = 7L
+  ),
+  noisy_blobs = list(
+    spatial_weight = 0.08, embedding_dim = 24L, adaptive_embedding = FALSE,
+    embedding_basis = "hash", embedding_whiten = FALSE,
+    sketch_repeats = 1L,
+    quantize_assign = TRUE, assign_stride = 2L,
+    max_iterations = 4L,
+    refine_exact_iters = 2L, refine_boundary_only = TRUE,
+    refine_stride = 1L,
+    seed = 7L
+  ),
+  layered = list(
+    spatial_weight = 0.05, embedding_dim = 24L, adaptive_embedding = FALSE,
+    embedding_basis = "hash", embedding_whiten = FALSE,
+    sketch_repeats = 2L,
+    quantize_assign = TRUE, assign_stride = 2L,
+    max_iterations = 6L,
+    refine_exact_iters = 2L, refine_boundary_only = TRUE,
+    refine_stride = 2L,
+    seed = 7L
+  ),
+  topology = list(
+    spatial_weight = 0.05, embedding_dim = 24L, adaptive_embedding = FALSE,
+    embedding_basis = "hash", embedding_whiten = FALSE,
+    sketch_repeats = 1L,
+    quantize_assign = TRUE, assign_stride = 2L,
+    max_iterations = 4L,
+    refine_exact_iters = 0L, refine_boundary_only = TRUE,
+    refine_stride = 1L,
+    seed = 7L
+  )
+)
+
+get_corr_slic_cfg <- function(dataset_name) {
+  fam <- corr_slic_family(dataset_name)
+  cfg <- corr_slic_tuned[[fam]]
+  cfg$family <- fam
+  cfg
+}
 
 run_once <- function(fun, args) {
   gc()
@@ -285,7 +366,12 @@ for (dname in names(datasets)) {
         args <- list(
           vec = vec, mask = mask,
           r = p$r, min_size = p$min_size, compactness = p$compactness,
-          stitch_z = p$stitch_z, num_runs = 1,
+          stitch_z = p$stitch_z,
+          num_runs = if (!is.null(p$num_runs)) p$num_runs else 1,
+          consensus = if (!is.null(p$consensus)) p$consensus else FALSE,
+          nbhd = if (!is.null(p$nbhd)) p$nbhd else 8,
+          gamma = if (!is.null(p$gamma)) p$gamma else 1.5,
+          z_mult = if (!is.null(p$z_mult)) p$z_mult else 0.0,
           target_k_global = base_k
         )
         fn <- slice_msf
@@ -311,7 +397,8 @@ for (dname in names(datasets)) {
           dctM = p$dctM,
           bits = if (!is.null(p$bits)) p$bits else 64,
           spatial_weight = if (!is.null(p$lambda_s)) p$lambda_s else 0.6,
-          lambda_t = if (!is.null(p$lambda_t)) p$lambda_t else 1.0
+          lambda_t = if (!is.null(p$lambda_t)) p$lambda_t else 1.0,
+          max_iterations = if (!is.null(p$rounds)) p$rounds else 2
         )
         fn <- cluster4d
       } else if (m == "slic") {
@@ -319,8 +406,51 @@ for (dname in names(datasets)) {
                      method = "slic",
                      spatial_weight = p$spatial_weight,
                      connectivity = p$connectivity,
+                     parallel = bench_parallel,
                      preserve_k = TRUE,
                      max_iterations = 12)
+        fn <- cluster4d
+      } else if (m == "corr_slic") {
+        corr_cfg <- get_corr_slic_cfg(dname)
+        args <- list(
+          vec = vec, mask = mask, n_clusters = base_k,
+          method = "corr_slic",
+          spatial_weight = corr_cfg$spatial_weight,
+          embedding_dim = corr_cfg$embedding_dim,
+          adaptive_embedding = isTRUE(corr_cfg$adaptive_embedding),
+          embedding_basis = corr_cfg$embedding_basis,
+          embedding_whiten = isTRUE(corr_cfg$embedding_whiten),
+          sketch_repeats = if (!is.null(corr_cfg$sketch_repeats)) as.integer(corr_cfg$sketch_repeats) else 1L,
+          connectivity = 6L,
+          max_iterations = if (!is.null(corr_cfg$max_iterations)) as.integer(corr_cfg$max_iterations) else 6L,
+          assign_stride = as.integer(corr_cfg$assign_stride),
+          quantize_assign = isTRUE(corr_cfg$quantize_assign),
+          refine_exact_iters = as.integer(corr_cfg$refine_exact_iters),
+          refine_boundary_only = isTRUE(corr_cfg$refine_boundary_only),
+          refine_stride = if (!is.null(corr_cfg$refine_stride)) as.integer(corr_cfg$refine_stride) else 1L,
+          seed = if (!is.null(corr_cfg$seed)) as.integer(corr_cfg$seed) else 1L,
+          parallel = bench_parallel,
+          verbose = FALSE
+        )
+        p <- c(p, corr_cfg)
+        fn <- cluster4d
+      } else if (m == "brs_slic") {
+        args <- list(
+          vec = vec, mask = mask, n_clusters = base_k,
+          method = "brs_slic",
+          spatial_weight = p$spatial_weight,
+          embedding_dim = p$embedding_dim,
+          sketch_repeats = if (!is.null(p$sketch_repeats)) p$sketch_repeats else 1L,
+          connectivity = p$connectivity,
+          max_iterations = p$max_iterations,
+          boundary_passes = p$boundary_passes,
+          global_passes = if (!is.null(p$global_passes)) p$global_passes else 0L,
+          refine_spatial_weight = p$refine_spatial_weight,
+          refine_l2_weight = if (!is.null(p$refine_l2_weight)) p$refine_l2_weight else 0,
+          refine_stride = if (!is.null(p$refine_stride)) p$refine_stride else NULL,
+          parallel = bench_parallel,
+          verbose = FALSE
+        )
         fn <- cluster4d
       } else if (m == "g3s") {
         args <- list(vec = vec, mask = mask, n_clusters = base_k,
@@ -372,7 +502,31 @@ for (dname in names(datasets)) {
           cluster4d(
             vec = vec, mask = mask, n_clusters = base_k, method = "slic",
             spatial_weight = p$slic_spatial_weight, connectivity = p$slic_connectivity,
+            parallel = bench_parallel,
             preserve_k = TRUE, max_iterations = 12
+          ),
+          error = function(e) e
+        )
+        # corr_slic
+        corrslic_res <- tryCatch(
+          cluster4d(
+            vec = vec, mask = mask, n_clusters = base_k, method = "corr_slic",
+            spatial_weight = get_corr_slic_cfg(dname)$spatial_weight,
+            embedding_dim = get_corr_slic_cfg(dname)$embedding_dim,
+            adaptive_embedding = isTRUE(get_corr_slic_cfg(dname)$adaptive_embedding),
+            embedding_basis = get_corr_slic_cfg(dname)$embedding_basis,
+            embedding_whiten = isTRUE(get_corr_slic_cfg(dname)$embedding_whiten),
+            sketch_repeats = if (!is.null(get_corr_slic_cfg(dname)$sketch_repeats)) as.integer(get_corr_slic_cfg(dname)$sketch_repeats) else p$corrslic_sketch_repeats,
+            connectivity = p$corrslic_connectivity,
+            assign_stride = as.integer(get_corr_slic_cfg(dname)$assign_stride),
+            quantize_assign = isTRUE(get_corr_slic_cfg(dname)$quantize_assign),
+            refine_exact_iters = as.integer(get_corr_slic_cfg(dname)$refine_exact_iters),
+            refine_boundary_only = isTRUE(get_corr_slic_cfg(dname)$refine_boundary_only),
+            refine_stride = if (!is.null(get_corr_slic_cfg(dname)$refine_stride)) as.integer(get_corr_slic_cfg(dname)$refine_stride) else 1L,
+            seed = if (!is.null(get_corr_slic_cfg(dname)$seed)) as.integer(get_corr_slic_cfg(dname)$seed) else 1L,
+            max_iterations = if (!is.null(get_corr_slic_cfg(dname)$max_iterations)) as.integer(get_corr_slic_cfg(dname)$max_iterations) else 6L,
+            parallel = bench_parallel,
+            verbose = FALSE
           ),
           error = function(e) e
         )
@@ -415,19 +569,19 @@ for (dname in names(datasets)) {
 
         # If any failed, propagate the error
         sub_errors <- vapply(
-          list(snic_res, slice_res, super_res, flash_res, slic_res, g3s_res, rena_res, renap_res, acsc_res),
+          list(snic_res, slice_res, super_res, flash_res, slic_res, corrslic_res, g3s_res, rena_res, renap_res, acsc_res),
           function(obj) inherits(obj, "error"), logical(1)
         )
         if (any(sub_errors)) {
           err_msg <- paste0("component errors: ",
-                            paste(c("snic", "slice_msf", "supervoxels", "flash3d", "slic", "g3s", "rena", "rena_plus", "acsc")[sub_errors],
-                                  vapply(list(snic_res, slice_res, super_res, flash_res, slic_res, g3s_res, rena_res, renap_res, acsc_res)[sub_errors],
+                            paste(c("snic", "slice_msf", "supervoxels", "flash3d", "slic", "corr_slic", "g3s", "rena", "rena_plus", "acsc")[sub_errors],
+                                  vapply(list(snic_res, slice_res, super_res, flash_res, slic_res, corrslic_res, g3s_res, rena_res, renap_res, acsc_res)[sub_errors],
                                          conditionMessage, character(1)),
                                   sep = "=", collapse = "; "))
           res <- list(res = simpleError(err_msg), elapsed = NA_real_)
         } else {
           cons_res <- tryCatch(
-            merge_clus(snic_res, method = "SE", slice_res, super_res, flash_res, slic_res, g3s_res, rena_res, renap_res, acsc_res),
+            merge_clus(snic_res, method = "SE", slice_res, super_res, flash_res, slic_res, corrslic_res, g3s_res, rena_res, renap_res, acsc_res),
             error = function(e) e
           )
           elapsed <- proc.time()[["elapsed"]] - t0_local
@@ -476,10 +630,7 @@ for (dname in names(datasets)) {
         # already computed as 'res' above
       } else {
         res <- run_once(fn, args)
-        # Optional post-merge for flash3d on tiny datasets (kept for legacy; usually already exact-K)
-        if (m == "flash3d" && !inherits(res$res, "error") && nvox <= 5000) {
-          res$res <- tryCatch(post_merge_to_k(res$res, base_k), error = function(e) e)
-        }
+        # Flash3d now runs with explicit tuning; skip legacy post-merge heuristic.
       }
 
       # Standardize consensus ClusteredNeuroVol to list with $cluster

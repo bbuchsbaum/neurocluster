@@ -15,6 +15,7 @@
 #'     \item \code{"supervoxels"}: Iterative heat kernel-based clustering (default)
 #'     \item \code{"snic"}: Simple Non-Iterative Clustering
 #'     \item \code{"slic"}: SLIC superpixels extended to 4D
+#'     \item \code{"brs_slic"}: Boundary-Refined Sketch SLIC (coarse sketch + boundary exact-correlation refinement)
 #'     \item \code{"slice_msf"}: Slice-wise Minimum Spanning Forest (fast but may show z-artifacts)
 #'     \item \code{"flash3d"}: Fast Low-rank Approximate Superclusters
 #'     \item \code{"g3s"}: Gradient-Guided Geodesic Supervoxels (NEW - recommended for best quality/speed)
@@ -139,7 +140,7 @@
 #' @importFrom neuroim2 NeuroVec NeuroVol ClusteredNeuroVol series index_to_coord spacing
 cluster4d <- function(vec, mask,
                      n_clusters = 100,
-                     method = c("supervoxels", "snic", "slic", "slice_msf", "flash3d", "g3s", "rena", "rena_plus", "acsc", "commute"),
+                     method = c("supervoxels", "snic", "slic", "corr_slic", "brs_slic", "slice_msf", "flash3d", "g3s", "rena", "rena_plus", "acsc", "commute"),
                      spatial_weight = 0.5,
                      max_iterations = NULL,
                      connectivity = NULL,
@@ -150,7 +151,22 @@ cluster4d <- function(vec, mask,
   # Allow users to pass a single-volume NeuroVol; wrap to NeuroVec for downstream code
   vec <- ensure_neurovec(vec)
 
+  spatial_weight_missing <- missing(spatial_weight)
   method <- match.arg(method)
+
+  # corr_slic is generally over-regularized with global default 0.5.
+  if (spatial_weight_missing && method == "corr_slic") {
+    spatial_weight <- 0.1
+  }
+  if (spatial_weight_missing && method == "brs_slic") {
+    spatial_weight <- 0.05
+  }
+  if (spatial_weight_missing && method == "slice_msf") {
+    spatial_weight <- 0.2
+  }
+  if (spatial_weight_missing && method == "flash3d") {
+    spatial_weight <- 0.25
+  }
 
   # ------------------------------
   # Method-specific sane defaults
@@ -158,9 +174,11 @@ cluster4d <- function(vec, mask,
   if (is.null(max_iterations)) {
     max_iterations <- switch(method,
       supervoxels = 50,   # algorithm expects 30–50 iters for stability
-    flash3d    = 2,     # native FLASH rounds; keeps tests fair
+    flash3d    = 4,     # better default quality with modest runtime increase
     snic       = 100,
     slic       = 10,
+    corr_slic  = 6,
+    brs_slic   = 2,
     slice_msf  = 10,
     g3s        = 5,     # refinement iterations
     rena       = 12,
@@ -176,6 +194,8 @@ cluster4d <- function(vec, mask,
       supervoxels = 27,
       snic        = 26,
       slic        = 26,
+      corr_slic   = 6,
+      brs_slic    = 6,
       slice_msf   = 26,
       rena        = 26,
       rena_plus   = 26,
@@ -221,6 +241,10 @@ cluster4d <- function(vec, mask,
                          max_iterations, verbose, ...),
     slic = cluster4d_slic(vec, mask, n_clusters, spatial_weight,
                          max_iterations, connectivity, parallel, verbose, ...),
+    corr_slic = cluster4d_corrslic(vec, mask, n_clusters, spatial_weight,
+                                   max_iterations, connectivity, parallel, verbose, ...),
+    brs_slic = cluster4d_brsslic(vec, mask, n_clusters, spatial_weight,
+                                 max_iterations, connectivity, parallel, verbose, ...),
     slice_msf = cluster4d_slice_msf(vec, mask, n_clusters, spatial_weight,
                                    connectivity, parallel, verbose, ...),
     flash3d = cluster4d_flash3d(vec, mask, n_clusters, spatial_weight,
@@ -513,6 +537,413 @@ cluster4d_slic <- function(vec, mask, n_clusters = 100,
   result
 }
 
+#' Cluster4d using correlation-embedded SLIC method
+#'
+#' Wrapper for a correlation-first SLIC variant that builds a compact random
+#' projection embedding of voxel time series, then runs local 3D SLIC updates.
+#'
+#' @inheritParams cluster4d
+#' @param embedding_dim Embedding dimension used to approximate correlations.
+#'   Use `"auto"` (or set `adaptive_embedding = TRUE`) for data-adaptive selection.
+#' @param adaptive_embedding Logical; if TRUE, choose embedding dimension from
+#'   data size and time length.
+#' @param embedding_basis Embedding basis, either `"hash"` (CountSketch-like) or
+#'   `"dct"` (demeaned DCT basis).
+#' @param embedding_whiten Logical; if TRUE, whiten embedding dimensions across voxels.
+#' @param sketch_repeats Number of independent hash sketches combined per voxel.
+#' @param alpha Compactness weight in the SLIC distance.
+#' @param assign_stride Assignment subsampling stride for coarse updates.
+#'   1 disables subsampling; values > 1 process one z-slice phase per iteration
+#'   followed by a final full assignment pass.
+#' @param quantize_assign Logical; if TRUE, quantize embeddings and centroid
+#'   features to int8 during assignment for faster dot-product distance checks.
+#' @param refine_exact_iters Number of exact-correlation refinement passes after
+#'   coarse embedding-SLIC iterations.
+#' @param refine_boundary_only Logical; if TRUE, exact refinement is restricted
+#'   to boundary voxels each pass.
+#' @param refine_stride Time-axis subsampling stride for exact refinement.
+#'   Values > 1 speed up refinement by computing correlations on every
+#'   `refine_stride`-th time point (approximate).
+#' @param refine_alpha Optional compactness for exact refinement. If `NULL`,
+#'   uses `alpha`.
+#' @param seed Random seed for embedding hash and seed initialization.
+#' @param min_size Minimum component size for connectivity enforcement.
+#' @param ... Additional arguments (currently unused; reserved for forward compatibility).
+#'
+#' @return A cluster4d_result object
+cluster4d_corrslic <- function(vec, mask, n_clusters = 100,
+                               spatial_weight = 0.5,
+                               max_iterations = 6,
+                               connectivity = 6,
+                               parallel = TRUE,
+                               verbose = FALSE,
+                               embedding_dim = 64L,
+                               adaptive_embedding = FALSE,
+                               embedding_basis = c("hash", "dct"),
+                               embedding_whiten = FALSE,
+                               sketch_repeats = 1L,
+                               alpha = NULL,
+                               assign_stride = 1L,
+                               quantize_assign = FALSE,
+                               refine_exact_iters = 0L,
+                               refine_boundary_only = TRUE,
+                               refine_stride = 1L,
+                               refine_alpha = NULL,
+                               seed = 1L,
+                               min_size = NULL,
+                               ...) {
+
+  validate_cluster4d_inputs(vec, mask, n_clusters, "cluster4d_corrslic")
+
+  if (!connectivity %in% c(6, 26)) {
+    stop("cluster4d_corrslic: connectivity must be 6 or 26")
+  }
+
+  # Direct mapping: higher spatial_weight means stronger compactness.
+  if (is.null(alpha)) {
+    alpha <- spatial_weight
+  }
+
+  if (!is.numeric(alpha) || length(alpha) != 1 || alpha <= 0) {
+    stop("cluster4d_corrslic: alpha must be a positive scalar")
+  }
+
+  embedding_basis <- match.arg(embedding_basis)
+  if (!is.logical(adaptive_embedding) || length(adaptive_embedding) != 1 || is.na(adaptive_embedding)) {
+    stop("cluster4d_corrslic: adaptive_embedding must be TRUE/FALSE")
+  }
+  if (!is.logical(embedding_whiten) || length(embedding_whiten) != 1 || is.na(embedding_whiten)) {
+    stop("cluster4d_corrslic: embedding_whiten must be TRUE/FALSE")
+  }
+  if (!is.numeric(refine_exact_iters) || length(refine_exact_iters) != 1 || refine_exact_iters < 0) {
+    stop("cluster4d_corrslic: refine_exact_iters must be a non-negative integer")
+  }
+  if (!is.logical(refine_boundary_only) || length(refine_boundary_only) != 1 || is.na(refine_boundary_only)) {
+    stop("cluster4d_corrslic: refine_boundary_only must be TRUE/FALSE")
+  }
+  if (!is.numeric(refine_stride) || length(refine_stride) != 1 || refine_stride < 1) {
+    stop("cluster4d_corrslic: refine_stride must be a positive integer")
+  }
+  if (!is.null(refine_alpha) &&
+      (!is.numeric(refine_alpha) || length(refine_alpha) != 1 || !is.finite(refine_alpha) || refine_alpha <= 0)) {
+    stop("cluster4d_corrslic: refine_alpha must be NULL or a positive finite scalar")
+  }
+
+  if (is.character(embedding_dim)) {
+    if (length(embedding_dim) != 1 || !identical(tolower(embedding_dim), "auto")) {
+      stop("cluster4d_corrslic: embedding_dim character value must be 'auto'")
+    }
+    adaptive_embedding <- TRUE
+  }
+  if (!is.numeric(sketch_repeats) || length(sketch_repeats) != 1 || sketch_repeats < 1) {
+    stop("cluster4d_corrslic: sketch_repeats must be a positive integer")
+  }
+  if (!is.numeric(assign_stride) || length(assign_stride) != 1 || assign_stride < 1) {
+    stop("cluster4d_corrslic: assign_stride must be a positive integer")
+  }
+  if (!is.logical(quantize_assign) || length(quantize_assign) != 1 || is.na(quantize_assign)) {
+    stop("cluster4d_corrslic: quantize_assign must be TRUE/FALSE")
+  }
+
+  n_threads <- if (parallel) 0L else 1L
+  min_size_in <- if (is.null(min_size)) 0L else as.integer(min_size)
+
+  data_prep <- prepare_cluster4d_data(
+    vec = vec,
+    mask = mask,
+    scale_features = FALSE,
+    scale_coords = FALSE
+  )
+  n_time <- ncol(data_prep$features)
+  n_vox <- nrow(data_prep$features)
+
+  choose_embedding_dim <- function(n_time, n_vox) {
+    max_d <- max(8L, min(128L, as.integer(n_time - 1L)))
+    target <- as.integer(round(8 * log2(max(4, n_vox))))
+    target <- max(16L, min(max_d, target))
+    if (n_time <= 40L) target <- min(target, 32L)
+    if (n_time >= 120L) target <- max(target, 64L)
+    target <- as.integer(8L * round(target / 8L))
+    target <- max(8L, min(max_d, target))
+    target
+  }
+
+  d_eff <- NULL
+  if (isTRUE(adaptive_embedding)) {
+    d_eff <- choose_embedding_dim(n_time, n_vox)
+  } else {
+    if (!is.numeric(embedding_dim) || length(embedding_dim) != 1 || embedding_dim < 8) {
+      stop("cluster4d_corrslic: embedding_dim must be >= 8 (or use 'auto')")
+    }
+    d_eff <- as.integer(embedding_dim)
+  }
+
+  core <- corrslic_core(
+    feat = data_prep$features,
+    mask_lin_idx = as.integer(data_prep$mask_idx) - 1L,
+    dims = as.integer(data_prep$dims),
+    K = as.integer(n_clusters),
+    d = as.integer(d_eff),
+    sketch_repeats = as.integer(sketch_repeats),
+    alpha = as.numeric(alpha),
+    assign_stride = as.integer(assign_stride),
+    quantize_assign = isTRUE(quantize_assign),
+    embed_basis = embedding_basis,
+    whiten_embed = isTRUE(embedding_whiten),
+    refine_exact_iters = as.integer(refine_exact_iters),
+    refine_boundary_only = isTRUE(refine_boundary_only),
+    refine_stride = as.integer(refine_stride),
+    refine_alpha = if (is.null(refine_alpha)) -1 else as.numeric(refine_alpha),
+    max_iter = as.integer(max_iterations),
+    seed = as.integer(seed),
+    connectivity = as.integer(connectivity),
+    min_size = min_size_in,
+    n_threads = as.integer(n_threads),
+    verbose = verbose
+  )
+
+  labels <- as.integer(core$labels)
+  valid <- !is.na(labels) & labels > 0L
+  label_values <- sort(unique(labels[valid]))
+  if (length(label_values) == 0L) {
+    stop("cluster4d_corrslic: no valid labels returned from C++ core")
+  }
+
+  grp <- factor(labels, levels = label_values)
+  counts <- as.numeric(tabulate(as.integer(grp), nbins = length(label_values)))
+  counts[counts == 0] <- NA_real_
+  coord_sum <- rowsum(data_prep$coords, grp, reorder = TRUE)
+  coord_centers <- coord_sum / counts
+  dimnames(coord_centers) <- NULL
+
+  centers <- NULL
+  if (!is.null(core$centers) && is.matrix(core$centers)) {
+    centers <- core$centers[label_values, , drop = FALSE]
+    dimnames(centers) <- NULL
+  } else {
+    # Fallback for older cores that do not return centers.
+    center_info <- compute_cluster_centers(labels, data_prep$features, data_prep$coords, method = "mean")
+    centers <- center_info$centers
+    coord_centers <- center_info$coord_centers
+  }
+
+  centers_xyz_voxel <- NULL
+  if (!is.null(core$centers_xyz) && is.matrix(core$centers_xyz)) {
+    centers_xyz_voxel <- core$centers_xyz[label_values, , drop = FALSE]
+    dimnames(centers_xyz_voxel) <- NULL
+  }
+
+  result <- structure(
+    list(
+      clusvol = ClusteredNeuroVol(mask > 0, clusters = labels),
+      cluster = labels,
+      centers = centers,
+      coord_centers = coord_centers,
+      n_clusters = length(label_values),
+      method = "corr_slic",
+      parameters = list(
+        n_clusters_requested = n_clusters,
+        spatial_weight = spatial_weight,
+        embedding_dim = as.integer(d_eff),
+        adaptive_embedding = isTRUE(adaptive_embedding),
+        embedding_basis = embedding_basis,
+        embedding_whiten = isTRUE(embedding_whiten),
+        sketch_repeats = as.integer(sketch_repeats),
+        alpha = as.numeric(alpha),
+        assign_stride = as.integer(assign_stride),
+        quantize_assign = isTRUE(quantize_assign),
+        refine_exact_iters = as.integer(refine_exact_iters),
+        refine_boundary_only = isTRUE(refine_boundary_only),
+        refine_stride = as.integer(refine_stride),
+        refine_alpha = if (is.null(refine_alpha)) NULL else as.numeric(refine_alpha),
+        max_iterations = as.integer(max_iterations),
+        connectivity = as.integer(connectivity),
+        parallel = isTRUE(parallel),
+        seed = as.integer(seed),
+        min_size = if (is.null(min_size)) NULL else as.integer(min_size)
+      ),
+      metadata = list(
+        cpp_params = core$params,
+        label_values = label_values,
+        centers_xyz_voxel = centers_xyz_voxel
+      )
+    ),
+    class = c("cluster4d_result", "cluster_result", "list")
+  )
+
+  result
+}
+
+#' Cluster4d using boundary-refined sketch SLIC
+#'
+#' Hybrid method: fast sketch-SLIC coarse assignment, then exact-correlation
+#' refinement only on boundary voxels.
+#'
+#' @inheritParams cluster4d
+#' @param embedding_dim Embedding dimension for coarse sketch stage.
+#' @param sketch_repeats Number of independent sketches to average.
+#' @param coarse_alpha Compactness weight in the coarse sketch-SLIC stage.
+#' @param boundary_passes Number of boundary-only refinement passes.
+#' @param global_passes Number of local-global refinement passes after boundary passes.
+#' @param refine_spatial_weight Spatial regularization during boundary refinement.
+#' @param refine_l2_weight Optional L2 prototype penalty during boundary refinement.
+#' @param refine_stride Optional temporal stride for refinement (NULL = auto).
+#' @param seed Random seed.
+#' @param min_size Minimum component size for connectivity enforcement.
+#' @param ... Reserved for future extensions.
+#'
+#' @return A cluster4d_result object
+cluster4d_brsslic <- function(vec, mask, n_clusters = 100,
+                              spatial_weight = 0.05,
+                              max_iterations = 2,
+                              connectivity = 6,
+                              parallel = TRUE,
+                              verbose = FALSE,
+                              embedding_dim = 24L,
+                              sketch_repeats = 1L,
+                              coarse_alpha = NULL,
+                              boundary_passes = 1L,
+                              global_passes = 0L,
+                              refine_spatial_weight = 0,
+                              refine_l2_weight = 0,
+                              refine_stride = NULL,
+                              seed = 1L,
+                              min_size = NULL,
+                              ...) {
+
+  validate_cluster4d_inputs(vec, mask, n_clusters, "cluster4d_brsslic")
+
+  if (!connectivity %in% c(6, 26)) {
+    stop("cluster4d_brsslic: connectivity must be 6 or 26")
+  }
+
+  if (is.null(coarse_alpha)) {
+    coarse_alpha <- spatial_weight
+  }
+
+  if (!is.numeric(coarse_alpha) || length(coarse_alpha) != 1 || coarse_alpha <= 0) {
+    stop("cluster4d_brsslic: coarse_alpha must be a positive scalar")
+  }
+  if (!is.numeric(refine_spatial_weight) || length(refine_spatial_weight) != 1 || refine_spatial_weight < 0) {
+    stop("cluster4d_brsslic: refine_spatial_weight must be >= 0")
+  }
+  if (!is.numeric(refine_l2_weight) || length(refine_l2_weight) != 1 || refine_l2_weight < 0) {
+    stop("cluster4d_brsslic: refine_l2_weight must be >= 0")
+  }
+  if (!is.null(refine_stride) && (!is.numeric(refine_stride) || length(refine_stride) != 1 || refine_stride < 1)) {
+    stop("cluster4d_brsslic: refine_stride must be NULL or >= 1")
+  }
+  if (!is.numeric(embedding_dim) || embedding_dim < 8) {
+    stop("cluster4d_brsslic: embedding_dim must be >= 8")
+  }
+  if (!is.numeric(sketch_repeats) || length(sketch_repeats) != 1 || sketch_repeats < 1) {
+    stop("cluster4d_brsslic: sketch_repeats must be a positive integer")
+  }
+  if (!is.numeric(boundary_passes) || length(boundary_passes) != 1 || boundary_passes < 0) {
+    stop("cluster4d_brsslic: boundary_passes must be >= 0")
+  }
+  if (!is.numeric(global_passes) || length(global_passes) != 1 || global_passes < 0) {
+    stop("cluster4d_brsslic: global_passes must be >= 0")
+  }
+
+  n_threads <- if (parallel) 0L else 1L
+  min_size_in <- if (is.null(min_size)) 0L else as.integer(min_size)
+
+  data_prep <- prepare_cluster4d_data(
+    vec = vec,
+    mask = mask,
+    scale_features = FALSE,
+    scale_coords = FALSE
+  )
+
+  core <- brs_slic_core(
+    feat = data_prep$features,
+    mask_lin_idx = as.integer(data_prep$mask_idx) - 1L,
+    dims = as.integer(data_prep$dims),
+    K = as.integer(n_clusters),
+    d = as.integer(embedding_dim),
+    sketch_repeats = as.integer(sketch_repeats),
+    alpha = as.numeric(coarse_alpha),
+    coarse_iter = as.integer(max_iterations),
+    boundary_passes = as.integer(boundary_passes),
+    global_passes = as.integer(global_passes),
+    refine_spatial = as.numeric(refine_spatial_weight),
+    refine_l2 = as.numeric(refine_l2_weight),
+    refine_stride = if (is.null(refine_stride)) 0L else as.integer(refine_stride),
+    seed = as.integer(seed),
+    connectivity = as.integer(connectivity),
+    min_size = min_size_in,
+    n_threads = as.integer(n_threads),
+    verbose = verbose
+  )
+
+  labels <- as.integer(core$labels)
+  valid <- !is.na(labels) & labels > 0L
+  label_values <- sort(unique(labels[valid]))
+  if (length(label_values) == 0L) {
+    stop("cluster4d_brsslic: no valid labels returned from C++ core")
+  }
+
+  grp <- factor(labels, levels = label_values)
+  counts <- as.numeric(tabulate(as.integer(grp), nbins = length(label_values)))
+  counts[counts == 0] <- NA_real_
+  coord_sum <- rowsum(data_prep$coords, grp, reorder = TRUE)
+  coord_centers <- coord_sum / counts
+  dimnames(coord_centers) <- NULL
+
+  centers <- NULL
+  if (!is.null(core$centers) && is.matrix(core$centers)) {
+    centers <- core$centers[label_values, , drop = FALSE]
+    dimnames(centers) <- NULL
+  } else {
+    center_info <- compute_cluster_centers(labels, data_prep$features, data_prep$coords, method = "mean")
+    centers <- center_info$centers
+    coord_centers <- center_info$coord_centers
+  }
+
+  centers_xyz_voxel <- NULL
+  if (!is.null(core$centers_xyz) && is.matrix(core$centers_xyz)) {
+    centers_xyz_voxel <- core$centers_xyz[label_values, , drop = FALSE]
+    dimnames(centers_xyz_voxel) <- NULL
+  }
+
+  result <- structure(
+    list(
+      clusvol = ClusteredNeuroVol(mask > 0, clusters = labels),
+      cluster = labels,
+      centers = centers,
+      coord_centers = coord_centers,
+      n_clusters = length(label_values),
+      method = "brs_slic",
+      parameters = list(
+        n_clusters_requested = n_clusters,
+        spatial_weight = spatial_weight,
+        embedding_dim = as.integer(embedding_dim),
+        sketch_repeats = as.integer(sketch_repeats),
+        coarse_alpha = as.numeric(coarse_alpha),
+        coarse_iter = as.integer(max_iterations),
+        boundary_passes = as.integer(boundary_passes),
+        global_passes = as.integer(global_passes),
+        refine_spatial_weight = as.numeric(refine_spatial_weight),
+        refine_l2_weight = as.numeric(refine_l2_weight),
+        refine_stride = if (is.null(refine_stride)) NULL else as.integer(refine_stride),
+        connectivity = as.integer(connectivity),
+        parallel = isTRUE(parallel),
+        seed = as.integer(seed),
+        min_size = if (is.null(min_size)) NULL else as.integer(min_size)
+      ),
+      metadata = list(
+        cpp_params = core$params,
+        label_values = label_values,
+        centers_xyz_voxel = centers_xyz_voxel
+      )
+    ),
+    class = c("cluster4d_result", "cluster_result", "list")
+  )
+
+  result
+}
+
 #' Cluster4d using slice_msf method
 #'
 #' Wrapper for slice_msf algorithm with standardized interface.
@@ -521,13 +952,19 @@ cluster4d_slic <- function(vec, mask, n_clusters = 100,
 #' @param num_runs Number of independent runs
 #' @param consensus Use consensus fusion
 #' @param stitch_z Stitch clusters across z-slices
+#' @param theta_link Minimum cosine similarity for stitching across z-slices.
+#' @param min_contact Minimum number of contacting voxels for z-stitch edges.
+#' @param r Neighborhood radius for local feature extraction.
+#' @param gamma Gamma parameter for edge weighting.
+#' @param z_mult Optional z-axis edge multiplier passed to slice_msf (0-1).
+#' @param min_size Minimum component size after connectivity enforcement. Default NULL (auto).
 #' @param ... Additional parameters passed to slice_msf
 #'
 #' @return A cluster4d_result object
 #' @export
 cluster4d_slice_msf <- function(vec, mask, n_clusters = 100,
-                               spatial_weight = 0.5,
-                               connectivity = 8,
+                               spatial_weight = 0.2,
+                               connectivity = 26,
                                parallel = TRUE,
                                verbose = FALSE,
                                num_runs = 1,
@@ -536,7 +973,8 @@ cluster4d_slice_msf <- function(vec, mask, n_clusters = 100,
                                theta_link = 0.85,
                                min_contact = 1,
                                r = 12,
-                               gamma = 1.5,
+                               gamma = 1.0,
+                               z_mult = 0.5,
                                min_size = NULL,
                                ...) {
 
@@ -547,12 +985,12 @@ cluster4d_slice_msf <- function(vec, mask, n_clusters = 100,
   # Map connectivity (slice_msf uses 2D connectivity)
   nbhd <- if (connectivity == 26) 8 else 4
 
-  # Compute appropriate min_size based on expected cluster size if not specified
-  # Allow clusters as small as half the expected size to avoid forced merging
+  # Compute a conservative default min_size from expected cluster size.
+  # Keep this low so exact-K merging can preserve boundaries on heterogeneous data.
   if (is.null(min_size)) {
     n_voxels <- sum(mask > 0)
     expected_size <- n_voxels / n_clusters
-    min_size <- max(1, floor(expected_size * 0.5))
+    min_size <- max(2L, min(20L, floor(expected_size * 0.1)))
   }
 
   # Helper to run slice_msf with overrides (used for retries)
@@ -572,6 +1010,7 @@ cluster4d_slice_msf <- function(vec, mask, n_clusters = 100,
       min_contact = min_contact,
       r = r,
       gamma = gamma,
+      z_mult = z_mult,
       ...
     )
   }
@@ -643,7 +1082,8 @@ cluster4d_slice_msf <- function(vec, mask, n_clusters = 100,
       theta_link = theta_link,
       min_contact = min_contact,
       r = r,
-      gamma = gamma
+      gamma = gamma,
+      z_mult = z_mult
     ),
     dots  # Include any additional parameters passed through
   )
@@ -664,12 +1104,12 @@ cluster4d_slice_msf <- function(vec, mask, n_clusters = 100,
 #' @return A cluster4d_result object
 #' @export
 cluster4d_flash3d <- function(vec, mask, n_clusters = 100,
-                             spatial_weight = 0.6,
-                             max_iterations = 2,
+                             spatial_weight = 0.25,
+                             max_iterations = 4,
                              verbose = FALSE,
-                             lambda_t = 1.0,
+                             lambda_t = 1.4,
                              bits = 64,
-                             dctM = 12,
+                             dctM = 16,
                              ...) {
   
   # Call supervoxels_flash3d

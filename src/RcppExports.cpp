@@ -52,6 +52,65 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// corrslic_core
+List corrslic_core(const NumericMatrix feat, const IntegerVector mask_lin_idx, const IntegerVector dims, const int K, const int d, const int sketch_repeats, const double alpha, const int max_iter, const int seed, const int assign_stride, const bool quantize_assign, const std::string embed_basis, const bool whiten_embed, const int refine_exact_iters, const bool refine_boundary_only, const int refine_stride, const double refine_alpha, const int connectivity, const int min_size, int n_threads, const bool verbose);
+RcppExport SEXP _neurocluster_corrslic_core(SEXP featSEXP, SEXP mask_lin_idxSEXP, SEXP dimsSEXP, SEXP KSEXP, SEXP dSEXP, SEXP sketch_repeatsSEXP, SEXP alphaSEXP, SEXP max_iterSEXP, SEXP seedSEXP, SEXP assign_strideSEXP, SEXP quantize_assignSEXP, SEXP embed_basisSEXP, SEXP whiten_embedSEXP, SEXP refine_exact_itersSEXP, SEXP refine_boundary_onlySEXP, SEXP refine_strideSEXP, SEXP refine_alphaSEXP, SEXP connectivitySEXP, SEXP min_sizeSEXP, SEXP n_threadsSEXP, SEXP verboseSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const NumericMatrix >::type feat(featSEXP);
+    Rcpp::traits::input_parameter< const IntegerVector >::type mask_lin_idx(mask_lin_idxSEXP);
+    Rcpp::traits::input_parameter< const IntegerVector >::type dims(dimsSEXP);
+    Rcpp::traits::input_parameter< const int >::type K(KSEXP);
+    Rcpp::traits::input_parameter< const int >::type d(dSEXP);
+    Rcpp::traits::input_parameter< const int >::type sketch_repeats(sketch_repeatsSEXP);
+    Rcpp::traits::input_parameter< const double >::type alpha(alphaSEXP);
+    Rcpp::traits::input_parameter< const int >::type max_iter(max_iterSEXP);
+    Rcpp::traits::input_parameter< const int >::type seed(seedSEXP);
+    Rcpp::traits::input_parameter< const int >::type assign_stride(assign_strideSEXP);
+    Rcpp::traits::input_parameter< const bool >::type quantize_assign(quantize_assignSEXP);
+    Rcpp::traits::input_parameter< const std::string >::type embed_basis(embed_basisSEXP);
+    Rcpp::traits::input_parameter< const bool >::type whiten_embed(whiten_embedSEXP);
+    Rcpp::traits::input_parameter< const int >::type refine_exact_iters(refine_exact_itersSEXP);
+    Rcpp::traits::input_parameter< const bool >::type refine_boundary_only(refine_boundary_onlySEXP);
+    Rcpp::traits::input_parameter< const int >::type refine_stride(refine_strideSEXP);
+    Rcpp::traits::input_parameter< const double >::type refine_alpha(refine_alphaSEXP);
+    Rcpp::traits::input_parameter< const int >::type connectivity(connectivitySEXP);
+    Rcpp::traits::input_parameter< const int >::type min_size(min_sizeSEXP);
+    Rcpp::traits::input_parameter< int >::type n_threads(n_threadsSEXP);
+    Rcpp::traits::input_parameter< const bool >::type verbose(verboseSEXP);
+    rcpp_result_gen = Rcpp::wrap(corrslic_core(feat, mask_lin_idx, dims, K, d, sketch_repeats, alpha, max_iter, seed, assign_stride, quantize_assign, embed_basis, whiten_embed, refine_exact_iters, refine_boundary_only, refine_stride, refine_alpha, connectivity, min_size, n_threads, verbose));
+    return rcpp_result_gen;
+END_RCPP
+}
+// brs_slic_core
+List brs_slic_core(const NumericMatrix feat, const IntegerVector mask_lin_idx, const IntegerVector dims, const int K, const int d, const int sketch_repeats, const double alpha, const int coarse_iter, const int boundary_passes, const int global_passes, const double refine_spatial, const double refine_l2, int refine_stride, const int seed, const int connectivity, const int min_size, int n_threads, const bool verbose);
+RcppExport SEXP _neurocluster_brs_slic_core(SEXP featSEXP, SEXP mask_lin_idxSEXP, SEXP dimsSEXP, SEXP KSEXP, SEXP dSEXP, SEXP sketch_repeatsSEXP, SEXP alphaSEXP, SEXP coarse_iterSEXP, SEXP boundary_passesSEXP, SEXP global_passesSEXP, SEXP refine_spatialSEXP, SEXP refine_l2SEXP, SEXP refine_strideSEXP, SEXP seedSEXP, SEXP connectivitySEXP, SEXP min_sizeSEXP, SEXP n_threadsSEXP, SEXP verboseSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const NumericMatrix >::type feat(featSEXP);
+    Rcpp::traits::input_parameter< const IntegerVector >::type mask_lin_idx(mask_lin_idxSEXP);
+    Rcpp::traits::input_parameter< const IntegerVector >::type dims(dimsSEXP);
+    Rcpp::traits::input_parameter< const int >::type K(KSEXP);
+    Rcpp::traits::input_parameter< const int >::type d(dSEXP);
+    Rcpp::traits::input_parameter< const int >::type sketch_repeats(sketch_repeatsSEXP);
+    Rcpp::traits::input_parameter< const double >::type alpha(alphaSEXP);
+    Rcpp::traits::input_parameter< const int >::type coarse_iter(coarse_iterSEXP);
+    Rcpp::traits::input_parameter< const int >::type boundary_passes(boundary_passesSEXP);
+    Rcpp::traits::input_parameter< const int >::type global_passes(global_passesSEXP);
+    Rcpp::traits::input_parameter< const double >::type refine_spatial(refine_spatialSEXP);
+    Rcpp::traits::input_parameter< const double >::type refine_l2(refine_l2SEXP);
+    Rcpp::traits::input_parameter< int >::type refine_stride(refine_strideSEXP);
+    Rcpp::traits::input_parameter< const int >::type seed(seedSEXP);
+    Rcpp::traits::input_parameter< const int >::type connectivity(connectivitySEXP);
+    Rcpp::traits::input_parameter< const int >::type min_size(min_sizeSEXP);
+    Rcpp::traits::input_parameter< int >::type n_threads(n_threadsSEXP);
+    Rcpp::traits::input_parameter< const bool >::type verbose(verboseSEXP);
+    rcpp_result_gen = Rcpp::wrap(brs_slic_core(feat, mask_lin_idx, dims, K, d, sketch_repeats, alpha, coarse_iter, boundary_passes, global_passes, refine_spatial, refine_l2, refine_stride, seed, connectivity, min_size, n_threads, verbose));
+    return rcpp_result_gen;
+END_RCPP
+}
 // correlation_gradient_cpp
 NumericVector correlation_gradient_cpp(const NumericVector& img_4d, const NumericVector& brain_mask);
 RcppExport SEXP _neurocluster_correlation_gradient_cpp(SEXP img_4dSEXP, SEXP brain_maskSEXP) {
@@ -577,6 +636,16 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// simd_info_cpp
+List simd_info_cpp();
+RcppExport SEXP _neurocluster_simd_info_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(simd_info_cpp());
+    return rcpp_result_gen;
+END_RCPP
+}
 // slic4d_core
 Rcpp::List slic4d_core(NumericMatrix feats, NumericMatrix coords, IntegerVector mask_lin_idx, IntegerVector dims, NumericVector voxmm, int K, double compactness, int max_iter, double step_mm, int n_threads, std::string seed_method, bool enforce_connectivity, int min_size, int connectivity, bool strict_connectivity, bool preserve_k, int topup_iters, NumericVector grad_masked, int seed_relocate_radius, bool verbose);
 RcppExport SEXP _neurocluster_slic4d_core(SEXP featsSEXP, SEXP coordsSEXP, SEXP mask_lin_idxSEXP, SEXP dimsSEXP, SEXP voxmmSEXP, SEXP KSEXP, SEXP compactnessSEXP, SEXP max_iterSEXP, SEXP step_mmSEXP, SEXP n_threadsSEXP, SEXP seed_methodSEXP, SEXP enforce_connectivitySEXP, SEXP min_sizeSEXP, SEXP connectivitySEXP, SEXP strict_connectivitySEXP, SEXP preserve_kSEXP, SEXP topup_itersSEXP, SEXP grad_maskedSEXP, SEXP seed_relocate_radiusSEXP, SEXP verboseSEXP) {
@@ -743,6 +812,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_neurocluster_refine_boundaries_cpp", (DL_FUNC) &_neurocluster_refine_boundaries_cpp, 5},
     {"_neurocluster_find_boundary_voxels_cpp", (DL_FUNC) &_neurocluster_find_boundary_voxels_cpp, 2},
     {"_neurocluster_compute_centroids_parallel_fast", (DL_FUNC) &_neurocluster_compute_centroids_parallel_fast, 4},
+    {"_neurocluster_corrslic_core", (DL_FUNC) &_neurocluster_corrslic_core, 21},
+    {"_neurocluster_brs_slic_core", (DL_FUNC) &_neurocluster_brs_slic_core, 18},
     {"_neurocluster_correlation_gradient_cpp", (DL_FUNC) &_neurocluster_correlation_gradient_cpp, 2},
     {"_neurocluster_build_grid_adjacency_cpp", (DL_FUNC) &_neurocluster_build_grid_adjacency_cpp, 3},
     {"_neurocluster_rena_rnn_coarse_cpp", (DL_FUNC) &_neurocluster_rena_rnn_coarse_cpp, 6},
@@ -778,6 +849,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_neurocluster_aggregate_coords_cpp", (DL_FUNC) &_neurocluster_aggregate_coords_cpp, 3},
     {"_neurocluster_contract_graph_cpp", (DL_FUNC) &_neurocluster_contract_graph_cpp, 4},
     {"_neurocluster_prune_edges_for_k_cpp", (DL_FUNC) &_neurocluster_prune_edges_for_k_cpp, 4},
+    {"_neurocluster_simd_info_cpp", (DL_FUNC) &_neurocluster_simd_info_cpp, 0},
     {"_neurocluster_slic4d_core", (DL_FUNC) &_neurocluster_slic4d_core, 20},
     {"_neurocluster_slice_msf_runwise", (DL_FUNC) &_neurocluster_slice_msf_runwise, 18},
     {"_neurocluster_slice_fuse_consensus", (DL_FUNC) &_neurocluster_slice_fuse_consensus, 12},

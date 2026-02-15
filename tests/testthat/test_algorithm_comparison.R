@@ -62,6 +62,19 @@ test_that("algorithm comparison framework produces consistent results", {
   
   # Supervoxels (may produce warnings about K adjustment)
   results$supervoxels <- suppressWarnings(supervoxels(vec, mask, K = 4, alpha = 0.5))
+
+  # corr_slic
+  results$corr_slic <- suppressWarnings(cluster4d(
+    vec, mask,
+    n_clusters = 4,
+    method = "corr_slic",
+    spatial_weight = 0.5,
+    embedding_dim = 32,
+    max_iterations = 3,
+    connectivity = 6,
+    parallel = FALSE,
+    verbose = FALSE
+  ))
   
   # Commute clustering (may produce warnings about eigenvalue issues)
   results$commute <- suppressWarnings(commute_cluster(vec, mask, K = 4))
@@ -312,6 +325,17 @@ test_that("cross-algorithm parameter validation", {
   results_K <- list()
   results_K$snic <- suppressWarnings(snic(vec, mask, K = target_K, compactness = 1.0))
   results_K$supervoxels <- suppressWarnings(supervoxels(vec, mask, K = target_K, alpha = 0.5))
+  results_K$corr_slic <- suppressWarnings(cluster4d(
+    vec, mask,
+    n_clusters = target_K,
+    method = "corr_slic",
+    spatial_weight = 0.5,
+    embedding_dim = 32,
+    max_iterations = 3,
+    connectivity = 6,
+    parallel = FALSE,
+    verbose = FALSE
+  ))
   results_K$commute <- suppressWarnings(commute_cluster(vec, mask, K = target_K))
   
   # All should produce reasonable number of clusters (may not be exactly K due to merging)
@@ -402,7 +426,19 @@ test_that("algorithm robustness to data characteristics", {
                                                          compactness = 3, num_runs = 1))
     
     scenario_results$snic <- suppressWarnings(snic(vec, mask, K = 4, compactness = 1.0))
-    
+
+    scenario_results$corr_slic <- suppressWarnings(cluster4d(
+      vec, mask,
+      n_clusters = 4,
+      method = "corr_slic",
+      spatial_weight = 0.5,
+      embedding_dim = 32,
+      max_iterations = 3,
+      connectivity = 6,
+      parallel = FALSE,
+      verbose = FALSE
+    ))
+
     scenario_results$supervoxels <- suppressWarnings(supervoxels(vec, mask, K = 4, alpha = 0.5))
     
     # All should produce valid results

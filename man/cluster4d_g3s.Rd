@@ -15,7 +15,8 @@ cluster4d_g3s(
   max_refinement_iter = 3,
   verbose = FALSE,
   use_irlba = TRUE,
-  use_rsvd = TRUE
+  use_rsvd = TRUE,
+  knn_backend = c("rann", "fnn")
 )
 }
 \arguments{
@@ -46,6 +47,9 @@ Default: 3. Set to 0 to skip refinement.}
 
 \item{use_rsvd}{Logical; if TRUE and the \pkg{rsvd} package is installed,
 prefer the randomized SVD backend in \code{compress_features_svd}. Default: TRUE.}
+
+\item{knn_backend}{Character; spatial kNN backend used for seed/propagation
+graph construction. One of \code{"rann"} (default) or \code{"fnn"}.}
 }
 \value{
 A \code{cluster4d_result} object (also inherits \code{g3s_result},

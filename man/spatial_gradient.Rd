@@ -11,7 +11,7 @@ spatial_gradient(vol, mask, sigma = 0.5)
 
 \item{mask}{A \code{NeuroVol} mask defining the voxels to include in the spatial gradient calculation.
 If the mask contains \code{numeric} data, nonzero values will define the included voxels.
-If the mask is a \code{\linkS4class{LogicalNeuroVol}}, then \code{TRUE} will define the set
+If the mask is a \code{\link[neuroim2:LogicalNeuroVol-class]{LogicalNeuroVol}}, then \code{TRUE} will define the set
 of included voxels.}
 
 \item{sigma}{A numeric value controlling the spatial weighting function. Default is 0.5.}
@@ -23,13 +23,14 @@ A \code{NeuroVol} instance containing the spatial gradient values for the input 
 The spatial_gradient function calculates the spatial gradient of a \code{NeuroVol} instance within the specified mask.
 }
 \examples{
-mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
-input_vol <- NeuroVol(array(runif(202020), c(20,20,20)),
-NeuroSpace(c(20,20,20)))
-
+\dontrun{
+mask <- neuroim2::NeuroVol(array(1, c(20,20,20)), neuroim2::NeuroSpace(c(20,20,20)))
+input_vol <- neuroim2::NeuroVol(array(runif(20*20*20), c(20,20,20)),
+  neuroim2::NeuroSpace(c(20,20,20)))
 gradient_vol <- spatial_gradient(input_vol, mask)
+}
 
 }
 \seealso{
-\code{\link{spatial_laplacian}}, \code{\link{weighted_spatial_adjacency}}
+\code{\link[neighborweights:spatial_laplacian]{spatial_laplacian}}, \code{\link[neighborweights:weighted_spatial_adjacency]{weighted_spatial_adjacency}}
 }

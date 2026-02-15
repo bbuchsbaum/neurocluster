@@ -270,7 +270,7 @@ map_cluster4d_params <- function(method, ...) {
         params$max_iterations <- params$iterations
       }
     }
-  } else if (method == "snic" || method == "slic") {
+  } else if (method == "snic" || method == "slic" || method == "corr_slic" || method == "brs_slic") {
     if ("compactness" %in% names(params)) {
       if (!"spatial_weight" %in% names(params)) {
         # Higher compactness = more spatial weight

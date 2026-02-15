@@ -8,13 +8,19 @@
 
 # All clustering methods to test
 ALL_METHODS <- c("flash3d", "slice_msf", "g3s", "rena", "rena_plus", "acsc",
-                 "slic", "supervoxels", "snic", "commute")
+                 "slic", "corr_slic", "supervoxels", "snic", "commute")
 
 # Method-specific overrides to keep each algorithm near its intended regime
 METHOD_OVERRIDES <- list(
   commute = list(
     spatial_weight = 0.1,  # feature-heavy for perfectly separable signals
     ncomp = 40             # richer embedding for the 27-cube structure
+  ),
+  corr_slic = list(
+    spatial_weight = 0.25,
+    embedding_dim = 64,
+    max_iterations = 5,
+    connectivity = 6
   )
 )
 

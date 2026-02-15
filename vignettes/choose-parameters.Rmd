@@ -1,0 +1,121 @@
+---
+title: Choose parameters for your data
+name: choose-parameters
+description: Use suggestions and tune K, spatial weighting, and connectivity.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+params:
+  family: ochre
+  base_size: 13
+  content_width: 72
+vignette: >
+  %\VignetteIndexEntry{Choose parameters for your data}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+css: albers.css
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
+  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  message = FALSE, warning = FALSE
+)
+set.seed(123); options(pillar.sigfig = 7, width = 80)
+suppressWarnings(suppressPackageStartupMessages({
+  library(neurocluster)
+  library(neuroim2)
+}))
+if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+```{r albers_inject, echo=FALSE, results='asis'}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+# Heuristics {#heuristics}
+The package’s helper `suggest_cluster4d_params()` derives a baseline K as `n_voxels / 250` (see source in `cluster4d_common.R`) and adjusts by priority. This is a starting point; actual K depends on analysis goals and mask size.
+
+# Suggestions {#suggestions}
+```r
+n_vox <- 50000
+n_time <- 200
+params <- suggest_cluster4d_params(n_vox, n_time, priority = "balanced")
+params$recommended_method
+params$n_clusters
+```
+
+# Tradeoffs {#tradeoffs}
+- Quality: increase iterations; methods with iterative refinement (e.g., `supervoxels()`, `cluster4d_slic()`); consider higher K.
+- Speed: `slice_msf` (slice-wise) or `flash3d` (hash/DCT) with fewer iterations and lower K.
+- Memory: `snic()` (single pass), `slice_msf` with fewer coefficients.
+
+# Recipes {#recipes}
+- Whole-brain (2–3 mm): start from `n_voxels/250`, `spatial_weight` around 0.4–0.6, connectivity 26.
+- ROI: smaller K (e.g., 10–100), lower `spatial_weight` (0.2–0.4), connectivity 6.
+
+# Toy data for illustrations {#toy-data}
+To make parameter effects concrete, we use `make_block_synthetic()`—three vertical
+bands with distinct time courses, light noise, and a single slice. It’s fast,
+deterministic, and spatially local.
+
+```{r toy-data, echo=FALSE}
+toy <- make_block_synthetic(dims = c(12, 12, 1), ntime = 60, noise = 0.1, seed = 99)
+```
+
+# Effect of K (number of clusters) {#fig-k}
+Larger K produces finer partitions. Below we fix the method (`snic`) and compactness,
+varying only K.
+
+```{r fig-k, fig.cap='Effect of K on a block synthetic (snic).', fig.alt='Three panels showing axial slices clustered with K=2, K=3, and K=5.'}
+par(mfrow = c(1, 3))
+res_k2 <- snic(toy$vec, toy$mask, K = 2, compactness = 3)
+plot(res_k2, slice = c(1, 1, 1), view = "axial"); title("K = 2")
+res_k3 <- snic(toy$vec, toy$mask, K = 3, compactness = 3)
+plot(res_k3, slice = c(1, 1, 1), view = "axial"); title("K = 3")
+res_k5 <- snic(toy$vec, toy$mask, K = 5, compactness = 3)
+plot(res_k5, slice = c(1, 1, 1), view = "axial"); title("K = 5")
+par(mfrow = c(1,1))
+```
+
+# Effect of compactness (SNIC) {#fig-compactness}
+Higher `compactness` makes clusters more spatially tight; lower values follow feature patterns more closely.
+
+```{r fig-compactness, fig.cap='Effect of compactness on the block synthetic (K=3, snic).', fig.alt='Three panels with compactness 2, 4, 6.'}
+par(mfrow = c(1, 3))
+res_c2 <- snic(toy$vec, toy$mask, K = 3, compactness = 2)
+plot(res_c2, slice = c(1, 1, 1), view = "axial"); title("compactness = 2")
+res_c4 <- snic(toy$vec, toy$mask, K = 3, compactness = 4)
+plot(res_c4, slice = c(1, 1, 1), view = "axial"); title("compactness = 4")
+res_c6 <- snic(toy$vec, toy$mask, K = 3, compactness = 6)
+plot(res_c6, slice = c(1, 1, 1), view = "axial"); title("compactness = 6")
+par(mfrow = c(1,1))
+```
+includes:
+  in_header: |-
+    <link rel="stylesheet" href="albers.css" />
+    <script src="albers.js"></script>

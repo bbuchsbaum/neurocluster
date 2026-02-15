@@ -248,6 +248,17 @@ test_that("algorithm comparison performance", {
   algorithms <- list(
     slice_msf = function() slice_msf(vec, mask, r = 8, min_size = 12, compactness = 3, num_runs = 1),
     snic = function() snic(vec, mask, K = 6, compactness = 1.0),
+    corr_slic = function() cluster4d(
+      vec, mask,
+      n_clusters = 6,
+      method = "corr_slic",
+      spatial_weight = 0.5,
+      embedding_dim = 32,
+      max_iterations = 3,
+      connectivity = 6,
+      parallel = FALSE,
+      verbose = FALSE
+    ),
     supervoxels = function() supervoxels(vec, mask, K = 6, alpha = 0.5),
     commute = function() commute_cluster(vec, mask, K = 6)
   )

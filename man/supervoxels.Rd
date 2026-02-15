@@ -23,11 +23,11 @@ supervoxels(
 )
 }
 \arguments{
-\item{bvec}{A \code{\linkS4class{NeuroVec}} instance supplying the data to cluster.
-Can also be a 3D \code{\linkS4class{NeuroVol}} for structural image segmentation,
+\item{bvec}{A \code{\link[neuroim2:NeuroVec-class]{NeuroVec}} instance supplying the data to cluster.
+Can also be a 3D \code{\link[neuroim2:NeuroVol-class]{NeuroVol}} for structural image segmentation,
 which will be automatically converted to a single-timepoint NeuroVec internally.}
 
-\item{mask}{A \code{\linkS4class{NeuroVol}} mask defining the voxels to include. If numeric, nonzero = included.}
+\item{mask}{A \code{\link[neuroim2:NeuroVol-class]{NeuroVol}} mask defining the voxels to include. If numeric, nonzero = included.}
 
 \item{K}{The number of clusters to find (default 500).}
 

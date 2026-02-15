@@ -8,7 +8,7 @@
 #' standardized interface across all clustering methods.
 #'
 #' @param bvec A \code{NeuroVec} with dims (X, Y, Z, T).
-#'   Can also be a 3D \code{\linkS4class{NeuroVol}} for structural image segmentation,
+#'   Can also be a 3D \code{\link[neuroim2:NeuroVol-class]{NeuroVol}} for structural image segmentation,
 #'   which will be automatically converted to a single-timepoint NeuroVec internally.
 #' @param mask A 3D \code{NeuroVol} (or logical array) indicating voxels to include.
 #' @param K Target number of supervoxels.
@@ -98,7 +98,7 @@ slic4d_supervoxels <- function(bvec, mask,
     sp <- neuroim2::space(mask)
   } else {
     mask_arr <- as.logical(mask)
-    sp <- neuroim2::space(neuroim2::vol(mask_arr))
+    sp <- neuroim2::space(neuroim2::NeuroVol(mask_arr))
   }
   
   mask_idx <- which(mask_arr)
@@ -219,8 +219,8 @@ slic4d_supervoxels <- function(bvec, mask,
         grad3d <- .grad3d_fdiff(mean3d)
       } else {
         grad3d <- spatial_gradient(
-          neuroim2::vol(apply(as.array(bvec), c(1,2,3), mean), space = sp),
-          neuroim2::vol(mask_arr, space = sp)
+          neuroim2::NeuroVol(apply(as.array(bvec), c(1,2,3), mean), space = sp),
+          neuroim2::NeuroVol(mask_arr, space = sp)
         )
         if (inherits(grad3d, "NeuroVol")) {
           grad3d <- as.array(grad3d)
@@ -334,7 +334,7 @@ slic4d_grad_summary <- function(bvec, mask, method = c("correlation", "intensity
   
   # Get dimensions and space
   dims <- if (inherits(mask, "NeuroVol")) dim(mask) else dim(mask)
-  sp <- if (inherits(mask, "NeuroVol")) neuroim2::space(mask) else neuroim2::space(neuroim2::vol(mask))
+  sp <- if (inherits(mask, "NeuroVol")) neuroim2::space(mask) else neuroim2::space(neuroim2::NeuroVol(mask))
   
   if (method == "correlation") {
     img4d <- as.array(bvec)
@@ -352,8 +352,8 @@ slic4d_grad_summary <- function(bvec, mask, method = c("correlation", "intensity
       stop("neighborweights not installed for 'spatial' method.")
     }
     spatial_gradient(
-      neuroim2::vol(apply(as.array(bvec), c(1,2,3), mean), space = sp),
-      neuroim2::vol(as.logical(mask), space = sp)
+      neuroim2::NeuroVol(apply(as.array(bvec), c(1,2,3), mean), space = sp),
+      neuroim2::NeuroVol(as.logical(mask), space = sp)
     )
   }
 }

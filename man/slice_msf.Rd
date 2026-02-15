@@ -31,7 +31,7 @@ slice_msf(
 
 \item{mask}{A \code{NeuroVol} mask defining the voxels to include in the clustering result.
 If the mask contains \code{numeric} data, nonzero values will define the included voxels.
-If the mask is a \code{\linkS4class{LogicalNeuroVol}}, then \code{TRUE} will define the set
+If the mask is a \code{\link[neuroim2:LogicalNeuroVol-class]{LogicalNeuroVol}}, then \code{TRUE} will define the set
 of included voxels.}
 
 \item{target_k_global}{Target number of clusters across entire volume. When positive,
@@ -93,7 +93,7 @@ legacy per-slice behavior. Recommended range 0.1-0.4. Default is 0.0.}
 \value{
 A \code{list} of class \code{slice_msf_cluster_result} with the following elements:
 \describe{
-\item{clusvol}{An instance of type \linkS4class{ClusteredNeuroVol}.}
+\item{clusvol}{An instance of type \link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}.}
 \item{cluster}{A vector of cluster indices equal to the number of voxels in the mask.}
 \item{centers}{A matrix of cluster centers with each column representing the feature vector for a cluster.}
 \item{coord_centers}{A matrix of spatial coordinates with each row corresponding to a cluster.}

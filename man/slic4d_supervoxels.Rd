@@ -28,7 +28,7 @@ slic4d_supervoxels(
 }
 \arguments{
 \item{bvec}{A \code{NeuroVec} with dims (X, Y, Z, T).
-Can also be a 3D \code{\linkS4class{NeuroVol}} for structural image segmentation,
+Can also be a 3D \code{\link[neuroim2:NeuroVol-class]{NeuroVol}} for structural image segmentation,
 which will be automatically converted to a single-timepoint NeuroVec internally.}
 
 \item{mask}{A 3D \code{NeuroVol} (or logical array) indicating voxels to include.}

@@ -8,12 +8,12 @@ cluster4d_flash3d(
   vec,
   mask,
   n_clusters = 100,
-  spatial_weight = 0.6,
-  max_iterations = 2,
+  spatial_weight = 0.25,
+  max_iterations = 4,
   verbose = FALSE,
-  lambda_t = 1,
+  lambda_t = 1.4,
   bits = 64,
-  dctM = 12,
+  dctM = 16,
   ...
 )
 }

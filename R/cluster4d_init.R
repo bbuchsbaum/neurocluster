@@ -68,7 +68,7 @@ init_gradient_seeds <- function(coords, n_clusters, mask = NULL, vec = NULL,
     mask_numeric <- array(as.numeric(as.logical(mask)), dim = dim(mask))
     grad3d <- correlation_gradient_cpp(img4d, mask_numeric)
     dim(grad3d) <- dim(mask)
-    grad <- neuroim2::vol(grad3d, space = space(mask))
+    grad <- neuroim2::NeuroVol(grad3d, space = neuroim2::space(mask))
   } else {
     # intensity gradient
     refvol <- vec[[1]]

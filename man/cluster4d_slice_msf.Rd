@@ -8,8 +8,8 @@ cluster4d_slice_msf(
   vec,
   mask,
   n_clusters = 100,
-  spatial_weight = 0.5,
-  connectivity = 8,
+  spatial_weight = 0.2,
+  connectivity = 26,
   parallel = TRUE,
   verbose = FALSE,
   num_runs = 1,
@@ -18,7 +18,8 @@ cluster4d_slice_msf(
   theta_link = 0.85,
   min_contact = 1,
   r = 12,
-  gamma = 1.5,
+  gamma = 1,
+  z_mult = 0.5,
   min_size = NULL,
   ...
 )
@@ -55,6 +56,18 @@ Maps to method-specific parameters:
 \item{consensus}{Use consensus fusion}
 
 \item{stitch_z}{Stitch clusters across z-slices}
+
+\item{theta_link}{Minimum cosine similarity for stitching across z-slices.}
+
+\item{min_contact}{Minimum number of contacting voxels for z-stitch edges.}
+
+\item{r}{Neighborhood radius for local feature extraction.}
+
+\item{gamma}{Gamma parameter for edge weighting.}
+
+\item{z_mult}{Optional z-axis edge multiplier passed to slice_msf (0-1).}
+
+\item{min_size}{Minimum component size after connectivity enforcement. Default NULL (auto).}
 
 \item{...}{Additional parameters passed to slice_msf}
 }

@@ -22,7 +22,9 @@ This function tesselates a given mask volume into K clusters using k-means
 clustering applied to spatial coordinates. It returns a clustered mask volume object.
 }
 \examples{
+\dontrun{
 # Assuming you have a NeuroVol object 'mask' and you want to create 150 clusters
 clustered_volume <- tesselate(mask, K = 150)
+}
 
 }

@@ -63,11 +63,17 @@ test_that("cluster4d works with all methods", {
                                 NeuroSpace(c(8, 8, 4))), simplify=FALSE)
   vec <- do.call(concat, vec)
   
-  methods <- c("supervoxels", "snic", "slic", "slice_msf", "flash3d")
+  methods <- c("supervoxels", "snic", "slic", "corr_slic", "brs_slic", "slice_msf", "flash3d")
   
   for (method in methods) {
     # Skip methods that might not be available
     if (method == "slic" && !exists("slic4d_core")) {
+      skip(paste("Skipping", method, "- C++ implementation not available"))
+    }
+    if (method == "corr_slic" && !exists("corrslic_core")) {
+      skip(paste("Skipping", method, "- C++ implementation not available"))
+    }
+    if (method == "brs_slic" && !exists("brs_slic_core")) {
       skip(paste("Skipping", method, "- C++ implementation not available"))
     }
     if (method == "flash3d" && !exists("flash3d_supervoxels_cpp")) {

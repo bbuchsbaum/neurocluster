@@ -1,183 +1,211 @@
 "dataset","n_vox","n_time","method","param_id","params","elapsed_sec","n_clusters","ari","error"
-"block_small",144,80,"snic",1,"param_id 1;compactness 1.5",0.0230000000000001,3,0.206461953261118,NA
-"block_small",144,80,"snic",2,"param_id 2;compactness 3",0.0089999999999999,3,0.243357465838291,NA
-"block_small",144,80,"snic",3,"param_id 3;compactness 0.8",0.00800000000000001,3,0.179493702910405,NA
-"block_small",144,80,"slice_msf",1,"param_id 1;r 8;min_size 6;compactness 3;stitch_z TRUE",0.00500000000000034,3,0.111888111888112,NA
-"block_small",144,80,"slice_msf",2,"param_id 2;r 12;min_size 10;compactness 4;stitch_z TRUE",0.00500000000000034,3,0.211367613749602,NA
-"block_small",144,80,"slice_msf",3,"param_id 3;r 8;min_size 6;compactness 1.5;stitch_z TRUE",0.00199999999999978,3,0.484126429427799,NA
+"block_small",144,80,"snic",1,"param_id 1;compactness 1.5",0.032,3,0.108671563754354,NA
+"block_small",144,80,"snic",2,"param_id 2;compactness 3",0.0619999999999998,3,0.137168400798497,NA
+"block_small",144,80,"snic",3,"param_id 3;compactness 0.8",0.0140000000000002,3,0.091547753080885,NA
+"block_small",144,80,"slice_msf",1,"param_id 1;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.00300000000000011,3,0.142574450008037,NA
+"block_small",144,80,"slice_msf",2,"param_id 2;r 8;min_size 2;compactness 1.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.0219999999999998,3,0.548053332207736,NA
+"block_small",144,80,"slice_msf",3,"param_id 3;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 4;z_mult 0;stitch_z TRUE;num_runs 1;consensus FALSE",0.00299999999999967,3,0.0396023434788822,NA
 "block_small",144,80,"supervoxels",1,"param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6",0.00499999999999989,3,0.371241621644825,NA
-"block_small",144,80,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.004,3,0.371241621644825,NA
-"block_small",144,80,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.6;bits 64",0.004,3,0.00963327254977803,NA
-"block_small",144,80,"flash3d",2,"param_id 2;dctM 12;lambda_t 1;lambda_s 0.6;bits 64",0.00199999999999978,3,0.039770800892864,NA
-"block_small",144,80,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.3;bits 128",0.00200000000000022,3,0.103646573099978,NA
-"block_small",144,80,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.004,3,0.0369043267761592,NA
-"block_small",144,80,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.00300000000000011,3,0.258228249197566,NA
-"block_small",144,80,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.00300000000000011,3,0.0356172056473534,NA
-"block_small",144,80,"g3s",1,"param_id 1;spatial_weight 0.15",0.0170000000000003,3,0.202801553342531,NA
-"block_small",144,80,"g3s",2,"param_id 2;spatial_weight 0.35",0.00500000000000034,3,0.0812985059370428,NA
-"block_small",144,80,"g3s",3,"param_id 3;spatial_weight 0.1",0.00600000000000023,3,0.0812985059370428,NA
-"block_small",144,80,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",0.175,3,0.0758371966987662,NA
-"block_small",144,80,"rena",1,"param_id 1;connectivity 6",0.00499999999999989,3,0.468604097189138,NA
-"block_small",144,80,"rena",2,"param_id 2;connectivity 26",0.00400000000000045,2,0.188974316394768,NA
-"block_small",144,80,"rena_plus",1,"param_id 1;connectivity 6",0.00199999999999978,1,NA,"returned single partition"
+"block_small",144,80,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.069,3,0.371241621644825,NA
+"block_small",144,80,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.15;bits 64;rounds 2",0.00199999999999978,3,0.260528875517452,NA
+"block_small",144,80,"flash3d",2,"param_id 2;dctM 16;lambda_t 1.4;lambda_s 0.35;bits 64;rounds 4",0.0339999999999998,3,0.344280905813699,NA
+"block_small",144,80,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.25;bits 64;rounds 4",0.00300000000000011,3,0.239775848673384,NA
+"block_small",144,80,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.00200000000000022,3,0.0369043267761592,NA
+"block_small",144,80,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.032,3,0.357512315992338,NA
+"block_small",144,80,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.00300000000000011,3,0.0369043267761592,NA
+"block_small",144,80,"corr_slic",1,"param_id 1;tuned TRUE;spatial_weight 0.05;embedding_dim 24;adaptive_embedding FALSE;embedding_basis hash;embedding_whiten FALSE;sketch_repeats 1;quantize_assign TRUE;assign_stride 3;max_iterations 4;refine_exact_iters 0;refine_boundary_only TRUE;refine_stride 1;seed 7;family clean_blobs",0.00199999999999978,3,0.321602810918017,NA
+"block_small",144,80,"brs_slic",1,"param_id 1;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0.01;refine_l2_weight 0.02",0.00499999999999989,3,0.0989388278567707,NA
+"block_small",144,80,"brs_slic",2,"param_id 2;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.02,3,0.0989388278567707,NA
+"block_small",144,80,"brs_slic",3,"param_id 3;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 2;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.00199999999999978,3,0.0819435786115893,NA
+"block_small",144,80,"g3s",1,"param_id 1;spatial_weight 0.15",0.0139999999999998,3,0.202801553342531,NA
+"block_small",144,80,"g3s",2,"param_id 2;spatial_weight 0.35",0.0350000000000001,3,0.0812985059370428,NA
+"block_small",144,80,"g3s",3,"param_id 3;spatial_weight 0.1",0.00600000000000023,3,0.202801553342531,NA
+"block_small",144,80,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;corrslic_spatial_weight 0.08;corrslic_embedding_dim auto;corrslic_sketch_repeats 1;corrslic_connectivity 6;corrslic_assign_stride 1;corrslic_quantize_assign TRUE;corrslic_embedding_basis dct;corrslic_embedding_whiten FALSE;corrslic_refine_exact_iters 1;corrslic_refine_boundary_only TRUE;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",0.0789999999999997,3,0.135177780047595,NA
+"block_small",144,80,"rena",1,"param_id 1;connectivity 6",0.0399999999999991,3,0.468604097189138,NA
+"block_small",144,80,"rena",2,"param_id 2;connectivity 26",0.00499999999999989,2,0.188974316394768,NA
+"block_small",144,80,"rena_plus",1,"param_id 1;connectivity 6",0.0120000000000005,1,NA,"returned single partition"
 "block_small",144,80,"rena_plus",2,"param_id 2;connectivity 26",0.00300000000000011,1,NA,"returned single partition"
-"block_small",144,80,"acsc",1,"param_id 1;alpha 0.4",0.109999999999999,3,0.163231988535789,NA
-"block_small",144,80,"acsc",2,"param_id 2;alpha 0.6",0.111,3,0.0985326522819872,NA
-"block_small",144,80,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",0.0179999999999998,3,0.375182056510341,NA
-"block_small",144,80,"commute",2,"param_id 2;spatial_weight 0.1;ncomp NA",0.0220000000000002,3,0.375182056510341,NA
-"blobs_small",2400,40,"snic",1,"param_id 1;compactness 1.5",0.325,4,0.534271871157499,NA
-"blobs_small",2400,40,"snic",2,"param_id 2;compactness 3",0.322,4,0.777683599993663,NA
-"blobs_small",2400,40,"snic",3,"param_id 3;compactness 0.8",0.32,4,0.946605731850337,NA
-"blobs_small",2400,40,"slice_msf",1,"param_id 1;r 8;min_size 6;compactness 3;stitch_z TRUE",0.016,4,1,NA
-"blobs_small",2400,40,"slice_msf",2,"param_id 2;r 12;min_size 10;compactness 4;stitch_z TRUE",0.0169999999999995,4,1,NA
-"blobs_small",2400,40,"slice_msf",3,"param_id 3;r 8;min_size 6;compactness 1.5;stitch_z TRUE",0.0109999999999992,4,1,NA
-"blobs_small",2400,40,"supervoxels",1,"param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6",0.0449999999999999,4,0.583331660487075,NA
-"blobs_small",2400,40,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.0570000000000004,4,0.578979193968603,NA
-"blobs_small",2400,40,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.6;bits 64",0.00900000000000034,4,0.280797086624746,NA
-"blobs_small",2400,40,"flash3d",2,"param_id 2;dctM 12;lambda_t 1;lambda_s 0.6;bits 64",0.00999999999999979,4,0.284786406732896,NA
-"blobs_small",2400,40,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.3;bits 128",0.00900000000000034,4,0.285592063393346,NA
-"blobs_small",2400,40,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.0140000000000002,4,0.515264428801348,NA
-"blobs_small",2400,40,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.0129999999999999,4,0.506305208849138,NA
-"blobs_small",2400,40,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.0169999999999995,4,0.484590020519774,NA
-"blobs_small",2400,40,"g3s",1,"param_id 1;spatial_weight 0.15",0.0549999999999997,4,1,NA
-"blobs_small",2400,40,"g3s",2,"param_id 2;spatial_weight 0.35",0.0550000000000015,4,0.732788350978308,NA
-"blobs_small",2400,40,"g3s",3,"param_id 3;spatial_weight 0.1",0.052999999999999,4,1,NA
-"blobs_small",2400,40,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",1.425,4,0.97585327571053,NA
-"blobs_small",2400,40,"rena",1,"param_id 1;connectivity 6",0.0269999999999992,1,NA,"returned single partition"
-"blobs_small",2400,40,"rena",2,"param_id 2;connectivity 26",0.0300000000000011,4,1,NA
-"blobs_small",2400,40,"rena_plus",1,"param_id 1;connectivity 6",0.17,3,0.763683867812959,NA
-"blobs_small",2400,40,"rena_plus",2,"param_id 2;connectivity 26",0.713000000000001,1,NA,"returned single partition"
-"blobs_small",2400,40,"acsc",1,"param_id 1;alpha 0.4",0.798,4,0.708839193921457,NA
-"blobs_small",2400,40,"acsc",2,"param_id 2;alpha 0.6",0.703000000000001,4,0.718090197878414,NA
-"blobs_small",2400,40,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",0.266,4,0.26086077673822,NA
-"blobs_small",2400,40,"commute",2,"param_id 2;spatial_weight 0.1;ncomp NA",0.259,4,0.26086077673822,NA
-"touching_blobs",8192,50,"snic",1,"param_id 1;compactness 1.5",3.208,6,0.572750584172575,NA
-"touching_blobs",8192,50,"snic",2,"param_id 2;compactness 3",3.234,6,0.555612495513551,NA
-"touching_blobs",8192,50,"snic",3,"param_id 3;compactness 0.8",3.346,6,0.962817225035202,NA
-"touching_blobs",8192,50,"slice_msf",1,"param_id 1;r 8;min_size 6;compactness 3;stitch_z TRUE",0.0430000000000028,6,1,NA
-"touching_blobs",8192,50,"slice_msf",2,"param_id 2;r 12;min_size 10;compactness 4;stitch_z TRUE",0.0449999999999982,6,1,NA
-"touching_blobs",8192,50,"slice_msf",3,"param_id 3;r 8;min_size 6;compactness 1.5;stitch_z TRUE",0.0449999999999982,6,1,NA
-"touching_blobs",8192,50,"supervoxels",1,"param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6",0.0970000000000013,6,1,NA
-"touching_blobs",8192,50,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.102,6,1,NA
-"touching_blobs",8192,50,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.6;bits 64",0.0279999999999987,6,0.575048859291587,NA
-"touching_blobs",8192,50,"flash3d",2,"param_id 2;dctM 12;lambda_t 1;lambda_s 0.6;bits 64",0.0250000000000021,6,0.577326143892966,NA
-"touching_blobs",8192,50,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.3;bits 128",0.0240000000000009,6,0.587250057178713,NA
-"touching_blobs",8192,50,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.0600000000000023,6,0.781410014189654,NA
-"touching_blobs",8192,50,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.109000000000002,6,0.640618916963919,NA
-"touching_blobs",8192,50,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.0719999999999992,6,0.7986266046532,NA
-"touching_blobs",8192,50,"g3s",1,"param_id 1;spatial_weight 0.15",0.299,6,0.87973797650858,NA
-"touching_blobs",8192,50,"g3s",2,"param_id 2;spatial_weight 0.35",0.300000000000001,6,0.87973797650858,NA
-"touching_blobs",8192,50,"g3s",3,"param_id 3;spatial_weight 0.1",0.312000000000001,6,0.87973797650858,NA
-"touching_blobs",8192,50,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",8.296,6,0.94030378917581,NA
-"touching_blobs",8192,50,"rena",1,"param_id 1;connectivity 6",0.0670000000000002,4,0.777980280469063,NA
-"touching_blobs",8192,50,"rena",2,"param_id 2;connectivity 26",0.107999999999997,2,0.218143330825796,NA
-"touching_blobs",8192,50,"rena_plus",1,"param_id 1;connectivity 6",1.671,5,0.964497150108915,NA
-"touching_blobs",8192,50,"rena_plus",2,"param_id 2;connectivity 26",9.211,2,0.375146516622589,NA
-"touching_blobs",8192,50,"acsc",1,"param_id 1;alpha 0.4",2.254,6,0.67254881110991,NA
-"touching_blobs",8192,50,"acsc",2,"param_id 2;alpha 0.6",2.53,6,0.72066180374061,NA
-"touching_blobs",8192,50,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",2.057,6,0.495739371175237,NA
-"touching_blobs",8192,50,"commute",2,"param_id 2;spatial_weight 0.1;ncomp NA",1.956,6,0.495739371175237,NA
-"blobs_noisy",2400,50,"snic",1,"param_id 1;compactness 1.5",0.322999999999993,4,0.730665156703915,NA
-"blobs_noisy",2400,50,"snic",2,"param_id 2;compactness 3",0.321999999999996,4,0.732411707150045,NA
-"blobs_noisy",2400,50,"snic",3,"param_id 3;compactness 0.8",0.305,4,0.729553810635971,NA
-"blobs_noisy",2400,50,"slice_msf",1,"param_id 1;r 8;min_size 6;compactness 3;stitch_z TRUE",0.0150000000000006,4,0.96893594016056,NA
-"blobs_noisy",2400,50,"slice_msf",2,"param_id 2;r 12;min_size 10;compactness 4;stitch_z TRUE",0.0180000000000007,4,0.965462564148907,NA
-"blobs_noisy",2400,50,"slice_msf",3,"param_id 3;r 8;min_size 6;compactness 1.5;stitch_z TRUE",0.0150000000000006,4,0.606627776640091,NA
-"blobs_noisy",2400,50,"supervoxels",1,"param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6",0.0330000000000013,4,0.92448505613227,NA
-"blobs_noisy",2400,50,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.0329999999999941,4,0.923707030505179,NA
-"blobs_noisy",2400,50,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.6;bits 64",0.0069999999999979,4,0.424661285245301,NA
-"blobs_noisy",2400,50,"flash3d",2,"param_id 2;dctM 12;lambda_t 1;lambda_s 0.6;bits 64",0.0130000000000052,4,0.428008848750935,NA
-"blobs_noisy",2400,50,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.3;bits 128",0.00999999999999801,4,0.43478893193821,NA
-"blobs_noisy",2400,50,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.0180000000000007,4,0.664894183077059,NA
-"blobs_noisy",2400,50,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.0140000000000029,4,0.527869607245302,NA
-"blobs_noisy",2400,50,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.0180000000000007,4,0.633820057073495,NA
-"blobs_noisy",2400,50,"g3s",1,"param_id 1;spatial_weight 0.15",0.0959999999999965,4,0.984217907463934,NA
-"blobs_noisy",2400,50,"g3s",2,"param_id 2;spatial_weight 0.35",0.0959999999999965,4,0.98573884421725,NA
-"blobs_noisy",2400,50,"g3s",3,"param_id 3;spatial_weight 0.1",0.0989999999999966,4,0.984217907463934,NA
-"blobs_noisy",2400,50,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",1.51,4,0.98979004923475,NA
+"block_small",144,80,"acsc",1,"param_id 1;alpha 0.4",0.0750000000000002,3,0.0619128526693536,NA
+"block_small",144,80,"acsc",2,"param_id 2;alpha 0.6",0.00400000000000045,3,0.0619128526693536,NA
+"block_small",144,80,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",0.0190000000000001,3,0.375182056510341,NA
+"block_small",144,80,"commute",2,"param_id 2;spatial_weight 0.1;ncomp NA",0.0459999999999994,3,0.375182056510341,NA
+"blobs_small",2400,40,"snic",1,"param_id 1;compactness 1.5",0.274,4,0.90065775559319,NA
+"blobs_small",2400,40,"snic",2,"param_id 2;compactness 3",0.272,4,0.96255283274906,NA
+"blobs_small",2400,40,"snic",3,"param_id 3;compactness 0.8",0.285,4,0.758133455291541,NA
+"blobs_small",2400,40,"slice_msf",1,"param_id 1;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.0110000000000001,4,0.993118010156604,NA
+"blobs_small",2400,40,"slice_msf",2,"param_id 2;r 8;min_size 2;compactness 1.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.0110000000000001,4,0.992846964934184,NA
+"blobs_small",2400,40,"slice_msf",3,"param_id 3;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 4;z_mult 0;stitch_z TRUE;num_runs 1;consensus FALSE",0.00999999999999979,4,1,NA
+"blobs_small",2400,40,"supervoxels",1,"param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6",0.0359999999999996,4,0.583331660487075,NA
+"blobs_small",2400,40,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.0430000000000001,4,0.578979193968603,NA
+"blobs_small",2400,40,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.15;bits 64;rounds 2",0.00600000000000023,4,0.305174284940768,NA
+"blobs_small",2400,40,"flash3d",2,"param_id 2;dctM 16;lambda_t 1.4;lambda_s 0.35;bits 64;rounds 4",0.00800000000000001,4,0.302024687056237,NA
+"blobs_small",2400,40,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.25;bits 64;rounds 4",0.00800000000000001,4,0.31709467124636,NA
+"blobs_small",2400,40,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.00999999999999979,4,0.718849656784432,NA
+"blobs_small",2400,40,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.00999999999999979,4,0.568026525528095,NA
+"blobs_small",2400,40,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.0110000000000001,4,0.722408955611457,NA
+"blobs_small",2400,40,"corr_slic",1,"param_id 1;tuned TRUE;spatial_weight 0.05;embedding_dim 24;adaptive_embedding FALSE;embedding_basis hash;embedding_whiten FALSE;sketch_repeats 1;quantize_assign TRUE;assign_stride 3;max_iterations 4;refine_exact_iters 0;refine_boundary_only TRUE;refine_stride 1;seed 7;family clean_blobs",0.00999999999999979,4,0.647047910668955,NA
+"blobs_small",2400,40,"brs_slic",1,"param_id 1;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0.01;refine_l2_weight 0.02",0.0110000000000001,4,0.53727122367951,NA
+"blobs_small",2400,40,"brs_slic",2,"param_id 2;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.0110000000000001,4,0.535815955815433,NA
+"blobs_small",2400,40,"brs_slic",3,"param_id 3;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 2;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.0110000000000001,4,0.535401677515896,NA
+"blobs_small",2400,40,"g3s",1,"param_id 1;spatial_weight 0.15",0.0700000000000003,4,1,NA
+"blobs_small",2400,40,"g3s",2,"param_id 2;spatial_weight 0.35",0.0679999999999996,4,0.916002742295475,NA
+"blobs_small",2400,40,"g3s",3,"param_id 3;spatial_weight 0.1",0.0680000000000005,4,1,NA
+"blobs_small",2400,40,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;corrslic_spatial_weight 0.08;corrslic_embedding_dim auto;corrslic_sketch_repeats 1;corrslic_connectivity 6;corrslic_assign_stride 1;corrslic_quantize_assign TRUE;corrslic_embedding_basis dct;corrslic_embedding_whiten FALSE;corrslic_refine_exact_iters 1;corrslic_refine_boundary_only TRUE;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",0.599000000000001,3,0.952377361960451,NA
+"blobs_small",2400,40,"rena",1,"param_id 1;connectivity 6",0.0150000000000006,1,NA,"returned single partition"
+"blobs_small",2400,40,"rena",2,"param_id 2;connectivity 26",0.027000000000001,4,1,NA
+"blobs_small",2400,40,"rena_plus",1,"param_id 1;connectivity 6",0.119999999999999,3,0.763683867812959,NA
+"blobs_small",2400,40,"rena_plus",2,"param_id 2;connectivity 26",0.601999999999999,1,NA,"returned single partition"
+"blobs_small",2400,40,"acsc",1,"param_id 1;alpha 0.4",0.00799999999999912,4,0.614901506863421,NA
+"blobs_small",2400,40,"acsc",2,"param_id 2;alpha 0.6",0.00900000000000034,4,0.614901506863421,NA
+"blobs_small",2400,40,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",0.218,4,0.26086077673822,NA
+"blobs_small",2400,40,"commute",2,"param_id 2;spatial_weight 0.1;ncomp NA",0.221,4,0.26086077673822,NA
+"touching_blobs",8192,50,"snic",1,"param_id 1;compactness 1.5",2.716,6,0.783289558819282,NA
+"touching_blobs",8192,50,"snic",2,"param_id 2;compactness 3",2.632,6,0.947574791272159,NA
+"touching_blobs",8192,50,"snic",3,"param_id 3;compactness 0.8",2.624,6,0.572871876045028,NA
+"touching_blobs",8192,50,"slice_msf",1,"param_id 1;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.0479999999999983,6,0.980129921161082,NA
+"touching_blobs",8192,50,"slice_msf",2,"param_id 2;r 8;min_size 2;compactness 1.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.0459999999999994,6,0.990957693858068,NA
+"touching_blobs",8192,50,"slice_msf",3,"param_id 3;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 4;z_mult 0;stitch_z TRUE;num_runs 1;consensus FALSE",0.0399999999999991,6,0.999880721367442,NA
+"touching_blobs",8192,50,"supervoxels",1,"param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6",0.109999999999999,6,1,NA
+"touching_blobs",8192,50,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.113,6,1,NA
+"touching_blobs",8192,50,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.15;bits 64;rounds 2",0.0190000000000019,6,0.601301817966883,NA
+"touching_blobs",8192,50,"flash3d",2,"param_id 2;dctM 16;lambda_t 1.4;lambda_s 0.35;bits 64;rounds 4",0.0249999999999986,6,0.568669371812694,NA
+"touching_blobs",8192,50,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.25;bits 64;rounds 4",0.0259999999999998,6,0.570299037573943,NA
+"touching_blobs",8192,50,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.0449999999999982,6,0.91149113707372,NA
+"touching_blobs",8192,50,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.133000000000003,6,0.688976431553841,NA
+"touching_blobs",8192,50,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.0500000000000007,6,0.91221508875319,NA
+"touching_blobs",8192,50,"corr_slic",1,"param_id 1;tuned TRUE;spatial_weight 0.05;embedding_dim 24;adaptive_embedding FALSE;embedding_basis hash;embedding_whiten FALSE;sketch_repeats 1;quantize_assign TRUE;assign_stride 2;max_iterations 4;refine_exact_iters 0;refine_boundary_only TRUE;refine_stride 1;seed 7;family topology",0.0329999999999977,6,0.990454122820607,NA
+"touching_blobs",8192,50,"brs_slic",1,"param_id 1;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0.01;refine_l2_weight 0.02",0.0380000000000003,6,0.831227016055598,NA
+"touching_blobs",8192,50,"brs_slic",2,"param_id 2;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.0380000000000003,6,0.83745669593915,NA
+"touching_blobs",8192,50,"brs_slic",3,"param_id 3;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 2;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.0390000000000015,6,0.841977677614064,NA
+"touching_blobs",8192,50,"g3s",1,"param_id 1;spatial_weight 0.15",0.327000000000002,6,0.87973797650858,NA
+"touching_blobs",8192,50,"g3s",2,"param_id 2;spatial_weight 0.35",0.326,6,0.87973797650858,NA
+"touching_blobs",8192,50,"g3s",3,"param_id 3;spatial_weight 0.1",0.323999999999998,6,0.87973797650858,NA
+"touching_blobs",8192,50,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;corrslic_spatial_weight 0.08;corrslic_embedding_dim auto;corrslic_sketch_repeats 1;corrslic_connectivity 6;corrslic_assign_stride 1;corrslic_quantize_assign TRUE;corrslic_embedding_basis dct;corrslic_embedding_whiten FALSE;corrslic_refine_exact_iters 1;corrslic_refine_boundary_only TRUE;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",5.067,6,0.964364472016402,NA
+"touching_blobs",8192,50,"rena",1,"param_id 1;connectivity 6",0.0539999999999985,4,0.777980280469063,NA
+"touching_blobs",8192,50,"rena",2,"param_id 2;connectivity 26",0.0940000000000012,2,0.218143330825796,NA
+"touching_blobs",8192,50,"rena_plus",1,"param_id 1;connectivity 6",1.296,5,0.964497150108915,NA
+"touching_blobs",8192,50,"rena_plus",2,"param_id 2;connectivity 26",7.274,2,0.375146516622589,NA
+"touching_blobs",8192,50,"acsc",1,"param_id 1;alpha 0.4",0.0289999999999964,6,0.768584629069061,NA
+"touching_blobs",8192,50,"acsc",2,"param_id 2;alpha 0.6",0.0289999999999964,6,0.768584629069061,NA
+"touching_blobs",8192,50,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",1.65499999999999,6,0.502674477298924,NA
+"touching_blobs",8192,50,"commute",2,"param_id 2;spatial_weight 0.1;ncomp NA",1.652,6,0.495739371175237,NA
+"blobs_noisy",2400,50,"snic",1,"param_id 1;compactness 1.5",0.273000000000003,4,0.782192535981585,NA
+"blobs_noisy",2400,50,"snic",2,"param_id 2;compactness 3",0.271000000000001,4,0.710266690675012,NA
+"blobs_noisy",2400,50,"snic",3,"param_id 3;compactness 0.8",0.271000000000001,4,0.981003232755934,NA
+"blobs_noisy",2400,50,"slice_msf",1,"param_id 1;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.0169999999999959,4,0.954477291100838,NA
+"blobs_noisy",2400,50,"slice_msf",2,"param_id 2;r 8;min_size 2;compactness 1.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.0129999999999981,4,0.900526405400695,NA
+"blobs_noisy",2400,50,"slice_msf",3,"param_id 3;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 4;z_mult 0;stitch_z TRUE;num_runs 1;consensus FALSE",0.0180000000000007,4,0.965921472016967,NA
+"blobs_noisy",2400,50,"supervoxels",1,"param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6",0.0290000000000035,4,0.92448505613227,NA
+"blobs_noisy",2400,50,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.0319999999999965,4,0.923707030505179,NA
+"blobs_noisy",2400,50,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.15;bits 64;rounds 2",0.0069999999999979,4,0.439578907777257,NA
+"blobs_noisy",2400,50,"flash3d",2,"param_id 2;dctM 16;lambda_t 1.4;lambda_s 0.35;bits 64;rounds 4",0.00900000000000034,4,0.434390157223343,NA
+"blobs_noisy",2400,50,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.25;bits 64;rounds 4",0.00999999999999801,4,0.43273360242564,NA
+"blobs_noisy",2400,50,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.0120000000000005,4,0.661161239673259,NA
+"blobs_noisy",2400,50,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.0129999999999981,4,0.528229393315493,NA
+"blobs_noisy",2400,50,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.0139999999999958,4,0.442073183404581,NA
+"blobs_noisy",2400,50,"corr_slic",1,"param_id 1;tuned TRUE;spatial_weight 0.08;embedding_dim 24;adaptive_embedding FALSE;embedding_basis hash;embedding_whiten FALSE;sketch_repeats 1;quantize_assign TRUE;assign_stride 2;max_iterations 4;refine_exact_iters 2;refine_boundary_only TRUE;refine_stride 1;seed 7;family noisy_blobs",0.0129999999999981,4,0.975228154421014,NA
+"blobs_noisy",2400,50,"brs_slic",1,"param_id 1;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0.01;refine_l2_weight 0.02",0.0120000000000005,4,0.968259065087272,NA
+"blobs_noisy",2400,50,"brs_slic",2,"param_id 2;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.0120000000000005,4,0.968259065087272,NA
+"blobs_noisy",2400,50,"brs_slic",3,"param_id 3;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 2;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.0129999999999981,4,0.968401622767409,NA
+"blobs_noisy",2400,50,"g3s",1,"param_id 1;spatial_weight 0.15",0.0949999999999989,4,0.984217907463934,NA
+"blobs_noisy",2400,50,"g3s",2,"param_id 2;spatial_weight 0.35",0.0959999999999965,4,0.98358738965768,NA
+"blobs_noisy",2400,50,"g3s",3,"param_id 3;spatial_weight 0.1",0.0940000000000012,4,0.986464473623145,NA
+"blobs_noisy",2400,50,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;corrslic_spatial_weight 0.08;corrslic_embedding_dim auto;corrslic_sketch_repeats 1;corrslic_connectivity 6;corrslic_assign_stride 1;corrslic_quantize_assign TRUE;corrslic_embedding_basis dct;corrslic_embedding_whiten FALSE;corrslic_refine_exact_iters 1;corrslic_refine_boundary_only TRUE;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",0.640999999999998,4,0.987310767326553,NA
 "blobs_noisy",2400,50,"rena",1,"param_id 1;connectivity 6",0.0159999999999982,3,0.672681861493018,NA
-"blobs_noisy",2400,50,"rena",2,"param_id 2;connectivity 26",0.0459999999999994,1,NA,"returned single partition"
-"blobs_noisy",2400,50,"rena_plus",1,"param_id 1;connectivity 6",0.147999999999996,4,0.972467464708432,NA
-"blobs_noisy",2400,50,"rena_plus",2,"param_id 2;connectivity 26",0.758000000000003,1,NA,"returned single partition"
-"blobs_noisy",2400,50,"acsc",1,"param_id 1;alpha 0.4",0.75,4,0.39313894422021,NA
-"blobs_noisy",2400,50,"acsc",2,"param_id 2;alpha 0.6",0.742000000000004,4,0.39313894422021,NA
-"blobs_noisy",2400,50,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",0.259,4,0.390292108900032,NA
-"blobs_noisy",2400,50,"commute",2,"param_id 2;spatial_weight 0.1;ncomp NA",0.275000000000006,4,0.390292108900032,NA
-"blobs_overlap_soft",5760,60,"snic",1,"param_id 1;compactness 1.5",1.693,6,0.59456157753827,NA
-"blobs_overlap_soft",5760,60,"snic",2,"param_id 2;compactness 3",1.69499999999999,6,0.482868859805519,NA
-"blobs_overlap_soft",5760,60,"snic",3,"param_id 3;compactness 0.8",1.69800000000001,6,0.606399862188602,NA
-"blobs_overlap_soft",5760,60,"slice_msf",1,"param_id 1;r 8;min_size 6;compactness 3;stitch_z TRUE",0.0430000000000064,6,-0.0019925108676409,NA
-"blobs_overlap_soft",5760,60,"slice_msf",2,"param_id 2;r 12;min_size 10;compactness 4;stitch_z TRUE",0.0500000000000114,6,0.295295888637467,NA
-"blobs_overlap_soft",5760,60,"slice_msf",3,"param_id 3;r 8;min_size 6;compactness 1.5;stitch_z TRUE",0.0409999999999968,6,-0.00317979438465406,NA
-"blobs_overlap_soft",5760,60,"supervoxels",1,"param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6",0.141999999999996,6,0.197854643186613,NA
-"blobs_overlap_soft",5760,60,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.173999999999992,6,0.178467083001264,NA
-"blobs_overlap_soft",5760,60,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.6;bits 64",0.0279999999999916,6,0.304137850392815,NA
-"blobs_overlap_soft",5760,60,"flash3d",2,"param_id 2;dctM 12;lambda_t 1;lambda_s 0.6;bits 64",0.0220000000000056,6,0.304128434553067,NA
-"blobs_overlap_soft",5760,60,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.3;bits 128",0.0289999999999964,6,0.308818030092173,NA
-"blobs_overlap_soft",5760,60,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.0520000000000067,6,0.71366268626442,NA
-"blobs_overlap_soft",5760,60,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.0689999999999884,6,0.438426258819407,NA
-"blobs_overlap_soft",5760,60,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.0489999999999924,6,0.711744601590892,NA
-"blobs_overlap_soft",5760,60,"g3s",1,"param_id 1;spatial_weight 0.15",0.245999999999995,6,0.674499574885806,NA
-"blobs_overlap_soft",5760,60,"g3s",2,"param_id 2;spatial_weight 0.35",0.248000000000005,6,0.663701696089324,NA
-"blobs_overlap_soft",5760,60,"g3s",3,"param_id 3;spatial_weight 0.1",0.263000000000005,6,0.675514080148276,NA
-"blobs_overlap_soft",5760,60,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",5.618,6,0.764571620514107,NA
-"blobs_overlap_soft",5760,60,"rena",1,"param_id 1;connectivity 6",0.0460000000000065,2,0.302218986721056,NA
-"blobs_overlap_soft",5760,60,"rena",2,"param_id 2;connectivity 26",0.0720000000000027,6,0.923302453385918,NA
-"blobs_overlap_soft",5760,60,"rena_plus",1,"param_id 1;connectivity 6",0.887,5,0.598804248946577,NA
-"blobs_overlap_soft",5760,60,"rena_plus",2,"param_id 2;connectivity 26",4.633,5,0.522989986862028,NA
-"blobs_overlap_soft",5760,60,"acsc",1,"param_id 1;alpha 0.4",1.809,6,0.441477889105598,NA
-"blobs_overlap_soft",5760,60,"acsc",2,"param_id 2;alpha 0.6",2.215,6,0.232514031996339,NA
-"blobs_overlap_soft",5760,60,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",1.17200000000001,6,0.27965587953495,NA
-"blobs_overlap_soft",5760,60,"commute",2,"param_id 2;spatial_weight 0.1;ncomp NA",1.11099999999999,6,0.27965587953495,NA
-"z_layers_soft",7840,60,"snic",1,"param_id 1;compactness 1.5",3.06200000000001,5,0.392445487585248,NA
-"z_layers_soft",7840,60,"snic",2,"param_id 2;compactness 3",3.06699999999999,5,0.379292276224844,NA
-"z_layers_soft",7840,60,"snic",3,"param_id 3;compactness 0.8",3.155,5,0.70051062520238,NA
-"z_layers_soft",7840,60,"slice_msf",1,"param_id 1;r 8;min_size 6;compactness 3;stitch_z TRUE",0.0520000000000067,5,0.0090552971500025,NA
-"z_layers_soft",7840,60,"slice_msf",2,"param_id 2;r 12;min_size 10;compactness 4;stitch_z TRUE",0.0539999999999878,5,0.0090552971500025,NA
-"z_layers_soft",7840,60,"slice_msf",3,"param_id 3;r 8;min_size 6;compactness 1.5;stitch_z TRUE",0.0550000000000068,5,0.0090552971500025,NA
-"z_layers_soft",7840,60,"supervoxels",1,"param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6",0.117999999999995,5,0.783316599756784,NA
-"z_layers_soft",7840,60,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.114999999999995,5,0.783316599756784,NA
-"z_layers_soft",7840,60,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.6;bits 64",0.027000000000001,5,0.00845174351993137,NA
-"z_layers_soft",7840,60,"flash3d",2,"param_id 2;dctM 12;lambda_t 1;lambda_s 0.6;bits 64",0.0240000000000009,5,0.00740114038148197,NA
-"z_layers_soft",7840,60,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.3;bits 128",0.0430000000000064,5,0.0138747166828903,NA
-"z_layers_soft",7840,60,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.0490000000000066,5,0.701479544443677,NA
-"z_layers_soft",7840,60,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.0500000000000114,5,0.286523241572548,NA
-"z_layers_soft",7840,60,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.0579999999999927,5,0.402791292171999,NA
-"z_layers_soft",7840,60,"g3s",1,"param_id 1;spatial_weight 0.15",0.349000000000004,5,0.729277114024769,NA
-"z_layers_soft",7840,60,"g3s",2,"param_id 2;spatial_weight 0.35",0.350999999999999,5,0.708316093427212,NA
-"z_layers_soft",7840,60,"g3s",3,"param_id 3;spatial_weight 0.1",0.346000000000004,5,0.70019397073151,NA
-"z_layers_soft",7840,60,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",8.274,5,0.628470252273982,NA
-"z_layers_soft",7840,60,"rena",1,"param_id 1;connectivity 6",0.0640000000000072,2,0.376613908269351,NA
-"z_layers_soft",7840,60,"rena",2,"param_id 2;connectivity 26",0.123999999999995,5,1,NA
-"z_layers_soft",7840,60,"rena_plus",1,"param_id 1;connectivity 6",1.529,5,0.996788822020865,NA
-"z_layers_soft",7840,60,"rena_plus",2,"param_id 2;connectivity 26",8.605,5,1,NA
-"z_layers_soft",7840,60,"acsc",1,"param_id 1;alpha 0.4",2.524,5,0.278884670743378,NA
-"z_layers_soft",7840,60,"acsc",2,"param_id 2;alpha 0.6",2.55599999999998,5,0.290688384108862,NA
-"z_layers_soft",7840,60,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",2.08799999999999,5,0.00415050062788421,NA
-"z_layers_soft",7840,60,"commute",2,"param_id 2;spatial_weight 0.1;ncomp NA",2.02699999999999,5,0.00415050062788421,NA
-"braided_tubes",441,70,"snic",1,"param_id 1;compactness 1.5",0.0219999999999914,3,1,NA
-"braided_tubes",441,70,"snic",2,"param_id 2;compactness 3",0.0279999999999916,3,0.478010892329623,NA
-"braided_tubes",441,70,"snic",3,"param_id 3;compactness 0.8",0.0209999999999866,3,0.564954357799686,NA
-"braided_tubes",441,70,"slice_msf",1,"param_id 1;r 8;min_size 6;compactness 3;stitch_z TRUE",0.0510000000000161,9,0.275994900286986,NA
-"braided_tubes",441,70,"slice_msf",2,"param_id 2;r 12;min_size 10;compactness 4;stitch_z TRUE",0.054000000000002,9,0.275994900286986,NA
-"braided_tubes",441,70,"slice_msf",3,"param_id 3;r 8;min_size 6;compactness 1.5;stitch_z TRUE",0.0420000000000016,9,0.275994900286986,NA
-"braided_tubes",441,70,"supervoxels",1,"param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6",0.0160000000000196,3,0.433854737085677,NA
-"braided_tubes",441,70,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.00899999999998613,3,0.388444293780875,NA
-"braided_tubes",441,70,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.6;bits 64",0.0040000000000191,NA,NA,"number of cluster centres must lie between 1 and nrow(x)"
-"braided_tubes",441,70,"flash3d",2,"param_id 2;dctM 12;lambda_t 1;lambda_s 0.6;bits 64",0.00399999999999068,NA,NA,"number of cluster centres must lie between 1 and nrow(x)"
-"braided_tubes",441,70,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.3;bits 128",0.0029999999999859,NA,NA,"number of cluster centres must lie between 1 and nrow(x)"
-"braided_tubes",441,70,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.00399999999999068,3,1,NA
-"braided_tubes",441,70,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.00499999999999545,3,1,NA
-"braided_tubes",441,70,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.00399999999999068,3,1,NA
-"braided_tubes",441,70,"g3s",1,"param_id 1;spatial_weight 0.15",0.0200000000000102,3,1,NA
-"braided_tubes",441,70,"g3s",2,"param_id 2;spatial_weight 0.35",0.0240000000000009,3,0.453102710621631,NA
-"braided_tubes",441,70,"g3s",3,"param_id 3;spatial_weight 0.1",0.025999999999982,3,0.44553700267986,NA
-"braided_tubes",441,70,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",0.480000000000018,NA,NA,"missing value where TRUE/FALSE needed"
+"blobs_noisy",2400,50,"rena",2,"param_id 2;connectivity 26",0.0289999999999964,1,NA,"returned single partition"
+"blobs_noisy",2400,50,"rena_plus",1,"param_id 1;connectivity 6",0.123999999999995,4,0.972467464708432,NA
+"blobs_noisy",2400,50,"rena_plus",2,"param_id 2;connectivity 26",0.603999999999999,1,NA,"returned single partition"
+"blobs_noisy",2400,50,"acsc",1,"param_id 1;alpha 0.4",0.0100000000000051,4,0.936320554368579,NA
+"blobs_noisy",2400,50,"acsc",2,"param_id 2;alpha 0.6",0.00900000000000034,4,0.936320554368579,NA
+"blobs_noisy",2400,50,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",0.222999999999999,4,0.390292108900032,NA
+"blobs_noisy",2400,50,"commute",2,"param_id 2;spatial_weight 0.1;ncomp NA",0.225000000000001,4,0.390292108900032,NA
+"blobs_overlap_soft",5760,60,"snic",1,"param_id 1;compactness 1.5",1.401,6,0.676557647929731,NA
+"blobs_overlap_soft",5760,60,"snic",2,"param_id 2;compactness 3",1.405,6,0.619703488063545,NA
+"blobs_overlap_soft",5760,60,"snic",3,"param_id 3;compactness 0.8",1.391,6,0.64010758608691,NA
+"blobs_overlap_soft",5760,60,"slice_msf",1,"param_id 1;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.106999999999999,6,0.657617544072801,NA
+"blobs_overlap_soft",5760,60,"slice_msf",2,"param_id 2;r 8;min_size 2;compactness 1.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.0360000000000014,6,0.391626930562164,NA
+"blobs_overlap_soft",5760,60,"slice_msf",3,"param_id 3;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 4;z_mult 0;stitch_z TRUE;num_runs 1;consensus FALSE",0.113,6,0.353206623916033,NA
+"blobs_overlap_soft",5760,60,"supervoxels",1,"param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6",0.247999999999998,6,0.197854643186613,NA
+"blobs_overlap_soft",5760,60,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.170999999999999,6,0.178467083001264,NA
+"blobs_overlap_soft",5760,60,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.15;bits 64;rounds 2",0.0180000000000007,6,0.321006835078688,NA
+"blobs_overlap_soft",5760,60,"flash3d",2,"param_id 2;dctM 16;lambda_t 1.4;lambda_s 0.35;bits 64;rounds 4",0.0239999999999938,6,0.301368881080151,NA
+"blobs_overlap_soft",5760,60,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.25;bits 64;rounds 4",0.0219999999999985,6,0.303751772129287,NA
+"blobs_overlap_soft",5760,60,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.0380000000000038,6,0.684168333870985,NA
+"blobs_overlap_soft",5760,60,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.0390000000000015,6,0.58244045104963,NA
+"blobs_overlap_soft",5760,60,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.0390000000000015,6,0.798543621234336,NA
+"blobs_overlap_soft",5760,60,"corr_slic",1,"param_id 1;tuned TRUE;spatial_weight 0.08;embedding_dim 24;adaptive_embedding FALSE;embedding_basis hash;embedding_whiten FALSE;sketch_repeats 1;quantize_assign TRUE;assign_stride 2;max_iterations 4;refine_exact_iters 2;refine_boundary_only TRUE;refine_stride 1;seed 7;family noisy_blobs",0.0410000000000039,6,0.565746198383641,NA
+"blobs_overlap_soft",5760,60,"brs_slic",1,"param_id 1;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0.01;refine_l2_weight 0.02",0.036999999999999,6,0.362239448965729,NA
+"blobs_overlap_soft",5760,60,"brs_slic",2,"param_id 2;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.036999999999999,6,0.35360684155322,NA
+"blobs_overlap_soft",5760,60,"brs_slic",3,"param_id 3;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 2;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.0410000000000039,6,0.321278444207818,NA
+"blobs_overlap_soft",5760,60,"g3s",1,"param_id 1;spatial_weight 0.15",0.289000000000001,6,0.677393030783007,NA
+"blobs_overlap_soft",5760,60,"g3s",2,"param_id 2;spatial_weight 0.35",0.291000000000004,6,0.675262606782004,NA
+"blobs_overlap_soft",5760,60,"g3s",3,"param_id 3;spatial_weight 0.1",0.290999999999997,6,0.657127218064879,NA
+"blobs_overlap_soft",5760,60,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;corrslic_spatial_weight 0.08;corrslic_embedding_dim auto;corrslic_sketch_repeats 1;corrslic_connectivity 6;corrslic_assign_stride 1;corrslic_quantize_assign TRUE;corrslic_embedding_basis dct;corrslic_embedding_whiten FALSE;corrslic_refine_exact_iters 1;corrslic_refine_boundary_only TRUE;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",2.838,5,0.67979394410919,NA
+"blobs_overlap_soft",5760,60,"rena",1,"param_id 1;connectivity 6",0.036999999999999,2,0.302218986721056,NA
+"blobs_overlap_soft",5760,60,"rena",2,"param_id 2;connectivity 26",0.0700000000000003,6,0.923302453385918,NA
+"blobs_overlap_soft",5760,60,"rena_plus",1,"param_id 1;connectivity 6",0.711000000000006,5,0.598804248946577,NA
+"blobs_overlap_soft",5760,60,"rena_plus",2,"param_id 2;connectivity 26",3.674,5,0.522989986862028,NA
+"blobs_overlap_soft",5760,60,"acsc",1,"param_id 1;alpha 0.4",0.0249999999999986,6,0.628418841368252,NA
+"blobs_overlap_soft",5760,60,"acsc",2,"param_id 2;alpha 0.6",0.0219999999999985,6,0.636274838955923,NA
+"blobs_overlap_soft",5760,60,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",0.951999999999998,6,0.27965587953495,NA
+"blobs_overlap_soft",5760,60,"commute",2,"param_id 2;spatial_weight 0.1;ncomp NA",0.957999999999998,6,0.27965587953495,NA
+"z_layers_soft",7840,60,"snic",1,"param_id 1;compactness 1.5",2.53400000000001,5,0.408659213541835,NA
+"z_layers_soft",7840,60,"snic",2,"param_id 2;compactness 3",2.55199999999999,5,0.408538140323874,NA
+"z_layers_soft",7840,60,"snic",3,"param_id 3;compactness 0.8",2.53700000000001,5,0.408735990353974,NA
+"z_layers_soft",7840,60,"slice_msf",1,"param_id 1;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.0520000000000067,5,0.597841917663937,NA
+"z_layers_soft",7840,60,"slice_msf",2,"param_id 2;r 8;min_size 2;compactness 1.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.0529999999999973,5,0.353854217155476,NA
+"z_layers_soft",7840,60,"slice_msf",3,"param_id 3;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 4;z_mult 0;stitch_z TRUE;num_runs 1;consensus FALSE",0.0450000000000017,5,0.376613908269351,NA
+"z_layers_soft",7840,60,"supervoxels",1,"param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6",0.129000000000005,5,0.783316599756784,NA
+"z_layers_soft",7840,60,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.134,5,0.783316599756784,NA
+"z_layers_soft",7840,60,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.15;bits 64;rounds 2",0.0210000000000008,5,0.0356618349641118,NA
+"z_layers_soft",7840,60,"flash3d",2,"param_id 2;dctM 16;lambda_t 1.4;lambda_s 0.35;bits 64;rounds 4",0.0290000000000106,5,0.00674511885290008,NA
+"z_layers_soft",7840,60,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.25;bits 64;rounds 4",0.0300000000000011,5,0.00846771261636038,NA
+"z_layers_soft",7840,60,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.0420000000000016,5,0.721558017712824,NA
+"z_layers_soft",7840,60,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.0470000000000113,5,0.416136252015054,NA
+"z_layers_soft",7840,60,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.0490000000000066,5,0.424412253193289,NA
+"z_layers_soft",7840,60,"corr_slic",1,"param_id 1;tuned TRUE;spatial_weight 0.05;embedding_dim 24;adaptive_embedding FALSE;embedding_basis hash;embedding_whiten FALSE;sketch_repeats 2;quantize_assign TRUE;assign_stride 2;max_iterations 6;refine_exact_iters 2;refine_boundary_only TRUE;refine_stride 2;seed 7;family layered",0.0470000000000113,5,0.717320942385774,NA
+"z_layers_soft",7840,60,"brs_slic",1,"param_id 1;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0.01;refine_l2_weight 0.02",0.0430000000000064,5,0.75689844354467,NA
+"z_layers_soft",7840,60,"brs_slic",2,"param_id 2;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.0439999999999969,5,0.75689844354467,NA
+"z_layers_soft",7840,60,"brs_slic",3,"param_id 3;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 2;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.0460000000000065,5,0.808475409121738,NA
+"z_layers_soft",7840,60,"g3s",1,"param_id 1;spatial_weight 0.15",0.429000000000002,5,0.7379619403486,NA
+"z_layers_soft",7840,60,"g3s",2,"param_id 2;spatial_weight 0.35",0.424999999999997,5,0.729162535488582,NA
+"z_layers_soft",7840,60,"g3s",3,"param_id 3;spatial_weight 0.1",0.427999999999997,5,0.738598457457701,NA
+"z_layers_soft",7840,60,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;corrslic_spatial_weight 0.08;corrslic_embedding_dim auto;corrslic_sketch_repeats 1;corrslic_connectivity 6;corrslic_assign_stride 1;corrslic_quantize_assign TRUE;corrslic_embedding_basis dct;corrslic_embedding_whiten FALSE;corrslic_refine_exact_iters 1;corrslic_refine_boundary_only TRUE;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",4.953,5,0.747978267039562,NA
+"z_layers_soft",7840,60,"rena",1,"param_id 1;connectivity 6",0.0550000000000068,2,0.376613908269351,NA
+"z_layers_soft",7840,60,"rena",2,"param_id 2;connectivity 26",0.097999999999999,5,1,NA
+"z_layers_soft",7840,60,"rena_plus",1,"param_id 1;connectivity 6",1.245,5,0.996788822020865,NA
+"z_layers_soft",7840,60,"rena_plus",2,"param_id 2;connectivity 26",6.732,5,1,NA
+"z_layers_soft",7840,60,"acsc",1,"param_id 1;alpha 0.4",0.0289999999999964,5,0.613986794702079,NA
+"z_layers_soft",7840,60,"acsc",2,"param_id 2;alpha 0.6",0.0300000000000011,5,0.613986794702079,NA
+"z_layers_soft",7840,60,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",1.619,5,0.00415050062788421,NA
+"z_layers_soft",7840,60,"commute",2,"param_id 2;spatial_weight 0.1;ncomp NA",1.60899999999999,5,0.00415050062788421,NA
+"braided_tubes",441,70,"snic",1,"param_id 1;compactness 1.5",0.027000000000001,3,0.484527520785717,NA
+"braided_tubes",441,70,"snic",2,"param_id 2;compactness 3",0.0280000000000058,3,0.442893564292241,NA
+"braided_tubes",441,70,"snic",3,"param_id 3;compactness 0.8",0.027000000000001,3,0.567062455115557,NA
+"braided_tubes",441,70,"slice_msf",1,"param_id 1;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.0320000000000107,9,0.275994900286986,NA
+"braided_tubes",441,70,"slice_msf",2,"param_id 2;r 8;min_size 2;compactness 1.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE",0.0289999999999964,9,0.275994900286986,NA
+"braided_tubes",441,70,"slice_msf",3,"param_id 3;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 4;z_mult 0;stitch_z TRUE;num_runs 1;consensus FALSE",0.0279999999999916,9,0.275994900286986,NA
+"braided_tubes",441,70,"supervoxels",1,"param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6",0.0109999999999957,3,0.433854737085677,NA
+"braided_tubes",441,70,"supervoxels",2,"param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18",0.00799999999999557,3,0.388444293780875,NA
+"braided_tubes",441,70,"flash3d",1,"param_id 1;dctM 8;lambda_t 1;lambda_s 0.15;bits 64;rounds 2",0.00300000000000011,4,0.539495882571836,NA
+"braided_tubes",441,70,"flash3d",2,"param_id 2;dctM 16;lambda_t 1.4;lambda_s 0.35;bits 64;rounds 4",0.00499999999999545,4,0.521829747091389,NA
+"braided_tubes",441,70,"flash3d",3,"param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.25;bits 64;rounds 4",0.00600000000000023,4,0.521829747091389,NA
+"braided_tubes",441,70,"slic",1,"param_id 1;spatial_weight 0.1;connectivity 26",0.00400000000000489,3,1,NA
+"braided_tubes",441,70,"slic",2,"param_id 2;spatial_weight 0.25;connectivity 26",0.00399999999999068,3,1,NA
+"braided_tubes",441,70,"slic",3,"param_id 3;spatial_weight 0.05;connectivity 26",0.00400000000000489,3,1,NA
+"braided_tubes",441,70,"corr_slic",1,"param_id 1;tuned TRUE;spatial_weight 0.05;embedding_dim 24;adaptive_embedding FALSE;embedding_basis hash;embedding_whiten FALSE;sketch_repeats 1;quantize_assign TRUE;assign_stride 2;max_iterations 4;refine_exact_iters 0;refine_boundary_only TRUE;refine_stride 1;seed 7;family topology",0.00300000000000011,3,0.361610024947056,NA
+"braided_tubes",441,70,"brs_slic",1,"param_id 1;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0.01;refine_l2_weight 0.02",0.00400000000000489,3,0.671162349140668,NA
+"braided_tubes",441,70,"brs_slic",2,"param_id 2;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 1;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.00300000000000011,3,0.671162349140668,NA
+"braided_tubes",441,70,"brs_slic",3,"param_id 3;spatial_weight 0.05;embedding_dim 24;sketch_repeats 1;connectivity 6;max_iterations 3;boundary_passes 2;global_passes 0;refine_spatial_weight 0;refine_l2_weight 0.08",0.00400000000000489,3,0.639724824277242,NA
+"braided_tubes",441,70,"g3s",1,"param_id 1;spatial_weight 0.15",0.0249999999999915,3,0.443579280452416,NA
+"braided_tubes",441,70,"g3s",2,"param_id 2;spatial_weight 0.35",0.0250000000000057,3,0.448713674253482,NA
+"braided_tubes",441,70,"g3s",3,"param_id 3;spatial_weight 0.1",0.0240000000000009,3,1,NA
+"braided_tubes",441,70,"consensus_combo",1,"param_id 1;snic_compactness 1.5;slice_r 8;slice_min_size 6;slice_compactness 3;slice_stitch_z FALSE;super_alpha 0.3;super_sigma1 1;super_sigma2 1.8;super_connectivity 6;flash_dctM 8;flash_lambda_t 1;flash_lambda_s 0.6;flash_bits 64;slic_spatial_weight 0.1;slic_connectivity 26;corrslic_spatial_weight 0.08;corrslic_embedding_dim auto;corrslic_sketch_repeats 1;corrslic_connectivity 6;corrslic_assign_stride 1;corrslic_quantize_assign TRUE;corrslic_embedding_basis dct;corrslic_embedding_whiten FALSE;corrslic_refine_exact_iters 1;corrslic_refine_boundary_only TRUE;g3s_spatial_weight 0.15;rena_conn 6;rena_plus_conn 6;acsc_alpha 0.4",0.119,NA,NA,"missing value where TRUE/FALSE needed"
 "braided_tubes",441,70,"rena",1,"param_id 1;connectivity 6",0.00600000000000023,2,0.570388310903248,NA
 "braided_tubes",441,70,"rena",2,"param_id 2;connectivity 26",0.00800000000000978,2,0.570388310903248,NA
-"braided_tubes",441,70,"rena_plus",1,"param_id 1;connectivity 6",0.00600000000000023,9,0.275994900286986,NA
-"braided_tubes",441,70,"rena_plus",2,"param_id 2;connectivity 26",0.0100000000000193,3,1,NA
-"braided_tubes",441,70,"acsc",1,"param_id 1;alpha 0.4",0.22999999999999,3,0.689253635429571,NA
-"braided_tubes",441,70,"acsc",2,"param_id 2;alpha 0.6",0.239999999999981,3,0.689253635429571,NA
-"braided_tubes",441,70,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",0.0310000000000059,3,0.378039887498597,NA
+"braided_tubes",441,70,"rena_plus",1,"param_id 1;connectivity 6",0.00499999999999545,9,0.275994900286986,NA
+"braided_tubes",441,70,"rena_plus",2,"param_id 2;connectivity 26",0.0100000000000051,3,1,NA
+"braided_tubes",441,70,"acsc",1,"param_id 1;alpha 0.4",0.00500000000000966,3,0.237857019011585,NA
+"braided_tubes",441,70,"acsc",2,"param_id 2;alpha 0.6",0.00499999999999545,3,0.237857019011585,NA
+"braided_tubes",441,70,"commute",1,"param_id 1;spatial_weight 0.2;ncomp NA",0.0350000000000108,3,0.406957247722024,NA
 "braided_tubes",441,70,"commute",2,"param_id 2;spatial_weight 0.1;ncomp NA",0.0360000000000014,3,0.378039887498597,NA

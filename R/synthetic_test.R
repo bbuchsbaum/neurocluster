@@ -104,9 +104,9 @@ make_synthetic_clusters <- function(n_time = 100, noise_sd = 0, n_clusters = 27,
   data_4d <- array(0, dim = c(dim_vol, n_time))
 
   # Fill each voxel with its cluster's signal
-  for (x in 1:9) {
-    for (y in 1:9) {
-      for (z in 1:9) {
+  for (x in seq_len(dim_vol[1])) {
+    for (y in seq_len(dim_vol[2])) {
+      for (z in seq_len(dim_vol[3])) {
         clus <- true_labels[x, y, z]
         data_4d[x, y, z, ] <- signals[, clus]
       }
@@ -398,7 +398,7 @@ test_clustering_method <- function(method, noise_sd = 0, n_clusters = 27,
 #'
 #' # Test specific methods
 #' results <- test_all_clustering_methods(
-#'   methods = c("flash3d", "snic"),
+#'   methods = c("flash3d", "corr_slic", "snic"),
 #'   noise_levels = c(0, 0.2)
 #' )
 #' }
@@ -406,7 +406,7 @@ test_clustering_method <- function(method, noise_sd = 0, n_clusters = 27,
 #' @export
 test_all_clustering_methods <- function(
     noise_levels = c(0, 0.1, 0.5),
-    methods = c("flash3d", "snic", "slic", "slice_msf", "supervoxels", "g3s", "rena"),
+    methods = c("flash3d", "corr_slic", "snic", "slic", "slice_msf", "supervoxels", "g3s", "rena"),
     n_clusters = 27,
     seed = 42
 ) {

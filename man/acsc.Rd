@@ -14,7 +14,10 @@ acsc(
   spatial_weighting = c("gaussian", "binary"),
   refine = TRUE,
   max_refine_iter = 5,
-  K = NULL
+  K = NULL,
+  knn_proj_dim = 0L,
+  knn_proj_method = c("none", "dct", "rp"),
+  knn_proj_seed = 1L
 )
 }
 \arguments{
@@ -37,6 +40,16 @@ acsc(
 \item{max_refine_iter}{Maximum iterations for boundary refinement. Must be >= 0.}
 
 \item{K}{(Optional) Desired number of clusters.}
+
+\item{knn_proj_dim}{Optional integer; if > 0, project block summaries to this
+dimension before kNN graph construction (speeds up \code{FNN::get.knn()} for
+long time-series).}
+
+\item{knn_proj_method}{Projection method for \code{knn_proj_dim}: one of
+\code{"none"}, \code{"dct"}, or \code{"rp"} (random projection).}
+
+\item{knn_proj_seed}{Integer seed used when \code{knn_proj_method="rp"} (RNG
+state is restored after graph construction).}
 }
 \value{
 A list with elements:

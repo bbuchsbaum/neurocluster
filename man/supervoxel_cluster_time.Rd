@@ -43,8 +43,10 @@ has the same structure as \code{supervoxel_cluster_fit()}.
 Cluster feature matrix (rows = time points) in a "supervoxel" style but over temporal dimension.
 }
 \examples{
+\dontrun{
 feature_mat <- matrix(rnorm(100 * 10), 100, 10)
 library(future)
 plan(multicore)
-cres <- supervoxel_cluster_time(t(feature_mat), K=20)
+cres <- supervoxel_cluster_time(t(feature_mat), K=5)
+}
 }

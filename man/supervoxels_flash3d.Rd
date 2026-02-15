@@ -24,7 +24,7 @@ supervoxels_flash3d(
 
 \item{mask}{A \code{NeuroVol} mask defining the voxels to include in the clustering result.
 If the mask contains \code{numeric} data, nonzero values will define the included voxels.
-If the mask is a \code{\linkS4class{LogicalNeuroVol}}, then \code{TRUE} will define the set
+If the mask is a \code{\link[neuroim2:LogicalNeuroVol-class]{LogicalNeuroVol}}, then \code{TRUE} will define the set
 of included voxels.}
 
 \item{K}{The number of clusters to find}
@@ -50,7 +50,7 @@ of included voxels.}
 \value{
 A \code{list} of class \code{cluster_result} with the following elements:
 \describe{
-\item{clusvol}{An instance of type \linkS4class{ClusteredNeuroVol}}
+\item{clusvol}{An instance of type \link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}}
 \item{cluster}{An integer vector of cluster assignments for each voxel in mask}
 \item{centers}{A matrix of cluster centers in feature space (K x T)}
 \item{coord_centers}{A matrix of spatial coordinates of cluster centers (K x 3)}

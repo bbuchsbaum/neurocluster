@@ -45,8 +45,8 @@ struct NormalizeVolumesWorker : public Worker {
 //' @return Numeric matrix with each column (volume) centered to mean zero
 //'
 //' @details
-//' For each timepoint t, computes mean_t = mean(data[,t]) and subtracts
-//' it from all voxels: output[,t] = data[,t] - mean_t
+//' For each timepoint `t`, computes `mean_t = mean(data[, t])` and subtracts
+//' it from all voxels: `output[, t] = data[, t] - mean_t`
 //'
 //' Uses RcppParallel for fast parallel computation across voxels.
 //'
@@ -422,7 +422,7 @@ struct BasisDetrendWorker : public Worker {
 //' This is equivalent to regressing out the basis and keeping residuals.
 //'
 //' @examples
-//' \dontrun
+//' \dontrun{
 //' # Remove linear + quadratic trend (polynomial degree 2)
 //' basis <- make_poly_basis(n_time = 100, degree = 2)
 //' data_detrend <- detrend_basis_cpp(data, basis)

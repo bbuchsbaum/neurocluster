@@ -6,7 +6,8 @@
 \usage{
 test_all_clustering_methods(
   noise_levels = c(0, 0.1, 0.5),
-  methods = c("flash3d", "snic", "slic", "slice_msf", "supervoxels", "g3s", "rena"),
+  methods = c("flash3d", "corr_slic", "snic", "slic", "slice_msf", "supervoxels", "g3s",
+    "rena"),
   n_clusters = 27,
   seed = 42
 )
@@ -41,7 +42,7 @@ results <- test_all_clustering_methods(n_clusters = 8)
 
 # Test specific methods
 results <- test_all_clustering_methods(
-  methods = c("flash3d", "snic"),
+  methods = c("flash3d", "corr_slic", "snic"),
   noise_levels = c(0, 0.2)
 )
 }

@@ -4,7 +4,16 @@
 \alias{build_acsc_graph}
 \title{Build ACSC adjacency graph}
 \usage{
-build_acsc_graph(block_summary, ann_k, alpha, spatial_weighting, block_size)
+build_acsc_graph(
+  block_summary,
+  ann_k,
+  alpha,
+  spatial_weighting,
+  block_size,
+  knn_proj_dim = 0L,
+  knn_proj_method = c("none", "dct", "rp"),
+  knn_proj_seed = 1L
+)
 }
 \description{
 Build ACSC adjacency graph

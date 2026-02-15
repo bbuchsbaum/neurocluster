@@ -9,20 +9,20 @@ merge_clus(x, ...)
 \arguments{
 \item{x}{A clustering result, typically a list or an object of class \code{"cluster_result"}.}
 
-\item{...}{Additional clustering results to be merged.}
-
-\item{method}{A character string indicating the consensus clustering algorithm to use. Default is "SE".
-See \code{\link[clue]{cl_consensus}} for available methods.}
+\item{...}{Additional clustering results to be merged and method-specific arguments
+(e.g., \code{method} for consensus algorithm selection).}
 }
 \value{
-A \code{\linkS4class{ClusteredNeuroVol}} instance.
+A \code{\link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}} instance.
 }
 \description{
 The merge_clus function combines a set of clustering results using a consensus clustering algorithm.
 }
 \examples{
+\dontrun{
 # Assuming clustering1, clustering2, and clustering3 are objects of class "cluster_result"
 merged_clustering <- merge_clus(clustering1, clustering2, clustering3, method="SE")
+}
 
 }
 \seealso{

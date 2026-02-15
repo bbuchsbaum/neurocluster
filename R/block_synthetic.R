@@ -1,6 +1,6 @@
 #' Make a tiny block-structured synthetic volume
 #'
-#' A scikit-learn style "make_blobs" for neuroimaging demos. Builds a small
+#' A scikit-learn style \code{make_blobs} for neuroimaging demos. Builds a small
 #' 2D/3D mask with three spatial bands (left/mid/right) and clearly separated
 #' time-series patterns plus mild Gaussian noise. Designed to be fast,
 #' deterministic, and visually intuitive in vignettes and tests.

@@ -55,6 +55,49 @@ test_that("method-specific parameters are properly passed through", {
     expect_equal(result_slic$parameters$preserve_k, TRUE)
     expect_equal(result_slic$parameters$seed_relocate, "correlation")
   }
+
+  # Test corr_slic-specific parameters
+  if (exists("corrslic_core")) {
+    result_corrslic <- with_time_limit(cluster4d(vec, mask, n_clusters = 5,
+                                                 method = "corr_slic",
+                                                 embedding_dim = 32,
+                                                 alpha = 0.4,
+                                                 seed = 99,
+                                                 min_size = 3,
+                                                 max_iterations = 2,
+                                                 connectivity = 6,
+                                                 parallel = FALSE,
+                                                 verbose = FALSE))
+
+    expect_s3_class(result_corrslic, "cluster4d_result")
+    expect_equal(result_corrslic$parameters$embedding_dim, 32)
+    expect_equal(result_corrslic$parameters$alpha, 0.4)
+    expect_equal(result_corrslic$parameters$seed, 99)
+    expect_equal(result_corrslic$parameters$min_size, 3)
+  }
+
+  # Test brs_slic-specific parameters
+  if (exists("brs_slic_core")) {
+    result_brsslic <- with_time_limit(cluster4d(vec, mask, n_clusters = 5,
+                                                method = "brs_slic",
+                                                embedding_dim = 32,
+                                                sketch_repeats = 1,
+                                                coarse_alpha = 0.12,
+                                                boundary_passes = 1,
+                                                refine_spatial_weight = 0.03,
+                                                seed = 77,
+                                                max_iterations = 2,
+                                                connectivity = 6,
+                                                parallel = FALSE,
+                                                verbose = FALSE))
+
+    expect_s3_class(result_brsslic, "cluster4d_result")
+    expect_equal(result_brsslic$parameters$embedding_dim, 32)
+    expect_equal(result_brsslic$parameters$coarse_alpha, 0.12)
+    expect_equal(result_brsslic$parameters$boundary_passes, 1)
+    expect_equal(result_brsslic$parameters$refine_spatial_weight, 0.03)
+    expect_equal(result_brsslic$parameters$seed, 77)
+  }
   
   # Test slice_msf-specific parameters
   result_msf <- with_time_limit(cluster4d(vec, mask, n_clusters = 5,
@@ -125,9 +168,16 @@ test_that("common parameters work consistently across all methods", {
   max_iterations <- 2
   connectivity <- 6
   
-  methods_to_test <- c("snic", "slice_msf")  # Methods that should always work
+  methods_to_test <- c("snic", "corr_slic", "brs_slic", "slice_msf")  # Methods that should always work
   
   for (method in methods_to_test) {
+    if (method == "corr_slic" && !exists("corrslic_core")) {
+      skip("Skipping corr_slic in parameter pass-through test - C++ core not available")
+    }
+    if (method == "brs_slic" && !exists("brs_slic_core")) {
+      skip("Skipping brs_slic in parameter pass-through test - C++ core not available")
+    }
+
     result <- cluster4d(vec, mask, 
                        n_clusters = n_clusters,
                        spatial_weight = spatial_weight,
@@ -205,6 +255,16 @@ test_that("legacy parameter names still work with warnings", {
   # Test that max_iter gets mapped
   params <- neurocluster:::map_cluster4d_params("snic", max_iter = 15)
   expect_equal(params$max_iterations, 15)
+
+  # Test corr_slic mapping parity with slic/snic path
+  params <- neurocluster:::map_cluster4d_params("corr_slic", compactness = 6, max_iter = 12)
+  expect_equal(params$spatial_weight, 0.6)
+  expect_equal(params$max_iterations, 12)
+
+  # Test brs_slic mapping parity with slic/snic/corr_slic path
+  params <- neurocluster:::map_cluster4d_params("brs_slic", compactness = 6, max_iter = 12)
+  expect_equal(params$spatial_weight, 0.6)
+  expect_equal(params$max_iterations, 12)
   
   # Test that rounds gets mapped for flash3d
   params <- neurocluster:::map_cluster4d_params("flash3d", rounds = 3)

@@ -67,11 +67,11 @@ find_initial_points <- function(cds, grad, K=100) {
 #' standardized interface across all clustering methods.
 #'
 #' @param vec A \code{NeuroVec} instance supplying the data to cluster.
-#'   Can also be a 3D \code{\linkS4class{NeuroVol}} for structural image segmentation,
+#'   Can also be a 3D \code{\link[neuroim2:NeuroVol-class]{NeuroVol}} for structural image segmentation,
 #'   which will be automatically converted to a single-timepoint NeuroVec internally.
 #' @param mask A \code{NeuroVol} mask defining the voxels to include in the clustering result.
 #' If the mask contains \code{numeric} data, nonzero values will define the included voxels.
-#' If the mask is a \code{\linkS4class{LogicalNeuroVol}}, then \code{TRUE} will define the set
+#' If the mask is a \code{\link[neuroim2:LogicalNeuroVol-class]{LogicalNeuroVol}}, then \code{TRUE} will define the set
 #' of included voxels.
 #' @param compactness A numeric value controlling the compactness of the clusters, with larger values resulting
 #' in more compact clusters. Default is 5.
@@ -81,7 +81,7 @@ find_initial_points <- function(cds, grad, K=100) {
 #'
 #' @return A \code{list} of class \code{snic_cluster_result} with the following elements:
 #' \describe{
-#' \item{clusvol}{An instance of type \linkS4class{ClusteredNeuroVol}.}
+#' \item{clusvol}{An instance of type \link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}.}
 #' \item{gradvol}{A \code{NeuroVol} instance representing the spatial gradient of the reference volume.}
 #' \item{cluster}{A vector of cluster indices equal to the number of voxels in the mask.}
 #' \item{centers}{A matrix of cluster centers with each column representing the feature vector for a cluster.}

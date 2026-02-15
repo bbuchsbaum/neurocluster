@@ -48,7 +48,7 @@ handle_bad_voxels <- function(X, seed = NULL) {
 #' @param bvec A \code{NeuroVec} instance supplying the data to cluster.
 #' @param mask A \code{NeuroVol} mask defining the voxels to include in the clustering result.
 #'   If the mask contains \code{numeric} data, nonzero values will define the included voxels.
-#'   If the mask is a \code{\linkS4class{LogicalNeuroVol}}, then \code{TRUE} will define the set
+#'   If the mask is a \code{\link[neuroim2:LogicalNeuroVol-class]{LogicalNeuroVol}}, then \code{TRUE} will define the set
 #'   of included voxels.
 #' @param K The number of clusters to find. Default is 100.
 #' @param ncomp The number of components to use for the commute time embedding.
@@ -70,7 +70,7 @@ handle_bad_voxels <- function(X, seed = NULL) {
 #' @return A \code{list} of class \code{commute_time_cluster_result} (inheriting from
 #'   \code{cluster_result}) with the following elements:
 #' \describe{
-#'   \item{clusvol}{An instance of type \linkS4class{ClusteredNeuroVol}.}
+#'   \item{clusvol}{An instance of type \link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}.}
 #'   \item{cluster}{A vector of cluster indices equal to the number of voxels in the mask.}
 #'   \item{centers}{A matrix of cluster centers (K x T) where T is the number of timepoints.}
 #'   \item{coord_centers}{A matrix of spatial coordinates (K x 3) with each row

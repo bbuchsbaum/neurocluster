@@ -18,7 +18,7 @@
 #'   }
 #'
 #' @return A list containing:
-#'         \item{cvols}{A list of \code{\linkS4class{ClusteredNeuroVol}} instances.}
+#'         \item{cvols}{A list of \code{\link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}} instances.}
 #'         \item{cuts}{The number of cluster cuts.}
 #'         \item{cutmat}{A matrix representing the cluster assignments for each cut.}
 #'         \item{hclus}{The hierarchical clustering result.}
@@ -181,7 +181,7 @@ meta_clust.cluster_result <- function(x, cuts = NULL, ...) {
 #' See \code{\link[clue]{cl_consensus}} for available methods.
 #' @param ... Additional clustering results to be merged.
 #'
-#' @return A \code{\linkS4class{ClusteredNeuroVol}} instance representing the consensus partition.
+#' @return A \code{\link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}} instance representing the consensus partition.
 #'
 #' @seealso \code{\link[clue]{cl_consensus}}, \code{\link[clue]{as.cl_hard_partition}}, \code{\link[clue]{cl_ensemble}}
 #' @importFrom clue cl_consensus as.cl_hard_partition cl_ensemble

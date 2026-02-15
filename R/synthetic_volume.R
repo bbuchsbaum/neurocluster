@@ -32,7 +32,10 @@
 #' str(syn)
 #' truth_vol <- array(syn$truth, syn$dims)
 #' clusvol <- neuroim2::ClusteredNeuroVol(syn$mask > 0, clusters = syn$truth)
-#' plot(clusvol, slice = c(6, 6, 3), view = "axial")
+#' # Visualise a single slice (requires neuroim2 plot method):
+#' \dontrun{
+#' plot(clusvol)
+#' }
 #' @export
 #' @importFrom neuroim2 NeuroVol NeuroVec NeuroSpace concat
 generate_synthetic_volume <- function(

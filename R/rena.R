@@ -24,7 +24,7 @@
 #' @return A \code{list} of class \code{rena_cluster_result} (inheriting from
 #'   \code{cluster_result}) with the following elements:
 #' \describe{
-#'   \item{clusvol}{An instance of type \linkS4class{ClusteredNeuroVol}.}
+#'   \item{clusvol}{An instance of type \link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}.}
 #'   \item{cluster}{A vector of cluster indices equal to the number of voxels in the mask.}
 #'   \item{centers}{A matrix of cluster centers with each row representing the feature vector for a cluster.}
 #'   \item{coord_centers}{A matrix of spatial coordinates with each row corresponding to a cluster.}

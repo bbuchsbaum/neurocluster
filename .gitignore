@@ -7,3 +7,15 @@ src/*.o
 src/*.so
 src/*.dll
 neurocluster_*.tar.gz
+
+# Local tooling artifacts
+.omc/
+.rcmdcheck_result.rds
+..Rcheck/
+
+# Benchmark outputs (keep inst/benchmarks/results.csv tracked)
+inst/benchmarks/*.log
+inst/benchmarks/*_raw.csv
+inst/benchmarks/*_summary.csv
+inst/benchmarks/*_best_by_family.csv
+inst/benchmarks/*_ab*.csv

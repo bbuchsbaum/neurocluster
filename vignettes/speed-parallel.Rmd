@@ -1,0 +1,115 @@
+---
+title: Speed up and parallelize
+name: speed-parallel
+description: Threads, grain size, and method choices for big data.
+output:
+  rmarkdown::html_vignette:
+    toc: yes
+    toc_depth: 2
+params:
+  family: green
+  base_size: 13
+  content_width: 72
+vignette: >
+  %\VignetteIndexEntry{Speed up and parallelize}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+css: albers.css
+resource_files:
+- albers.css
+- albers.js
+includes:
+  in_header: |-
+    <script src="albers.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
+
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
+  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  message = FALSE, warning = FALSE
+)
+set.seed(123); options(pillar.sigfig = 7, width = 80)
+suppressWarnings(suppressPackageStartupMessages({
+  library(neurocluster)
+  library(neuroim2)
+}))
+if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+```{r albers_inject, echo=FALSE, results='asis'}
+if (file.exists("albers.css")) {
+  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+}
+cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
+cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```
+
+# Threads {#threads}
+```r
+RcppParallel::setThreadOptions(numThreads = 2)
+```
+
+# Method choices {#method-choices}
+- Large N: `slice_msf` (slice-wise MSF) or `flash3d` (hash/DCT); both avoid global iteration over all voxels.
+- Preserve K: `cluster4d_slic()` with `preserve_k = TRUE`.
+- Iterative refinement: `supervoxels()` performs multiple reassignment iterations; uses RcppParallel for updates.
+
+# Grain size {#grain-size}
+- For `supervoxels`, a practical start is `grain_size = max(100, nvox / (threads * 10))`. Smaller values improve balancing at some overhead.
+
+# Memory tips {#memory-tips}
+- `snic()` is single-pass with low memory overhead.
+- Reduce time points or compress features if memory-bound.
+
+# Toy runtime illustration (small N) {#fig-runtime}
+Illustrative timing on a small, deterministic dataset (3-band synthetic). Absolute times are not representative of large datasets but show relative ordering on the same volume.
+
+```{r fig-runtime, fig.cap='Illustrative runtimes on a 3-band synthetic (small N).', fig.alt='Bar plot of elapsed seconds for several methods on tiny data.'}
+toy <- make_block_synthetic(dims = c(14, 14, 2), ntime = 40, noise = 0.1, seed = 321)
+
+run_and_time <- function(tag, fn) {
+  t <- system.time(fn())
+  unname(t["elapsed"])
+}
+
+elapsed <- c(
+  snic = run_and_time("snic", function() snic(toy$vec, toy$mask, K = 3, compactness = 3, max_iter = 3)),
+  slice_msf = run_and_time("slice_msf", function() slice_msf(toy$vec, toy$mask,
+                                                            target_k_global = 3,
+                                                            r = 8, min_size = 6,
+                                                            compactness = 3,
+                                                            num_runs = 1,
+                                                            stitch_z = FALSE)),
+  supervoxels = run_and_time("supervoxels", function() supervoxels(toy$vec, toy$mask,
+                                                                  K = 3,
+                                                                  alpha = 0.6,
+                                                                  connectivity = 6,
+                                                                  iterations = 5)),
+  slic = run_and_time("slic", function() cluster4d(toy$vec, toy$mask,
+                                                  n_clusters = 3,
+                                                  method = "slic",
+                                                  spatial_weight = 0.5,
+                                                  connectivity = 26,
+                                                  max_iterations = 5,
+                                                  preserve_k = TRUE))
+)
+
+barplot(elapsed, ylab = "seconds", main = "Toy runtimes (small N)")
+```
+includes:
+  in_header: |-
+    <link rel="stylesheet" href="albers.css" />
+    <script src="albers.js"></script>

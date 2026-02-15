@@ -25,7 +25,7 @@ to use for hierarchical clustering. Default is "ward.D".}
 }
 \value{
 A list containing:
-\item{cvols}{A list of \code{\linkS4class{ClusteredNeuroVol}} instances.}
+\item{cvols}{A list of \code{\link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}} instances.}
 \item{cuts}{The number of cluster cuts.}
 \item{cutmat}{A matrix representing the cluster assignments for each cut.}
 \item{hclus}{The hierarchical clustering result.}

@@ -17,8 +17,8 @@ Removes the mean offset from each volume/timepoint in a matrix.
 This centers each volume to have zero mean across voxels.
 }
 \details{
-For each timepoint t, computes mean_t = mean(data\link{,t}) and subtracts
-it from all voxels: output\link{,t} = data\link{,t} - mean_t
+For each timepoint \code{t}, computes \code{mean_t = mean(data[, t])} and subtracts
+it from all voxels: \code{output[, t] = data[, t] - mean_t}
 
 Uses RcppParallel for fast parallel computation across voxels.
 }

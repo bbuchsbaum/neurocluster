@@ -4,7 +4,13 @@
 \alias{refine_voxel_boundaries_r}
 \title{Refine voxel boundaries using R implementation (fallback)}
 \usage{
-refine_voxel_boundaries_r(voxel_labels, feature_mat, coords, max_iter)
+refine_voxel_boundaries_r(
+  voxel_labels,
+  feature_mat,
+  coords,
+  max_iter,
+  dims = NULL
+)
 }
 \description{
 Pure R version for backward compatibility and fallback.

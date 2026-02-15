@@ -87,7 +87,7 @@ cat("\n\nTesting clustering algorithms with K=50...\n")
 cat(rep("=", 60), "\n", sep = "")
 
 # 1. Supervoxels
-cat("\n[1/6] Testing supervoxels...\n")
+cat("\n[1/7] Testing supervoxels...\n")
 tryCatch({
   result_supervoxels <- supervoxels(vec, mask, K = 50, sigma1 = 1, sigma2 = 2.5,
                                     iterations = 10, verbose = FALSE)
@@ -97,7 +97,7 @@ tryCatch({
 })
 
 # 2. SNIC
-cat("\n[2/6] Testing snic...\n")
+cat("\n[2/7] Testing snic...\n")
 tryCatch({
   result_snic <- snic(vec, mask, K = 50, compactness = 5)
   results$snic <- check_z_ordering(result_snic, "SNIC")
@@ -106,7 +106,7 @@ tryCatch({
 })
 
 # 3. slice_msf
-cat("\n[3/6] Testing slice_msf...\n")
+cat("\n[3/7] Testing slice_msf...\n")
 tryCatch({
   result_slice_msf <- slice_msf(vec, mask, target_k_global = 50,
                                 num_runs = 1, consensus = FALSE)
@@ -116,7 +116,7 @@ tryCatch({
 })
 
 # 4. FLASH-3D
-cat("\n[4/6] Testing flash3d...\n")
+cat("\n[4/7] Testing flash3d...\n")
 tryCatch({
   result_flash3d <- supervoxels_flash3d(vec, mask, K = 50, bits = 64,
                                         dctM = 16, verbose = FALSE)
@@ -126,7 +126,7 @@ tryCatch({
 })
 
 # 5. SLIC4D
-cat("\n[5/6] Testing slic4d...\n")
+cat("\n[5/7] Testing slic4d...\n")
 tryCatch({
   result_slic4d <- slic4d(vec, mask, K = 50, compactness = 5)
   results$slic4d <- check_z_ordering(result_slic4d, "SLIC4D")
@@ -134,8 +134,26 @@ tryCatch({
   cat("  [ERROR]", e$message, "\n")
 })
 
-# 6. ACSC
-cat("\n[6/6] Testing acsc...\n")
+# 6. corr_slic
+cat("\n[6/7] Testing corr_slic...\n")
+tryCatch({
+  result_corrslic <- cluster4d(
+    vec, mask,
+    n_clusters = 50,
+    method = "corr_slic",
+    max_iterations = 5,
+    embedding_dim = 64,
+    connectivity = 6,
+    parallel = FALSE,
+    verbose = FALSE
+  )
+  results$corr_slic <- check_z_ordering(result_corrslic, "CORR_SLIC")
+}, error = function(e) {
+  cat("  [ERROR]", e$message, "\n")
+})
+
+# 7. ACSC
+cat("\n[7/7] Testing acsc...\n")
 tryCatch({
   result_acsc <- acsc(vec, mask, K = 50)
   results$acsc <- check_z_ordering(result_acsc, "ACSC")

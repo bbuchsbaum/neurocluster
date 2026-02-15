@@ -25,3 +25,15 @@ y_detrend = y - B * (B^T * y)
 
 This is equivalent to regressing out the basis and keeping residuals.
 }
+\examples{
+\dontrun{
+# Remove linear + quadratic trend (polynomial degree 2)
+basis <- make_poly_basis(n_time = 100, degree = 2)
+data_detrend <- detrend_basis_cpp(data, basis)
+
+# Remove low-frequency drift with DCT (first 5 components)
+basis <- make_dct_basis(n_time = 100, n_basis = 5)
+data_detrend <- detrend_basis_cpp(data, basis)
+}
+
+}

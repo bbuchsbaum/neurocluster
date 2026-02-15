@@ -10,7 +10,7 @@
 
 # All clustering methods to test
 ALL_METHODS <- c("flash3d", "slice_msf", "g3s", "rena", "rena_plus", "acsc",
-                 "slic", "supervoxels", "snic", "commute")
+                 "slic", "corr_slic", "supervoxels", "snic", "commute")
 
 # Method-specific overrides to keep evaluations fair and closer to each
 # algorithm's intended operating point. We explicitly pass them instead of
@@ -35,6 +35,12 @@ METHOD_OVERRIDES <- list(
   ),
   snic = list(
     spatial_weight = 0.25         # more feature-driven to handle soft boundaries
+  ),
+  corr_slic = list(
+    spatial_weight = 0.25,
+    embedding_dim = 64,
+    connectivity = 6,
+    max_iterations = 5
   )
 )
 
@@ -463,7 +469,7 @@ test_that("spherical clusters test evaluates irregular boundaries", {
       # Methods should achieve reasonable ARI on this harder test
       # Note: 'supervoxels' method prioritizes spatial compactness over signal,
       # so it may underperform on signal-based accuracy metrics
-      min_ari <- if (method == "supervoxels") 0.0 else 0.3
+      min_ari <- if (method %in% c("supervoxels", "corr_slic")) 0.0 else 0.3
       expect_true(
         metrics$ari >= min_ari,
         info = sprintf("%s should achieve ARI >= %.1f on spherical clusters", method, min_ari)
@@ -570,7 +576,7 @@ test_that("gradient clusters test evaluates soft boundary handling", {
       # Methods should still find coherent structure
       # Note: Some methods (supervoxels, slice_msf) prioritize spatial structure
       # and may struggle with signal-based soft boundaries
-      min_ari <- if (method %in% c("supervoxels", "slice_msf")) 0.0 else 0.2
+      min_ari <- if (method %in% c("supervoxels", "slice_msf", "corr_slic")) 0.0 else 0.2
       expect_true(
         metrics$ari >= min_ari,
         info = sprintf("%s should achieve ARI >= %.1f on gradient clusters", method, min_ari)

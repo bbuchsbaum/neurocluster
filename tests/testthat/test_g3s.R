@@ -274,6 +274,51 @@ test_that("cluster4d with method='g3s' works", {
   expect_lte(result$n_clusters, 5)
 })
 
+test_that("G3S knn backends are behaviorally consistent with fixed seed", {
+  skip_on_cran()
+
+  library(neuroim2)
+  set.seed(211)
+
+  mask <- NeuroVol(array(1, c(6, 6, 4)), NeuroSpace(c(6, 6, 4)))
+  vec <- NeuroVec(array(rnorm(6 * 6 * 4 * 20), c(6, 6, 4, 20)),
+                  NeuroSpace(c(6, 6, 4, 20)))
+
+  ari_local <- function(labels1, labels2) {
+    tab <- table(labels1, labels2)
+    sum_comb <- sum(choose(tab, 2))
+    sum_rows <- sum(choose(rowSums(tab), 2))
+    sum_cols <- sum(choose(colSums(tab), 2))
+    n <- length(labels1)
+    expected <- sum_rows * sum_cols / choose(n, 2)
+    max_idx <- 0.5 * (sum_rows + sum_cols)
+    if (max_idx == expected) return(0)
+    (sum_comb - expected) / (max_idx - expected)
+  }
+
+  set.seed(212)
+  res_fnn <- cluster4d_g3s(
+    vec, mask, K = 10,
+    n_components = 8,
+    max_refinement_iter = 1,
+    knn_backend = "fnn",
+    verbose = FALSE
+  )
+
+  set.seed(212)
+  res_rann <- cluster4d_g3s(
+    vec, mask, K = 10,
+    n_components = 8,
+    max_refinement_iter = 1,
+    knn_backend = "rann",
+    verbose = FALSE
+  )
+
+  expect_equal(length(res_fnn$cluster), length(res_rann$cluster))
+  expect_equal(res_fnn$n_clusters, res_rann$n_clusters)
+  expect_gte(ari_local(res_fnn$cluster, res_rann$cluster), 0.99)
+})
+
 
 test_that("G3S handles small datasets gracefully", {
   skip_on_cran()

@@ -8,8 +8,8 @@ cluster4d(
   vec,
   mask,
   n_clusters = 100,
-  method = c("supervoxels", "snic", "slic", "slice_msf", "flash3d", "g3s", "rena",
-    "rena_plus", "acsc", "commute"),
+  method = c("supervoxels", "snic", "slic", "corr_slic", "brs_slic", "slice_msf",
+    "flash3d", "g3s", "rena", "rena_plus", "acsc", "commute"),
   spatial_weight = 0.5,
   max_iterations = NULL,
   connectivity = NULL,
@@ -33,6 +33,7 @@ may produce slightly different numbers of clusters due to algorithmic constraint
 \item \code{"supervoxels"}: Iterative heat kernel-based clustering (default)
 \item \code{"snic"}: Simple Non-Iterative Clustering
 \item \code{"slic"}: SLIC superpixels extended to 4D
+\item \code{"brs_slic"}: Boundary-Refined Sketch SLIC (coarse sketch + boundary exact-correlation refinement)
 \item \code{"slice_msf"}: Slice-wise Minimum Spanning Forest (fast but may show z-artifacts)
 \item \code{"flash3d"}: Fast Low-rank Approximate Superclusters
 \item \code{"g3s"}: Gradient-Guided Geodesic Supervoxels (NEW - recommended for best quality/speed)

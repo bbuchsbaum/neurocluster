@@ -21,6 +21,8 @@
 #' @param use_irlba Logical; use fast randomized SVD for large datasets. Default: TRUE.
 #' @param use_rsvd Logical; if TRUE and the \pkg{rsvd} package is installed,
 #'   prefer the randomized SVD backend in \code{compress_features_svd}. Default: TRUE.
+#' @param knn_backend Character; spatial kNN backend used for seed/propagation
+#'   graph construction. One of \code{"rann"} (default) or \code{"fnn"}.
 #'
 #' @return A \code{cluster4d_result} object (also inherits \code{g3s_result},
 #'   \code{cluster_result}) with components:
@@ -108,6 +110,7 @@
 #' @export
 #' @importFrom neuroim2 series index_to_coord ClusteredNeuroVol spacing
 #' @importFrom FNN get.knn
+#' @importFrom RANN nn2
 cluster4d_g3s <- function(vec, mask, K = 100,
                          n_components = 15,
                          variance_threshold = 0.95,
@@ -116,7 +119,10 @@ cluster4d_g3s <- function(vec, mask, K = 100,
                          max_refinement_iter = 3,
                          verbose = FALSE,
                          use_irlba = TRUE,
-                         use_rsvd = TRUE) {
+                         use_rsvd = TRUE,
+                         knn_backend = c("rann", "fnn")) {
+
+  knn_backend <- match.arg(knn_backend)
 
   # Input validation
   if (!inherits(vec, "NeuroVec")) {
@@ -196,12 +202,18 @@ cluster4d_g3s <- function(vec, mask, K = 100,
     message("Phase 2: Finding gradient-based seeds")
   }
 
+  # Build one spatial k-NN graph and reuse it for both seed selection and
+  # propagation to avoid duplicate nearest-neighbor construction.
+  k_neighbors <- min(26, n_voxels - 1)
+  neib <- build_spatial_knn_g3s(coords, k = k_neighbors, backend = knn_backend)
+
   seed_indices <- find_gradient_seeds_g3s(
     feature_mat = feature_mat_compressed,
     coords = coords,
     K = K,
-    k_neighbors = min(26, n_voxels - 1),
-    distance = if (use_cosine) "cosine" else "euclidean"
+    k_neighbors = k_neighbors,
+    distance = if (use_cosine) "cosine" else "euclidean",
+    knn = neib
   )
 
   actual_K <- length(seed_indices)
@@ -226,10 +238,6 @@ cluster4d_g3s <- function(vec, mask, K = 100,
       message("  Auto-computed compactness: ", round(compactness, 2))
     }
   }
-
-  # Precompute k-NN for efficiency
-  k_neighbors <- min(26, n_voxels - 1)
-  neib <- FNN::get.knn(coords, k = k_neighbors)
 
   # Call optimized C++ propagation
   labels <- g3s_propagate_cpp(
@@ -293,7 +301,8 @@ cluster4d_g3s <- function(vec, mask, K = 100,
       alpha = alpha,
       compactness = compactness,
       max_refinement_iter = max_refinement_iter,
-      feature_metric = if (use_cosine) "cosine" else "euclidean"
+      feature_metric = if (use_cosine) "cosine" else "euclidean",
+      knn_backend = knn_backend
     ),
     metadata = list(
       seed_indices = seed_indices,
@@ -315,6 +324,25 @@ cluster4d_g3s <- function(vec, mask, K = 100,
   }
 
   result
+}
+
+#' Build spatial kNN graph for G3S.
+#'
+#' @keywords internal
+#' @noRd
+build_spatial_knn_g3s <- function(coords, k, backend = c("rann", "fnn")) {
+  backend <- match.arg(backend)
+
+  if (backend == "rann") {
+    # Self-query; first returned neighbor is self (distance 0), so request k+1.
+    nn <- RANN::nn2(data = coords, query = coords, k = as.integer(k + 1L), searchtype = "standard")
+    return(list(
+      nn.index = nn$nn.idx[, -1, drop = FALSE],
+      nn.dist = nn$nn.dists[, -1, drop = FALSE]
+    ))
+  }
+
+  FNN::get.knn(coords, k = k)
 }
 
 

@@ -12,8 +12,10 @@
 #' @return An instance of \code{ClusteredNeuroVol} representing the clustered mask volume.
 #'
 #' @examples
+#' \dontrun{
 #' # Assuming you have a NeuroVol object 'mask' and you want to create 150 clusters
 #' clustered_volume <- tesselate(mask, K = 150)
+#' }
 #'
 #' @export
 tesselate <- function(mask, K = 100) {
@@ -71,8 +73,7 @@ init_cluster <- function(bvec, mask, coords, K, use_gradient = TRUE) {
       valid_coords <- index_to_grid(mask, mask.idx)
 
       # find_initial_points function for gradient-based initialization
-      # Use neurocluster::: to access non-exported function
-      init <- neurocluster:::find_initial_points(valid_coords, grad_vals, K)
+      init <- find_initial_points(valid_coords, grad_vals, K)
 
       # run kmeans with chosen seeds
       if (length(init$selected) >= K) {
@@ -444,22 +445,23 @@ supervoxel_cluster_fit <- function(feature_mat,
 #'
 #' Replace each voxel by the mean of its k nearest neighbors in its local spatial neighborhood.
 #'
-#' @param bvec A \code{\linkS4class{NeuroVec}} instance (the data).
-#' @param mask A \code{\linkS4class{NeuroVol}} mask defining the voxels to include. If numeric, nonzero = included.
+#' @param bvec A \code{\link[neuroim2:NeuroVec-class]{NeuroVec}} instance (the data).
+#' @param mask A \code{\link[neuroim2:NeuroVol-class]{NeuroVol}} mask defining the voxels to include. If numeric, nonzero = included.
 #' @param k The number of nearest neighbors to average over.
 #' @param connectivity The number of spatial neighbors to include in the search around each voxel.
 #'
 #' @return A \code{SparseNeuroVec} or similar object with the smoothed data.
 #'
 #' @examples
-#' mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
+#' \dontrun{
+#' mask <- neuroim2::NeuroVol(array(1, c(20,20,20)), neuroim2::NeuroSpace(c(20,20,20)))
 #' bvec <- replicate(10,
-#'                   NeuroVol(array(runif(20*20*20), c(20,20,20)),
-#'                            NeuroSpace(c(20,20,20))),
+#'                   neuroim2::NeuroVol(array(runif(20*20*20), c(20,20,20)),
+#'                            neuroim2::NeuroSpace(c(20,20,20))),
 #'                   simplify=FALSE)
-#' bvec <- do.call(concat, bvec)
-#'
+#' bvec <- do.call(neuroim2::concat, bvec)
 #' sbvec <- knn_shrink(bvec, mask, k=3)
+#' }
 #'
 #' @export
 knn_shrink <- function(bvec, mask, k = 5, connectivity = 27) {
@@ -492,10 +494,10 @@ knn_shrink <- function(bvec, mask, k = 5, connectivity = 27) {
 #' @note Consider using \code{\link{cluster4d}} with \code{method = "supervoxels"} for a
 #' standardized interface across all clustering methods.
 #'
-#' @param bvec A \code{\linkS4class{NeuroVec}} instance supplying the data to cluster.
-#'   Can also be a 3D \code{\linkS4class{NeuroVol}} for structural image segmentation,
+#' @param bvec A \code{\link[neuroim2:NeuroVec-class]{NeuroVec}} instance supplying the data to cluster.
+#'   Can also be a 3D \code{\link[neuroim2:NeuroVol-class]{NeuroVol}} for structural image segmentation,
 #'   which will be automatically converted to a single-timepoint NeuroVec internally.
-#' @param mask A \code{\linkS4class{NeuroVol}} mask defining the voxels to include. If numeric, nonzero = included.
+#' @param mask A \code{\link[neuroim2:NeuroVol-class]{NeuroVol}} mask defining the voxels to include. If numeric, nonzero = included.
 #' @param K The number of clusters to find (default 500).
 #' @param sigma1 The bandwidth of the heat kernel for the data vectors.
 #' @param sigma2 The bandwidth of the heat kernel for the coordinate vectors.
@@ -766,10 +768,12 @@ supervoxels <- function(bvec, mask,
 #'
 #' @export
 #' @examples
+#' \dontrun{
 #' feature_mat <- matrix(rnorm(100 * 10), 100, 10)
 #' library(future)
 #' plan(multicore)
-#' cres <- supervoxel_cluster_time(t(feature_mat), K=20)
+#' cres <- supervoxel_cluster_time(t(feature_mat), K=5)
+#' }
 supervoxel_cluster_time <- function(feature_mat,
                                     K = min(nrow(feature_mat), 100),
                                     sigma1 = 1,
@@ -780,10 +784,14 @@ supervoxel_cluster_time <- function(feature_mat,
                                     use_medoid = FALSE,
                                     nreps = 5) {
 
-  # optional filtering
+  # optional filtering (filter_mat is in experimental/; warn if unavailable)
   if (filter$lp > 0 || filter$hp > 0) {
-    message("supervoxel_cluster_time: filtering time series")
-    feature_mat <- filter_mat(feature_mat, filter$lp, filter$hp)
+    if (exists("filter_mat", mode = "function")) {
+      message("supervoxel_cluster_time: filtering time series")
+      feature_mat <- get("filter_mat", mode = "function")(feature_mat, filter$lp, filter$hp)
+    } else {
+      warning("filter_mat not available; skipping time-series filtering")
+    }
   }
 
   nels <- nrow(feature_mat)

@@ -32,6 +32,14 @@ compute_centroids_parallel_fast <- function(cluster_ids, data, coords, n_cluster
     .Call('_neurocluster_compute_centroids_parallel_fast', PACKAGE = 'neurocluster', cluster_ids, data, coords, n_clusters)
 }
 
+corrslic_core <- function(feat, mask_lin_idx, dims, K, d = 64L, sketch_repeats = 2L, alpha = 0.5, max_iter = 5L, seed = 1L, assign_stride = 1L, quantize_assign = FALSE, embed_basis = "hash", whiten_embed = FALSE, refine_exact_iters = 0L, refine_boundary_only = TRUE, refine_stride = 1L, refine_alpha = -1.0, connectivity = 6L, min_size = 0L, n_threads = 0L, verbose = FALSE) {
+    .Call('_neurocluster_corrslic_core', PACKAGE = 'neurocluster', feat, mask_lin_idx, dims, K, d, sketch_repeats, alpha, max_iter, seed, assign_stride, quantize_assign, embed_basis, whiten_embed, refine_exact_iters, refine_boundary_only, refine_stride, refine_alpha, connectivity, min_size, n_threads, verbose)
+}
+
+brs_slic_core <- function(feat, mask_lin_idx, dims, K, d = 32L, sketch_repeats = 1L, alpha = 0.05, coarse_iter = 3L, boundary_passes = 2L, global_passes = 0L, refine_spatial = 0.02, refine_l2 = 0.08, refine_stride = 0L, seed = 1L, connectivity = 6L, min_size = 0L, n_threads = 0L, verbose = FALSE) {
+    .Call('_neurocluster_brs_slic_core', PACKAGE = 'neurocluster', feat, mask_lin_idx, dims, K, d, sketch_repeats, alpha, coarse_iter, boundary_passes, global_passes, refine_spatial, refine_l2, refine_stride, seed, connectivity, min_size, n_threads, verbose)
+}
+
 correlation_gradient_cpp <- function(img_4d, brain_mask) {
     .Call('_neurocluster_correlation_gradient_cpp', PACKAGE = 'neurocluster', img_4d, brain_mask)
 }
@@ -121,8 +129,8 @@ refine_boundaries_g3s_cpp <- function(labels, feature_mat, neighbor_indices, max
 #' @return Numeric matrix with each column (volume) centered to mean zero
 #'
 #' @details
-#' For each timepoint t, computes mean_t = mean(data[,t]) and subtracts
-#' it from all voxels: output[,t] = data[,t] - mean_t
+#' For each timepoint `t`, computes `mean_t = mean(data[, t])` and subtracts
+#' it from all voxels: `output[, t] = data[, t] - mean_t`
 #'
 #' Uses RcppParallel for fast parallel computation across voxels.
 #'
@@ -223,7 +231,7 @@ make_poly_basis <- function(n_time, degree) {
 #' This is equivalent to regressing out the basis and keeping residuals.
 #'
 #' @examples
-#' \dontrun
+#' \dontrun{
 #' # Remove linear + quadratic trend (polynomial degree 2)
 #' basis <- make_poly_basis(n_time = 100, degree = 2)
 #' data_detrend <- detrend_basis_cpp(data, basis)
@@ -378,6 +386,10 @@ contract_graph_cpp <- function(adjacency_i, adjacency_j, component_labels, n_com
 #' @keywords internal
 prune_edges_for_k_cpp <- function(n_nodes, nearest_neighbor, distances, target_k) {
     .Call('_neurocluster_prune_edges_for_k_cpp', PACKAGE = 'neurocluster', n_nodes, nearest_neighbor, distances, target_k)
+}
+
+simd_info_cpp <- function() {
+    .Call('_neurocluster_simd_info_cpp', PACKAGE = 'neurocluster')
 }
 
 slic4d_core <- function(feats, coords, mask_lin_idx, dims, voxmm, K, compactness = 10.0, max_iter = 10L, step_mm = 0.0, n_threads = 0L, seed_method = "mask_poisson", enforce_connectivity = TRUE, min_size = 0L, connectivity = 26L, strict_connectivity = TRUE, preserve_k = FALSE, topup_iters = 2L, grad_masked = numeric(), seed_relocate_radius = 1L, verbose = FALSE) {

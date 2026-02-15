@@ -25,20 +25,21 @@
 #' @param vol A \code{NeuroVol} instance for which the spatial gradient should be calculated.
 #' @param mask A \code{NeuroVol} mask defining the voxels to include in the spatial gradient calculation.
 #' If the mask contains \code{numeric} data, nonzero values will define the included voxels.
-#' If the mask is a \code{\linkS4class{LogicalNeuroVol}}, then \code{TRUE} will define the set
+#' If the mask is a \code{\link[neuroim2:LogicalNeuroVol-class]{LogicalNeuroVol}}, then \code{TRUE} will define the set
 #' of included voxels.
 #' @param sigma A numeric value controlling the spatial weighting function. Default is 0.5.
 #'
 #' @return A \code{NeuroVol} instance containing the spatial gradient values for the input \code{vol}.
 #'
 #' @examples
-#' mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
-#' input_vol <- NeuroVol(array(runif(202020), c(20,20,20)),
-#' NeuroSpace(c(20,20,20)))
-#'
+#' \dontrun{
+#' mask <- neuroim2::NeuroVol(array(1, c(20,20,20)), neuroim2::NeuroSpace(c(20,20,20)))
+#' input_vol <- neuroim2::NeuroVol(array(runif(20*20*20), c(20,20,20)),
+#'   neuroim2::NeuroSpace(c(20,20,20)))
 #' gradient_vol <- spatial_gradient(input_vol, mask)
+#' }
 #'
-#' @seealso \code{\link{spatial_laplacian}}, \code{\link{weighted_spatial_adjacency}}
+#' @seealso \code{\link[neighborweights:spatial_laplacian]{spatial_laplacian}}, \code{\link[neighborweights:weighted_spatial_adjacency]{weighted_spatial_adjacency}}
 #' @importFrom neighborweights spatial_adjacency spatial_laplacian
 #' @importFrom neuroim2 NeuroVol
 #' @import assertthat
@@ -122,16 +123,18 @@ perturb_seeds <- function(grad, seeds) {
 #'   typically in mm units from \code{neuroim2::index_to_coord()}.
 #' @param K Integer; target number of seeds (clusters). The function may return
 #'   fewer seeds if spatial separation constraints cannot be satisfied.
-#' @param spatial_sigma Numeric; spatial smoothing parameter for gradient computation.
-#'   Larger values create smoother gradient fields. Default: 2.0.
-#' @param min_separation_factor Numeric; minimum spatial separation between seeds
-#'   as a multiple of the expected grid spacing. Default: 1.5 (ensures seeds are
-#'   not immediate neighbors).
+#' @param k_neighbors Integer; number of nearest neighbors to use for gradient
+#'   computation. Default: 26 (full 3D connectivity).
 #' @param oversample_ratio Numeric; ratio of candidates to K for initial gradient
 #'   ranking. Default: 3 (considers top 3*K candidates before applying spatial
 #'   separation).
-#' @param k_neighbors Integer; number of nearest neighbors to use for gradient
-#'   computation. Default: 26 (full 3D connectivity).
+#' @param min_separation_factor Numeric; minimum spatial separation between seeds
+#'   as a multiple of the expected grid spacing. Default: 0.5 (ensures seeds are
+#'   not immediate neighbors).
+#' @param distance Character; distance metric for gradient computation.
+#'   One of `"cosine"` (default) or `"euclidean"`.
+#' @param knn Optional pre-computed k-nearest-neighbor object. If NULL (default),
+#'   KNN is computed internally.
 #'
 #' @return Integer vector of length <= K containing the row indices of selected
 #'   seed voxels in the feature_mat/coords matrices. If fewer than K spatially
@@ -209,7 +212,8 @@ find_gradient_seeds_g3s <- function(feature_mat,
                                    k_neighbors = 26,
                                    oversample_ratio = 3,
                                    min_separation_factor = 0.5,
-                                   distance = c("cosine", "euclidean")) {
+                                   distance = c("cosine", "euclidean"),
+                                   knn = NULL) {
 
   distance <- match.arg(distance)
 
@@ -229,16 +233,33 @@ find_gradient_seeds_g3s <- function(feature_mat,
     k_neighbors <- N - 1
   }
 
-  # k-NN for gradient and spacing checks
-  knn <- FNN::get.knn(coords, k = k_neighbors)
+  # k-NN for gradient and spacing checks. Allow callers to pass a precomputed
+  # structure so we can reuse one graph across seeding + propagation.
+  if (is.null(knn)) {
+    knn <- FNN::get.knn(coords, k = k_neighbors)
+  } else {
+    if (!is.list(knn) || is.null(knn$nn.index)) {
+      stop("knn must be NULL or a list with nn.index (and optional nn.dist)")
+    }
+    if (!is.matrix(knn$nn.index) || nrow(knn$nn.index) != N) {
+      stop("knn$nn.index must be a matrix with nrow(feature_mat) rows")
+    }
+    if (ncol(knn$nn.index) < 1) {
+      stop("knn$nn.index must have at least one neighbor column")
+    }
+  }
+  knn_idx <- knn$nn.index
+  if (ncol(knn_idx) > k_neighbors) {
+    knn_idx <- knn_idx[, seq_len(k_neighbors), drop = FALSE]
+  }
 
   # Compute local gradient; use cosine for multi-feature (correlation-like)
   # and Euclidean when working with single-feature 3D data.
   grad_vals <- if (distance == "cosine") {
-    calculate_local_gradient(t(feature_mat), knn$nn.index)
+    calculate_local_gradient(t(feature_mat), knn_idx)
   } else {
     vapply(seq_len(N), function(i) {
-      neighbor_indices <- knn$nn.index[i, ]
+      neighbor_indices <- knn_idx[i, ]
       neighbor_indices <- neighbor_indices[neighbor_indices > 0]
       if (length(neighbor_indices) == 0) return(0)
 
@@ -406,4 +427,3 @@ find_gradient_seeds <- function(coords, grad_vals, K, min_separation_factor = 1.
 
   selected_seeds
 }
-

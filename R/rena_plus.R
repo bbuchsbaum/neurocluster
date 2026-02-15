@@ -201,7 +201,10 @@ build_grid_adjacency <- function(mask, mask_idx, connectivity) {
   )
 }
 
-# Backwards-compatible alias
+#' Backwards-compatible alias for rena_plus
+#'
+#' @inheritParams rena_plus
+#' @return Same as \code{\link{rena_plus}}.
 #' @export
 er_ml_rena <- function(bvec, mask, ...) {
   rena_plus(bvec, mask, ...)

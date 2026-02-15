@@ -4,6 +4,9 @@
 #include <cmath>
 #include <algorithm>
 #include <limits>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 using namespace Rcpp;
 
@@ -282,39 +285,92 @@ IntegerVector refine_boundaries_g3s_cpp(IntegerVector labels,
     int max_label = 0;
     for (int l : cur) if (l > max_label) max_label = l;
 
-    std::vector<std::vector<double>> centroids(max_label + 1,
-                                               std::vector<double>(M, 0.0));
+    const int label_stride = max_label + 1;
     std::vector<int> counts(max_label + 1, 0);
+    std::vector<double> centroids((size_t)label_stride * (size_t)M, 0.0);
 
+    #ifdef _OPENMP
+    {
+      const int n_threads = omp_get_max_threads();
+      std::vector<int> counts_tls((size_t)n_threads * (size_t)label_stride, 0);
+      std::vector<double> sums_tls((size_t)n_threads * (size_t)label_stride * (size_t)M, 0.0);
+
+      #pragma omp parallel num_threads(n_threads)
+      {
+        const int tid = omp_get_thread_num();
+        int* count_local = counts_tls.data() + (size_t)tid * (size_t)label_stride;
+        double* sum_local = sums_tls.data() + (size_t)tid * (size_t)label_stride * (size_t)M;
+
+        #pragma omp for schedule(static)
+        for (int i = 0; i < N; ++i) {
+          const int lab = cur[i];
+          if (lab <= 0) continue;
+
+          count_local[lab]++;
+          double* row = sum_local + (size_t)lab * (size_t)M;
+          for (int m = 0; m < M; ++m) {
+            row[m] += feature_mat(m, i);
+          }
+        }
+      }
+
+      for (int t = 0; t < n_threads; ++t) {
+        const int* count_local = counts_tls.data() + (size_t)t * (size_t)label_stride;
+        const double* sum_local = sums_tls.data() + (size_t)t * (size_t)label_stride * (size_t)M;
+        for (int lab = 1; lab <= max_label; ++lab) {
+          counts[lab] += count_local[lab];
+          double* dst = centroids.data() + (size_t)lab * (size_t)M;
+          const double* src = sum_local + (size_t)lab * (size_t)M;
+          for (int m = 0; m < M; ++m) {
+            dst[m] += src[m];
+          }
+        }
+      }
+    }
+    #else
     for (int i = 0; i < N; ++i) {
-      int lab = cur[i];
+      const int lab = cur[i];
       if (lab <= 0) continue;
       counts[lab]++;
-      for (int m = 0; m < M; ++m) centroids[lab][m] += feature_mat(m, i);
+      double* row = centroids.data() + (size_t)lab * (size_t)M;
+      for (int m = 0; m < M; ++m) {
+        row[m] += feature_mat(m, i);
+      }
     }
+    #endif
 
+    #ifdef _OPENMP
+    #pragma omp parallel for schedule(static)
+    #endif
     for (int lab = 1; lab <= max_label; ++lab) {
       if (counts[lab] == 0) continue;
       double inv = 1.0 / counts[lab];
       double sq = 0.0;
+      double* row = centroids.data() + (size_t)lab * (size_t)M;
       for (int m = 0; m < M; ++m) {
-        centroids[lab][m] *= inv;
-        sq += centroids[lab][m] * centroids[lab][m];
+        row[m] *= inv;
+        sq += row[m] * row[m];
       }
       if (use_cosine && sq > 0) {
         double norm = 1.0 / std::sqrt(sq);
-        for (int m = 0; m < M; ++m) centroids[lab][m] *= norm;
+        for (int m = 0; m < M; ++m) {
+          row[m] *= norm;
+        }
       }
     }
 
     int changed = 0;
 
+    #ifdef _OPENMP
+    #pragma omp parallel for reduction(+:changed) schedule(static)
+    #endif
     for (int i = 0; i < N; ++i) {
-      int lab = cur[i];
+      const int lab = cur[i];
       if (lab <= 0) continue;
 
       bool boundary = false;
       std::vector<int> candidates;
+      candidates.reserve(8);
       candidates.push_back(lab);
 
       for (int k = 0; k < K_neighbors; ++k) {
@@ -340,10 +396,11 @@ IntegerVector refine_boundaries_g3s_cpp(IntegerVector labels,
 
       for (int cand : candidates) {
         if (counts[cand] == 0) continue;
+        const double* c_row = centroids.data() + (size_t)cand * (size_t)M;
         if (use_cosine) {
           double dot = 0.0;
           for (int m = 0; m < M; ++m) {
-            dot += feature_mat(m, i) * centroids[cand][m];
+            dot += feature_mat(m, i) * c_row[m];
           }
           if (dot > best_dot) {
             best_dot = dot;
@@ -352,7 +409,7 @@ IntegerVector refine_boundaries_g3s_cpp(IntegerVector labels,
         } else {
           double dist_sq = 0.0;
           for (int m = 0; m < M; ++m) {
-            double diff = feature_mat(m, i) - centroids[cand][m];
+            double diff = feature_mat(m, i) - c_row[m];
             dist_sq += diff * diff;
           }
           if (dist_sq < best_dist) {
