@@ -236,6 +236,12 @@ method_grid <- list(
     list(param_id = 1, connectivity = 6),
     list(param_id = 2, connectivity = 26)
   ),
+  mcl = list(
+    # Speed/accuracy frontier from targeted MCL profiling/tuning.
+    list(param_id = 1, inflation = 1.2, connectivity = 6, exact_k = TRUE, max_iterations = 6, prune_k = 32),
+    list(param_id = 2, inflation = 1.4, connectivity = 6, exact_k = TRUE, max_iterations = 6, prune_k = 16),
+    list(param_id = 3, inflation = 1.6, connectivity = 6, exact_k = TRUE, max_iterations = 6, prune_k = 16)
+  ),
   acsc = list(
     list(param_id = 1, alpha = 0.4),
     list(param_id = 2, alpha = 0.6)
@@ -599,6 +605,21 @@ for (dname in names(datasets)) {
                      max_iterations = 12,
                      verbose = FALSE)
         fn <- rena_plus
+      } else if (m == "mcl") {
+        args <- list(
+          vec = vec,
+          mask = mask,
+          n_clusters = base_k,
+          method = "mcl",
+          connectivity = p$connectivity,
+          inflation = p$inflation,
+          exact_k = p$exact_k,
+          max_iterations = p$max_iterations,
+          prune_k = if (!is.null(p$prune_k)) p$prune_k else NULL,
+          parallel = bench_parallel,
+          verbose = FALSE
+        )
+        fn <- cluster4d
       } else if (m == "acsc") {
         args <- list(
           bvec = vec,

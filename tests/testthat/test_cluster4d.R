@@ -63,7 +63,7 @@ test_that("cluster4d works with all methods", {
                                 NeuroSpace(c(8, 8, 4))), simplify=FALSE)
   vec <- do.call(concat, vec)
   
-  methods <- c("supervoxels", "snic", "slic", "corr_slic", "brs_slic", "slice_msf", "flash3d")
+  methods <- c("supervoxels", "snic", "slic", "corr_slic", "brs_slic", "slice_msf", "flash3d", "mcl")
   
   for (method in methods) {
     # Skip methods that might not be available

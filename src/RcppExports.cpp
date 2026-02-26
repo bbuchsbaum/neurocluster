@@ -450,6 +450,22 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// mcl_prune_sparse_cpp
+Rcpp::List mcl_prune_sparse_cpp(const IntegerVector& p, const IntegerVector& i, const NumericVector& x, const int ncol, const int max_per_col, const double min_value);
+RcppExport SEXP _neurocluster_mcl_prune_sparse_cpp(SEXP pSEXP, SEXP iSEXP, SEXP xSEXP, SEXP ncolSEXP, SEXP max_per_colSEXP, SEXP min_valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const IntegerVector& >::type p(pSEXP);
+    Rcpp::traits::input_parameter< const IntegerVector& >::type i(iSEXP);
+    Rcpp::traits::input_parameter< const NumericVector& >::type x(xSEXP);
+    Rcpp::traits::input_parameter< const int >::type ncol(ncolSEXP);
+    Rcpp::traits::input_parameter< const int >::type max_per_col(max_per_colSEXP);
+    Rcpp::traits::input_parameter< const double >::type min_value(min_valueSEXP);
+    rcpp_result_gen = Rcpp::wrap(mcl_prune_sparse_cpp(p, i, x, ncol, max_per_col, min_value));
+    return rcpp_result_gen;
+END_RCPP
+}
 // normalize_volumes_cpp
 NumericMatrix normalize_volumes_cpp(NumericMatrix data);
 RcppExport SEXP _neurocluster_normalize_volumes_cpp(SEXP dataSEXP) {
@@ -834,6 +850,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_neurocluster_calculate_local_gradient", (DL_FUNC) &_neurocluster_calculate_local_gradient, 2},
     {"_neurocluster_g3s_propagate_cpp", (DL_FUNC) &_neurocluster_g3s_propagate_cpp, 7},
     {"_neurocluster_refine_boundaries_g3s_cpp", (DL_FUNC) &_neurocluster_refine_boundaries_g3s_cpp, 4},
+    {"_neurocluster_mcl_prune_sparse_cpp", (DL_FUNC) &_neurocluster_mcl_prune_sparse_cpp, 6},
     {"_neurocluster_normalize_volumes_cpp", (DL_FUNC) &_neurocluster_normalize_volumes_cpp, 1},
     {"_neurocluster_detrend_time_cpp", (DL_FUNC) &_neurocluster_detrend_time_cpp, 1},
     {"_neurocluster_normalize_detrend_cpp", (DL_FUNC) &_neurocluster_normalize_detrend_cpp, 1},

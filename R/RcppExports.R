@@ -120,6 +120,10 @@ refine_boundaries_g3s_cpp <- function(labels, feature_mat, neighbor_indices, max
     .Call('_neurocluster_refine_boundaries_g3s_cpp', PACKAGE = 'neurocluster', labels, feature_mat, neighbor_indices, max_iter)
 }
 
+mcl_prune_sparse_cpp <- function(p, i, x, ncol, max_per_col, min_value) {
+    .Call('_neurocluster_mcl_prune_sparse_cpp', PACKAGE = 'neurocluster', p, i, x, ncol, max_per_col, min_value)
+}
+
 #' Normalize Volumes by Removing Mean Offset (Fast C++ Implementation)
 #'
 #' Removes the mean offset from each volume/timepoint in a matrix.

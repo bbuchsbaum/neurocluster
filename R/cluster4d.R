@@ -20,6 +20,7 @@
 #'     \item \code{"flash3d"}: Fast Low-rank Approximate Superclusters
 #'     \item \code{"g3s"}: Gradient-Guided Geodesic Supervoxels (NEW - recommended for best quality/speed)
 #'     \item \code{"rena"}: Recursive Nearest Agglomeration (fast, balanced, topology-aware)
+#'     \item \code{"mcl"}: Sparse Markov Cluster Algorithm on a weighted voxel graph
 #'     \item \code{"acsc"}: Adaptive Correlation Superclustering (graph-based with boundary refinement)
 #'   }
 #' @param spatial_weight Balance between spatial and feature similarity (0-1).
@@ -30,6 +31,7 @@
 #'     \item snic/slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
 #'     \item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
 #'     \item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
+#'     \item mcl: direct blend between feature and spatial edge similarities
 #'   }
 #' @param max_iterations Maximum iterations for iterative methods. Default 10.
 #'   Maps to: \code{iterations} (supervoxels), \code{max_iter} (snic/slic),
@@ -61,6 +63,7 @@
 #'   slice_msf \tab Very Fast \tab Moderate \tab Low \tab Yes \tab High-res data, accept z-artifacts \cr
 #'   flash3d \tab Fast \tab Good \tab Medium \tab Partial \tab Large data, hash-based \cr
 #'   rena \tab Fast \tab Excellent \tab Low \tab No \tab Balanced clusters, topology-aware \cr
+#'   mcl \tab Fast \tab Good \tab Medium \tab Partial \tab Sparse graph clustering with tunable granularity \cr
 #' }
 #'
 #' @section Parameter Guidelines:
@@ -131,6 +134,7 @@
 #' Method-specific functions: \code{\link{cluster4d_supervoxels}}, 
 #' \code{\link{cluster4d_snic}}, \code{\link{cluster4d_slic}},
 #' \code{\link{cluster4d_slice_msf}}, \code{\link{cluster4d_flash3d}},
+#' \code{\link{cluster4d_mcl}},
 #' \code{\link{cluster4d_commute}}
 #' 
 #' Legacy functions (deprecated): \code{\link{supervoxels}}, \code{\link{snic}},
@@ -140,7 +144,7 @@
 #' @importFrom neuroim2 NeuroVec NeuroVol ClusteredNeuroVol series index_to_coord spacing
 cluster4d <- function(vec, mask,
                      n_clusters = 100,
-                     method = c("supervoxels", "snic", "slic", "corr_slic", "brs_slic", "slice_msf", "flash3d", "g3s", "rena", "rena_plus", "acsc", "commute"),
+                     method = c("supervoxels", "snic", "slic", "corr_slic", "brs_slic", "slice_msf", "flash3d", "g3s", "rena", "rena_plus", "mcl", "acsc", "commute"),
                      spatial_weight = 0.5,
                      max_iterations = NULL,
                      connectivity = NULL,
@@ -167,6 +171,9 @@ cluster4d <- function(vec, mask,
   if (spatial_weight_missing && method == "flash3d") {
     spatial_weight <- 0.25
   }
+  if (spatial_weight_missing && method == "mcl") {
+    spatial_weight <- 0.2
+  }
 
   # ------------------------------
   # Method-specific sane defaults
@@ -183,6 +190,7 @@ cluster4d <- function(vec, mask,
     g3s        = 5,     # refinement iterations
     rena       = 12,
     rena_plus  = 12,
+    mcl        = 8,
     acsc       = 5,
     commute    = 1,     # single pass (no iterative refinement)
     10
@@ -199,6 +207,7 @@ cluster4d <- function(vec, mask,
       slice_msf   = 26,
       rena        = 26,
       rena_plus   = 26,
+      mcl         = 6,
       acsc        = 26,
       g3s         = 26,
       flash3d     = NA_integer_,
@@ -259,6 +268,8 @@ cluster4d <- function(vec, mask,
                                     connectivity = connectivity,
                                     max_iterations = max_iterations,
                                     verbose = verbose, ...),
+    mcl = cluster4d_mcl(vec, mask, n_clusters, spatial_weight,
+                        max_iterations, connectivity, parallel, verbose, ...),
     acsc = cluster4d_acsc(vec, mask, n_clusters, spatial_weight,
                           max_iterations, verbose, ...),
     commute = cluster4d_commute(vec, mask, n_clusters, spatial_weight,
