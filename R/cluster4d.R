@@ -140,6 +140,7 @@
 #' Legacy functions (deprecated): \code{\link{supervoxels}}, \code{\link{snic}},
 #' \code{\link{slic4d_supervoxels}}, \code{\link{slice_msf}}, \code{\link{supervoxels_flash3d}}
 #'
+#' @importFrom methods new
 #' @export
 #' @importFrom neuroim2 NeuroVec NeuroVol ClusteredNeuroVol series index_to_coord spacing
 cluster4d <- function(vec, mask,

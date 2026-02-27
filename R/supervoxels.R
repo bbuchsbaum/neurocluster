@@ -571,7 +571,7 @@ knn_shrink <- function(bvec, mask, k = 5, connectivity = 27) {
 #' - **Speedup**: Typically 2-8x faster on multicore systems
 #' - **Automatic optimization**: Disabled for small datasets (<1000 voxels)
 #' - **Memory overhead**: Minimal - uses shared memory via RcppParallel
-#' - **Computational complexity**: Still O(N × K × iterations) but parallelized over N
+#' - **Computational complexity**: Still O(N x K x iterations) but parallelized over N
 #' 
 #' ### Parallel Configuration:
 #' 

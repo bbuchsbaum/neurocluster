@@ -90,8 +90,8 @@ the graph Laplacian using \code{neighborweights::commute_time_distance()}.
 
 \strong{This method is computationally expensive and NOT recommended for whole-brain clustering.}
 \itemize{
-\item \strong{Complexity}: O(N³) for eigendecomposition where N = number of voxels
-\item \strong{Memory}: O(N²) for adjacency matrix storage
+\item \strong{Complexity}: O(N^3) for eigendecomposition where N = number of voxels
+\item \strong{Memory}: O(N^2) for adjacency matrix storage
 \item \strong{Practical limit}: ~10,000 voxels (ROI-based analysis)
 \item \strong{Whole-brain}: ~100,000+ voxels will likely crash or take hours
 }
@@ -147,7 +147,7 @@ Solutions:
 \item Check for and remove constant voxels beforehand
 }
 
-\strong{Memory Errors}: Adjacency matrix requires O(N²) memory.
+\strong{Memory Errors}: Adjacency matrix requires O(N^2) memory.
 
 Solutions:
 \itemize{

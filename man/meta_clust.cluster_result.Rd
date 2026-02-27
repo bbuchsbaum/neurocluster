@@ -45,14 +45,14 @@ on cluster centers using sequential R functions.
 \item \strong{Distance Matrix Computation}:
 \itemize{
 \item Computes correlation distance (1 - cor) between all cluster centers
-\item O(K²) pairwise correlations where K = number of input clusters
+\item O(K^2) pairwise correlations where K = number of input clusters
 \item Sequential double loop in base R
 }
 \item \strong{Hierarchical Clustering}: \code{hclust()}
 \itemize{
 \item Standard hierarchical agglomeration (Ward.D by default)
 \item Sequential merging of closest clusters
-\item O(K² log K) complexity
+\item O(K^2 log K) complexity
 }
 \item \strong{Tree Cutting}: \code{cutree()}
 \itemize{
@@ -68,7 +68,7 @@ on cluster centers using sequential R functions.
 \item \strong{Small scale}: Usually operates on hundreds of clusters, not thousands of voxels
 \item \strong{R built-ins}: Uses standard \code{hclust()} which is sequential
 \item \strong{Fast enough}: Typically completes in seconds even for large K
-\item \strong{Memory efficient}: Only stores K×K distance matrix
+\item \strong{Memory efficient}: Only stores K x K distance matrix
 }
 }
 
@@ -83,8 +83,8 @@ on cluster centers using sequential R functions.
 \subsection{Performance Characteristics:}{
 \itemize{
 \item \strong{Input size}: K clusters from initial clustering (typically 100-1000)
-\item \strong{Complexity}: O(K²) for distances, O(K² log K) for clustering
-\item \strong{Memory}: O(K²) for distance matrix
+\item \strong{Complexity}: O(K^2) for distances, O(K^2 log K) for clustering
+\item \strong{Memory}: O(K^2) for distance matrix
 \item \strong{Speed}: Usually < 1 second for K < 500
 }
 }

@@ -189,7 +189,7 @@ inherent to the slice-based approach but can be minimized:
 
 \subsection{Performance Considerations}{
 \itemize{
-\item \strong{Memory}: Scales with mask size × r × num_runs
+\item \strong{Memory}: Scales with mask size x r x num_runs
 \item \strong{Speed}: Much faster than full 3D methods, especially for high-resolution data
 \item \strong{Trade-off}: Speed vs. z-continuity - for smooth 3D parcels, use supervoxels()
 }

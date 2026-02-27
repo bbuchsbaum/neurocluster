@@ -47,7 +47,7 @@
 #'    balance speed (fewer components) and accuracy (more variance explained).
 #'
 #' 4. **Normalization**: Each compressed feature vector is normalized to unit length,
-#'    enabling fast cosine similarity via dot products: \code{cor(x, y) ≈ x · y}
+#'    enabling fast cosine similarity via dot products: \code{cor(x, y) approx x * y}
 #'
 #' ## Performance Characteristics
 #'
@@ -196,7 +196,7 @@ compress_features_svd <- function(feature_mat,
   compressed <- sweep(svd_result$u, 2, svd_result$d, `*`)
 
   # Step 5: Normalize each row to unit length for cosine similarity
-  # For normalized vectors: cor(x, y) ≈ dot(x, y) when x and y are unit length
+  # For normalized vectors: cor(x, y) approx dot(x, y) when x and y are unit length
   row_norms <- sqrt(rowSums(compressed^2))
   row_norms[row_norms == 0] <- 1  # Avoid division by zero
 

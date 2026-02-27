@@ -34,13 +34,13 @@
 #' 
 #' 1. **Distance Matrix Computation**: 
 #'    - Computes correlation distance (1 - cor) between all cluster centers
-#'    - O(K²) pairwise correlations where K = number of input clusters
+#'    - O(K^2) pairwise correlations where K = number of input clusters
 #'    - Sequential double loop in base R
 #' 
 #' 2. **Hierarchical Clustering**: `hclust()`
 #'    - Standard hierarchical agglomeration (Ward.D by default)
 #'    - Sequential merging of closest clusters
-#'    - O(K² log K) complexity
+#'    - O(K^2 log K) complexity
 #' 
 #' 3. **Tree Cutting**: `cutree()`
 #'    - Cuts dendrogram at multiple heights
@@ -52,7 +52,7 @@
 #' - **Small scale**: Usually operates on hundreds of clusters, not thousands of voxels
 #' - **R built-ins**: Uses standard `hclust()` which is sequential
 #' - **Fast enough**: Typically completes in seconds even for large K
-#' - **Memory efficient**: Only stores K×K distance matrix
+#' - **Memory efficient**: Only stores K x K distance matrix
 #' 
 #' ### Potential for Parallelization:
 #' 
@@ -63,8 +63,8 @@
 #' ### Performance Characteristics:
 #' 
 #' - **Input size**: K clusters from initial clustering (typically 100-1000)
-#' - **Complexity**: O(K²) for distances, O(K² log K) for clustering
-#' - **Memory**: O(K²) for distance matrix
+#' - **Complexity**: O(K^2) for distances, O(K^2 log K) for clustering
+#' - **Memory**: O(K^2) for distance matrix
 #' - **Speed**: Usually < 1 second for K < 500
 #' 
 #' ### Performance Tips:

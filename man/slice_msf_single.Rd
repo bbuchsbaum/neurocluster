@@ -56,7 +56,7 @@ A list with the following components:
 \describe{
 \item{labels}{Integer vector of cluster labels for each voxel}
 \item{weights}{Numeric vector of reliability weights for each voxel}
-\item{sketch}{Matrix of DCT coefficients (r × n_voxels)}
+\item{sketch}{Matrix of DCT coefficients (r x n_voxels)}
 \item{params}{List of parameters used in the segmentation}
 }
 }

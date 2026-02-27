@@ -109,7 +109,7 @@ cluster assignment updates in parallel across multiple CPU cores.
 \item \strong{Speedup}: Typically 2-8x faster on multicore systems
 \item \strong{Automatic optimization}: Disabled for small datasets (<1000 voxels)
 \item \strong{Memory overhead}: Minimal - uses shared memory via RcppParallel
-\item \strong{Computational complexity}: Still O(N × K × iterations) but parallelized over N
+\item \strong{Computational complexity}: Still O(N x K x iterations) but parallelized over N
 }
 }
 

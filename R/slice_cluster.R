@@ -126,7 +126,7 @@
 #' 
 #' ## Performance Considerations
 #' 
-#' - **Memory**: Scales with mask size × r × num_runs
+#' - **Memory**: Scales with mask size x r x num_runs
 #' - **Speed**: Much faster than full 3D methods, especially for high-resolution data
 #' - **Trade-off**: Speed vs. z-continuity - for smooth 3D parcels, use supervoxels()
 #' 
@@ -490,7 +490,7 @@ slice_msf <- function(vec, mask,
 #' \describe{
 #'   \item{labels}{Integer vector of cluster labels for each voxel}
 #'   \item{weights}{Numeric vector of reliability weights for each voxel}
-#'   \item{sketch}{Matrix of DCT coefficients (r × n_voxels)}
+#'   \item{sketch}{Matrix of DCT coefficients (r x n_voxels)}
 #'   \item{params}{List of parameters used in the segmentation}
 #' }
 #' 

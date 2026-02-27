@@ -57,7 +57,7 @@
 #' ## Complexity and Performance
 #'
 #' - **Time**: O(N log N) where N = number of voxels
-#' - **Memory**: O(N × M) where M << T (typically 15 vs 300)
+#' - **Memory**: O(N x M) where M << T (typically 15 vs 300)
 #' - **Speedup**: 10-20x faster than iterative supervoxels
 #' - **Quality**: Superior boundaries due to geodesic propagation
 #'
@@ -66,7 +66,7 @@
 #' \tabular{lllll}{
 #'   \strong{Method} \tab \strong{Speed} \tab \strong{Quality} \tab \strong{Memory} \tab \strong{Complexity} \cr
 #'   G3S \tab Fast \tab Excellent \tab Low \tab O(N log N) \cr
-#'   Supervoxels \tab Slow \tab Good \tab High \tab O(N × K × iters) \cr
+#'   Supervoxels \tab Slow \tab Good \tab High \tab O(N x K x iters) \cr
 #'   SNIC \tab Fast \tab Good \tab Low \tab O(N log N) \cr
 #'   FLASH3D \tab Fast \tab Good \tab Medium \tab O(N) \cr
 #' }

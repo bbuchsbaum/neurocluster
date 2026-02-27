@@ -65,10 +65,11 @@ to ensure equal contribution from all timepoints.
 \item \strong{Compression}: Retains only the first M components where M is chosen to
 balance speed (fewer components) and accuracy (more variance explained).
 \item \strong{Normalization}: Each compressed feature vector is normalized to unit length,
-enabling fast cosine similarity via dot products: \code{cor(x, y) ≈ x · y}
-
-## Performance Characteristics
+enabling fast cosine similarity via dot products: \code{cor(x, y) approx x * y}
 }
+}
+
+\subsection{Performance Characteristics}{
 \itemize{
 \item \strong{Memory}: Compressed data uses M/T of original size (e.g., 15/300 = 5\%)
 \item \strong{Speed}: Similarity calculations are M/T times faster (e.g., 20x for 15/300)

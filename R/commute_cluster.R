@@ -101,8 +101,8 @@ handle_bad_voxels <- function(X, seed = NULL) {
 #'
 #' **This method is computationally expensive and NOT recommended for whole-brain clustering.**
 #'
-#' - **Complexity**: O(N³) for eigendecomposition where N = number of voxels
-#' - **Memory**: O(N²) for adjacency matrix storage
+#' - **Complexity**: O(N^3) for eigendecomposition where N = number of voxels
+#' - **Memory**: O(N^2) for adjacency matrix storage
 #' - **Practical limit**: ~10,000 voxels (ROI-based analysis)
 #' - **Whole-brain**: ~100,000+ voxels will likely crash or take hours
 #'
@@ -147,7 +147,7 @@ handle_bad_voxels <- function(X, seed = NULL) {
 #' - Use `noise_seed` for reproducible noise injection
 #' - Check for and remove constant voxels beforehand
 #'
-#' **Memory Errors**: Adjacency matrix requires O(N²) memory.
+#' **Memory Errors**: Adjacency matrix requires O(N^2) memory.
 #'
 #' Solutions:
 #' - Reduce number of voxels (subsample or use smaller ROI)

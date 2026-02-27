@@ -44,6 +44,7 @@ Maps to method-specific parameters:
 \item snic/slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
 \item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
 \item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
+\item mcl: direct blend between feature and spatial edge similarities
 }}
 
 \item{max_iterations}{Maximum iterations for iterative methods. Default 10.

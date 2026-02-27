@@ -9,7 +9,7 @@ cluster4d(
   mask,
   n_clusters = 100,
   method = c("supervoxels", "snic", "slic", "corr_slic", "brs_slic", "slice_msf",
-    "flash3d", "g3s", "rena", "rena_plus", "acsc", "commute"),
+    "flash3d", "g3s", "rena", "rena_plus", "mcl", "acsc", "commute"),
   spatial_weight = 0.5,
   max_iterations = NULL,
   connectivity = NULL,
@@ -38,6 +38,7 @@ may produce slightly different numbers of clusters due to algorithmic constraint
 \item \code{"flash3d"}: Fast Low-rank Approximate Superclusters
 \item \code{"g3s"}: Gradient-Guided Geodesic Supervoxels (NEW - recommended for best quality/speed)
 \item \code{"rena"}: Recursive Nearest Agglomeration (fast, balanced, topology-aware)
+\item \code{"mcl"}: Sparse Markov Cluster Algorithm on a weighted voxel graph
 \item \code{"acsc"}: Adaptive Correlation Superclustering (graph-based with boundary refinement)
 }}
 
@@ -49,6 +50,7 @@ Maps to method-specific parameters:
 \item snic/slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
 \item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
 \item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
+\item mcl: direct blend between feature and spatial edge similarities
 }}
 
 \item{max_iterations}{Maximum iterations for iterative methods. Default 10.
@@ -92,6 +94,7 @@ slic \tab Fast \tab Good \tab Medium \tab Yes \tab Balanced speed/quality \cr
 slice_msf \tab Very Fast \tab Moderate \tab Low \tab Yes \tab High-res data, accept z-artifacts \cr
 flash3d \tab Fast \tab Good \tab Medium \tab Partial \tab Large data, hash-based \cr
 rena \tab Fast \tab Excellent \tab Low \tab No \tab Balanced clusters, topology-aware \cr
+mcl \tab Fast \tab Good \tab Medium \tab Partial \tab Sparse graph clustering with tunable granularity \cr
 }
 }
 
@@ -166,6 +169,7 @@ result <- cluster4d(vec, mask,
 Method-specific functions: \code{\link{cluster4d_supervoxels}},
 \code{\link{cluster4d_snic}}, \code{\link{cluster4d_slic}},
 \code{\link{cluster4d_slice_msf}}, \code{\link{cluster4d_flash3d}},
+\code{\link{cluster4d_mcl}},
 \code{\link{cluster4d_commute}}
 
 Legacy functions (deprecated): \code{\link{supervoxels}}, \code{\link{snic}},

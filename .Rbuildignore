@@ -22,5 +22,7 @@
 ^supervoxels\.patch$
 ^testdata$
 ^verification_output\.txt$
+^neurocluster_full_check\.log$
+^neurocluster_full_check_env\.log$
 ^verify_all_algorithms_ordering\.R$
 ^verify_flash3d_fix\.R$
