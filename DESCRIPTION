@@ -17,7 +17,7 @@ License: GPL (>= 3)
 Encoding: UTF-8
 Depends: R (>= 3.5.0)
 Imports: Rcpp (>= 0.11.3), RcppParallel, Matrix, FNN, RANN,
-    assertthat, clue, igraph, matrixStats, neighborweights, neuroim2,
+    assertthat, clue, igraph, matrixStats, adjoin, neuroim2,
     purrr, future, future.apply, furrr, methods
 LinkingTo: Rcpp, RcppParallel, RcppArmadillo
 RoxygenNote: 7.3.3
