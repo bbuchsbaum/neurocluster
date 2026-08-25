@@ -335,18 +335,17 @@ post_merge_to_k <- function(res, k_target) {
   res
 }
 
-# Simple adjusted Rand index (no external deps)
-adj_rand_index <- function(labels1, labels2) {
-  if (length(labels1) != length(labels2)) return(NA_real_)
-  tab <- table(labels1, labels2)
-  sum_comb <- sum(choose(tab, 2))
-  sum_rows <- sum(choose(rowSums(tab), 2))
-  sum_cols <- sum(choose(colSums(tab), 2))
-  n <- length(labels1)
-  expected <- sum_rows * sum_cols / choose(n, 2)
-  max_idx <- 0.5 * (sum_rows + sum_cols)
-  if (max_idx == expected) return(0)
-  (sum_comb - expected) / (max_idx - expected)
+# Score the truth-defined estimand while rejecting missing predictions.
+score_observed_truth <- function(predicted, truth) {
+  if (length(predicted) != length(truth)) {
+    stop("predicted and truth labels must have the same length")
+  }
+  observed <- !is.na(truth)
+  if (!any(observed)) stop("truth contains no observed labels")
+  if (anyNA(predicted[observed])) {
+    stop("predicted labels are missing where truth is observed")
+  }
+  clustering_accuracy(predicted[observed], truth[observed])
 }
 
 bench_rows <- list()
@@ -435,7 +434,6 @@ for (dname in names(datasets)) {
           refine_boundary_only = isTRUE(corr_cfg$refine_boundary_only),
           refine_stride = if (!is.null(corr_cfg$refine_stride)) as.integer(corr_cfg$refine_stride) else 1L,
           seed = if (!is.null(corr_cfg$seed)) as.integer(corr_cfg$seed) else 1L,
-          parallel = bench_parallel,
           verbose = FALSE
         )
         p <- c(p, corr_cfg)
@@ -454,7 +452,6 @@ for (dname in names(datasets)) {
           refine_spatial_weight = p$refine_spatial_weight,
           refine_l2_weight = if (!is.null(p$refine_l2_weight)) p$refine_l2_weight else 0,
           refine_stride = if (!is.null(p$refine_stride)) p$refine_stride else NULL,
-          parallel = bench_parallel,
           verbose = FALSE
         )
         fn <- cluster4d
@@ -531,7 +528,6 @@ for (dname in names(datasets)) {
             refine_stride = if (!is.null(get_corr_slic_cfg(dname)$refine_stride)) as.integer(get_corr_slic_cfg(dname)$refine_stride) else 1L,
             seed = if (!is.null(get_corr_slic_cfg(dname)$seed)) as.integer(get_corr_slic_cfg(dname)$seed) else 1L,
             max_iterations = if (!is.null(get_corr_slic_cfg(dname)$max_iterations)) as.integer(get_corr_slic_cfg(dname)$max_iterations) else 6L,
-            parallel = bench_parallel,
             verbose = FALSE
           ),
           error = function(e) e
@@ -616,7 +612,6 @@ for (dname in names(datasets)) {
           exact_k = p$exact_k,
           max_iterations = p$max_iterations,
           prune_k = if (!is.null(p$prune_k)) p$prune_k else NULL,
-          parallel = bench_parallel,
           verbose = FALSE
         )
         fn <- cluster4d
@@ -690,7 +685,7 @@ for (dname in names(datasets)) {
         if (n_clusters <= 1) {
           err <- "returned single partition"
         } else if (!is.null(ds$truth) && length(ds$truth) == length(res$res$cluster)) {
-          ari <- adj_rand_index(res$res$cluster, ds$truth)
+          ari <- score_observed_truth(res$res$cluster, ds$truth)$ari
         }
       }
 

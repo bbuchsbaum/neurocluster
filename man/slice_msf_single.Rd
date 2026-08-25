@@ -2,7 +2,7 @@
 % Please edit documentation in R/slice_cluster.R
 \name{slice_msf_single}
 \alias{slice_msf_single}
-\title{Single Run SLiCE-MSF Segmentation}
+\title{Run one Slice-MSF segmentation}
 \usage{
 slice_msf_single(
   vec,
@@ -11,70 +11,43 @@ slice_msf_single(
   k = 0.32,
   min_size = 80,
   nbhd = 8,
-  stitch_z = FALSE,
-  theta_link = 0.85,
-  min_contact = 1,
+  stitch_z = TRUE,
   gamma = 1.5,
-  z_mult = 0
+  z_mult = 0,
+  dct_frequencies = NULL,
+  dct_weights = NULL
 )
 }
 \arguments{
-\item{vec}{A \code{NeuroVec} instance supplying the time series data.}
+\item{vec}{A \code{NeuroVec} or \code{SparseNeuroVec} containing the time series.}
 
-\item{mask}{A \code{NeuroVol} mask defining the voxels to include.}
+\item{mask}{A \code{NeuroVol}; exactly finite values greater than zero are included.}
 
-\item{r}{DCT sketch rank (number of basis functions). Higher values preserve more
-temporal detail but increase computation. Range: 4-20. Default is 12.}
+\item{r}{Requested number of non-DC DCT modes. It is capped at \code{T - 1}.}
 
-\item{k}{Scale parameter for Felzenszwalb-Huttenlocher segmentation (0-2). Controls
-the trade-off between under- and over-segmentation. Smaller values (0.1-0.3) create
-more clusters, larger values (0.5-1.0) create fewer, larger clusters. Default is 0.32.}
+\item{k}{Positive FH segmentation scale.}
 
-\item{min_size}{Minimum cluster size in voxels. Clusters smaller than this are merged
-with neighbors. Default is 80.}
+\item{min_size}{Positive minimum component size for each run.}
 
-\item{nbhd}{Neighborhood connectivity for within-slice edges (4 or 8). Note that 6 is
-automatically mapped to 8. Default is 8.}
+\item{nbhd}{\code{4}, \code{6}, or \code{8}. Values \code{4} and \code{6} select axial neighbors;
+\code{8} selects the full diagonal neighborhood.}
 
-\item{stitch_z}{Enable cross-slice stitching to create 3D clusters. When FALSE, each
-slice is treated independently. Default is TRUE.}
+\item{stitch_z}{Whether graph edges may cross axial slices. When \code{FALSE},
+slices are independent and a global exact-K target is unavailable.}
 
-\item{theta_link}{Centroid correlation threshold for z-stitching (0-1). Lower values
-allow more aggressive merging across slices. Only used if stitch_z=TRUE. Default is 0.85.}
+\item{gamma}{Non-negative exponent applied to positive split-half reliability;
+it directly scales feature edge distances.}
 
-\item{min_contact}{Minimum number of vertically adjacent voxels required to consider
-stitching two clusters. Only used if stitch_z=TRUE. Default is 1.}
+\item{z_mult}{DCT-sketch smoothing fraction in \verb{[0, 1]} across axial slices.}
 
-\item{gamma}{Reliability weighting exponent based on split-half correlations. Higher
-values give more weight to reliable voxels. Default is 1.5.}
+\item{dct_frequencies}{Optional unique non-DC DCT frequencies in \verb{[1, T - 1]}.}
 
-\item{z_mult}{Z-smoothing factor (0-1). Values > 0 blend slice sketches prior to
-clustering to reduce boundary artifacts. Default is 0.0.}
+\item{dct_weights}{Optional positive weights paired with \code{dct_frequencies}.}
 }
 \value{
-A list with the following components:
-\describe{
-\item{labels}{Integer vector of cluster labels for each voxel}
-\item{weights}{Numeric vector of reliability weights for each voxel}
-\item{sketch}{Matrix of DCT coefficients (r x n_voxels)}
-\item{params}{List of parameters used in the segmentation}
-}
+A list with full-volume \code{labels}, \code{weights}, \code{sketch}, and \code{params}.
 }
 \description{
-Lower-level function that performs a single run of SLiCE-MSF segmentation without
-consensus fusion. This function is useful for testing parameters or when you need
-direct access to the DCT sketch and reliability weights. Most users should use
-\code{slice_msf} instead for better stability through consensus.
-}
-\details{
-This function exposes the core SLiCE-MSF algorithm without consensus fusion. The
-returned sketch matrix contains the DCT coefficients that summarize each voxel's
-time series, and the weights indicate the reliability of each voxel based on
-split-half correlations. These can be useful for diagnostic purposes or custom
-post-processing.
-
-The k parameter is particularly important: it directly controls the scale of
-segmentation. For typical fMRI data, values between 0.2-0.5 work well. Lower
-values are needed for fine-grained parcellation, while higher values produce
-coarser segmentation.
+Low-level diagnostic interface returning native full-volume labels, split-half
+reliability weights, and an \code{r_used} by voxel DCT sketch.
 }

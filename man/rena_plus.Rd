@@ -20,11 +20,13 @@ rena_plus(
 \arguments{
 \item{bvec}{A \code{NeuroVec} providing voxel time-series.}
 
-\item{mask}{A \code{NeuroVol} mask; non-zero voxels are included.}
+\item{mask}{A \code{NeuroVol} mask; finite positive voxels are included.}
 
 \item{K}{Target number of clusters.}
 
-\item{r}{Over-clustering factor; coarsening stops at K' = ceiling(r * K). Default 2.}
+\item{r}{Finite over-clustering factor at least 1. Coarsening approaches
+K' = ceiling(r * K) without applying a level that would overshoot below
+K'. Default 2.}
 
 \item{lambda}{Gradient penalty strength (>=0). 0 disables edge weighting.}
 
@@ -45,7 +47,20 @@ A \code{cluster4d_result} with additional class \code{rena_plus_cluster_result}.
 \description{
 Two-stage pipeline:
 \enumerate{
-\item Edge-aware reciprocal-nearest-neighbor ReNA coarsening to K' = r * K super-voxels.
+\item Edge-aware reciprocal-nearest-neighbor ReNA coarsening toward
+K' = ceiling(r * K) super-voxels.
 \item Spatially-constrained Ward refinement on the super-graph to reach exactly K clusters.
 }
+}
+\details{
+A reciprocal-neighbor level is retained only when applying the complete
+level would leave at least K' super-voxels. This prevents the coarsening
+stage from overshooting below K and leaves the remaining one-at-a-time
+adjacent merges to Ward refinement. Ward costs are recomputed from the
+current size-weighted means before every accepted merge; equal-cost edges
+are resolved by ascending super-voxel identifiers. Because the adjacency
+constraint can expose a new edge after a merge, individual Ward deltas need
+not be ordered, although every delta is non-negative and the cumulative
+objective is non-decreasing. When Ward refinement is needed, its complete
+trace and queue diagnostics are available in \code{result$metadata$ward}.
 }

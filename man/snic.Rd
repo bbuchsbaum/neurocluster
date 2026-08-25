@@ -12,25 +12,28 @@ Can also be a 3D \code{\link[neuroim2:NeuroVol-class]{NeuroVol}} for structural 
 which will be automatically converted to a single-timepoint NeuroVec internally.}
 
 \item{mask}{A \code{NeuroVol} mask defining the voxels to include in the clustering result.
-If the mask contains \code{numeric} data, nonzero values will define the included voxels.
+If the mask contains \code{numeric} data, finite values strictly greater than
+zero define the included voxels.
 If the mask is a \code{\link[neuroim2:LogicalNeuroVol-class]{LogicalNeuroVol}}, then \code{TRUE} will define the set
 of included voxels.}
 
-\item{compactness}{A numeric value controlling the compactness of the clusters, with larger values resulting
-in more compact clusters. Default is 5.}
+\item{compactness}{A finite numeric value in \code{[0, 10]} controlling the
+spatial-feature mixture. Zero is feature-only, 10 is spatial-only, and
+larger values within the interval produce more compact clusters. Default is 5.}
 
 \item{K}{The number of clusters to find. Default is 500.}
 
-\item{max_iter}{Maximum number of iterations for the SNIC algorithm. Default is 100.
-Currently ignored as SNIC algorithm uses internal convergence criteria.}
+\item{max_iter}{Deprecated inactive argument retained in the function
+signature for compatibility. SNIC is non-iterative; supplying this argument
+explicitly is an error.}
 }
 \value{
 A \code{list} of class \code{snic_cluster_result} with the following elements:
 \describe{
 \item{clusvol}{An instance of type \link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}.}
 \item{gradvol}{A \code{NeuroVol} instance representing the spatial gradient of the reference volume.}
-\item{cluster}{A vector of cluster indices equal to the number of voxels in the mask.}
-\item{centers}{A matrix of cluster centers with each column representing the feature vector for a cluster.}
+\item{cluster}{A vector of contiguous positive cluster labels, one per included mask voxel.}
+\item{centers}{A K-by-T matrix of mean feature values in the original input space.}
 \item{coord_centers}{A matrix of spatial coordinates with each row corresponding to a cluster.}
 }
 }
@@ -103,14 +106,17 @@ that processes voxels in order of their distance from cluster centers.
 \item \strong{Adjust compactness}: Higher values create more local clusters, faster processing
 \item \strong{Pre-smooth data}: Reduce noise to improve gradient-based initialization
 \item \strong{Use smaller masks}: Process ROIs separately if possible
-\item \strong{Alternative}: Consider \code{slice_msf()} or \code{acsc()} for parallel execution
+\item \strong{Parallel alternative}: In the unified API, \code{supervoxels} and \code{slic}
+support \code{parallel = TRUE}. The other methods do not advertise a parallel
+clustering contract.
 }
 }
 
 \subsection{Comparison with Other Methods:}{
 \itemize{
 \item \strong{Faster than}: \code{supervoxels()} due to non-iterative nature
-\item \strong{Slower than}: \code{slice_msf()} with parallel slices, \code{acsc()} with future backend
+\item \strong{Parallel choices}: Use one of the two unified methods listed above
+when a tested sequential/parallel clustering contract is required.
 \item \strong{More coherent than}: Methods without spatial priority (ensures connectivity)
 }
 }

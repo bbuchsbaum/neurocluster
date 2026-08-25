@@ -13,6 +13,8 @@ using namespace RcppParallel;
 #endif
 
 // Worker for normalizing each volume (removing mean offset per timepoint)
+namespace {
+
 struct NormalizeVolumesWorker : public Worker {
   // Input matrix: voxels x timepoints
   const RMatrix<double> input;
@@ -35,6 +37,8 @@ struct NormalizeVolumesWorker : public Worker {
     }
   }
 };
+
+} // namespace
 
 //' Normalize Volumes by Removing Mean Offset (Fast C++ Implementation)
 //'
@@ -78,6 +82,8 @@ NumericMatrix normalize_volumes_cpp(NumericMatrix data) {
 
 
 // Worker for detrending each voxel's timeseries
+namespace {
+
 struct DetrendWorker : public Worker {
   // Input matrix: voxels x timepoints
   const RMatrix<double> input;
@@ -120,6 +126,8 @@ struct DetrendWorker : public Worker {
     }
   }
 };
+
+} // namespace
 
 //' Detrend Voxel Timeseries (Fast C++ Implementation)
 //'
@@ -164,6 +172,8 @@ NumericMatrix detrend_time_cpp(NumericMatrix data) {
 
 
 // Worker for combined normalize + detrend
+namespace {
+
 struct NormalizeDetrendWorker : public Worker {
   const RMatrix<double> input;
   RMatrix<double> output;
@@ -207,6 +217,8 @@ struct NormalizeDetrendWorker : public Worker {
     }
   }
 };
+
+} // namespace
 
 //' Normalize Volumes and Detrend Timeseries (Fast C++ Implementation)
 //'
@@ -350,6 +362,8 @@ NumericMatrix make_poly_basis(int n_time, int degree) {
 
 
 // Worker for basis projection detrending
+namespace {
+
 struct BasisDetrendWorker : public Worker {
   const RMatrix<double> input;
   RMatrix<double> output;
@@ -403,6 +417,8 @@ struct BasisDetrendWorker : public Worker {
     }
   }
 };
+
+} // namespace
 
 
 //' Flexible Detrending with Basis Functions (Fast C++ Implementation)

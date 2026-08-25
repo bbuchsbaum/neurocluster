@@ -10,15 +10,22 @@ using namespace Rcpp;
 // =============================================================================
 
 // Lightweight struct for priority queue - avoids Rcpp::List overhead
+namespace {
+
 struct QueueElement {
     int x, y, z;          // 3D coordinates
     int voxel_idx;        // Linear index in feature matrix
     int k_label;          // Cluster label
     double distance;      // Distance metric for priority
+    bool is_seed;         // Seed ownership is established before competition
 
-    // Priority queue orders by largest, so reverse for smallest distance
+    // Deterministic min-priority ordering. Seeds win every equal-distance tie,
+    // then labels and voxel indices provide stable ordering.
     bool operator>(const QueueElement& other) const {
-        return distance > other.distance;
+        if (distance != other.distance) return distance > other.distance;
+        if (is_seed != other.is_seed) return !is_seed && other.is_seed;
+        if (k_label != other.k_label) return k_label > other.k_label;
+        return voxel_idx > other.voxel_idx;
     }
 };
 
@@ -63,7 +70,7 @@ struct Centroid {
     }
 
     // Lazy normalization - only called when features are needed
-    void ensure_normalized(int n_features) {
+    void ensure_normalized(int n_features, bool normalize_direction) {
         if (!features_dirty) return;
 
         double sq_norm = 0.0;
@@ -72,8 +79,10 @@ struct Centroid {
             sq_norm += avg_c[i] * avg_c[i];
         }
 
-        // Re-normalize to unit length (appropriate for fMRI time series)
-        if (sq_norm > 0) {
+        // Multi-frame inputs use directional (correlation-like) features.
+        // Single-frame inputs retain their scalar centroid mean so structural
+        // intensity remains part of the distance.
+        if (normalize_direction && sq_norm > 0) {
             double norm = std::sqrt(sq_norm);
             for(int i = 0; i < n_features; ++i) {
                 avg_c[i] /= norm;
@@ -140,6 +149,8 @@ public:
   IntegerVector data_;
   IntegerVector dims_;
 };
+
+} // namespace
 
 IntegerMatrix get_26_connected_neighbors(int i, int j, int k, int max_i, int max_j, int max_k) {
   std::vector<IntegerVector> neighbors;
@@ -246,6 +257,8 @@ IntegerVector snic_main(IntegerVector L_data, const IntegerVector& mask,
   List C(K);
   int nassigned = 0;
   int nvoxels = vecmat.ncol();
+  double queue_pushes = 0.0;
+  double queue_pops = 0.0;
 
   IntegerVector mask_dims = mask.attr("dim");
   //IntegerVector mask_dims = IntegerVector::create(96,96,26);
@@ -266,9 +279,6 @@ IntegerVector snic_main(IntegerVector L_data, const IntegerVector& mask,
     NumericVector c_k = vecmat(_, centroid_idx[k]);
     IntegerVector voxel = valid_coords(centroid_idx[k], _);
 
-
-    double distance = 0.0;
-
     List e = create_element(x_k, voxel, centroid_idx[k], k+1, (k*1.0)/(K+1));
 
     // Update the centroid information
@@ -276,6 +286,7 @@ IntegerVector snic_main(IntegerVector L_data, const IntegerVector& mask,
 
     // Push the element into the priority queue
     Q.push(e);
+    queue_pushes += 1.0;
 
 
   }
@@ -286,6 +297,7 @@ IntegerVector snic_main(IntegerVector L_data, const IntegerVector& mask,
     // Pop the element with the smallest distance
     e_i = Q.top();
     Q.pop();
+    queue_pops += 1.0;
     NumericVector x_i = e_i["x"];
     IntegerVector voxel = e_i["voxel"];
 
@@ -328,13 +340,23 @@ IntegerVector snic_main(IntegerVector L_data, const IntegerVector& mask,
         double d_j_ki = compute_distance(cen_k, nx_j, ci, c_j, s, compactness);
         List e_j = create_element(nx_j, x_j, neighb_idx, k_i,d_j_ki);
         Q.push(e_j);
+        queue_pushes += 1.0;
 
       }
     }
 
   }
 
-  return L.toRVector();
+  IntegerVector result = L.toRVector();
+  IntegerVector centroid_counts(K);
+  for (int k = 0; k < K; ++k) {
+    List centroid = C[k];
+    centroid_counts[k] = as<int>(centroid["n"]);
+  }
+  result.attr("snic_centroid_counts") = centroid_counts;
+  result.attr("snic_queue_pushes") = queue_pushes;
+  result.attr("snic_queue_pops") = queue_pops;
+  return result;
 
 }
 
@@ -378,9 +400,9 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
         Rcpp::stop("SNIC internal error: mask lookup size mismatch");
     }
 
-    // Precompute inverses to replace division inside hot loops
+    // The R boundary maps compactness to a spatial mixture in [0, 1].
     const double s_inv = (s > 0.0) ? 1.0 / s : 1.0;
-    const double comp_inv = (compactness > 0.0) ? 1.0 / compactness : 1.0;
+    const double spatial_mix = std::max(0.0, std::min(1.0, compactness));
 
     // Priority queue with lightweight struct
     std::priority_queue<QueueElement, std::vector<QueueElement>, std::greater<QueueElement>> Q;
@@ -392,13 +414,27 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
     // Initialize centroids
     std::vector<Centroid> C_store;
     C_store.reserve(K);
+    std::vector<int> seen_seed(nvoxels, 0);
+    IntegerVector assignment_order(nvoxels);
+    IntegerVector assignment_labels(nvoxels);
+    NumericVector assignment_distance(nvoxels);
+    int assignment_pos = 0;
+    double queue_pushes = 0.0;
+    double queue_pops = 0.0;
 
-    // Initialization: create initial centroids and queue elements
+    int nassigned = 0;
+
+    // Every seed owns its voxel before queue competition begins. Centroids are
+    // initialized with count one and the seed is never added a second time.
     for (int k = 0; k < K; ++k) {
         int idx = centroid_idx[k];  // 0-based index from R
         if (idx < 0 || idx >= nvoxels) {
             Rcpp::stop("SNIC internal error: centroid index out of bounds");
         }
+        if (seen_seed[idx]) {
+            Rcpp::stop("SNIC internal error: seed indices must be distinct");
+        }
+        seen_seed[idx] = 1;
 
         // Get spatial coordinates
         int vx = valid_coords(idx, 0);
@@ -417,17 +453,26 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
         // Create centroid
         C_store.emplace_back(n_features, nx, ny, nz, c_init);
 
-        // Add to queue with tie-breaking distance
-        double dist = (double)k / (K + 1);
-        Q.push({vx, vy, vz, idx, k + 1, dist});
-        best_dist[idx] = dist;  // Mark seed with its distance
+        int l_index = vx + dim_x * (vy + dim_y * vz);
+        if (L_ptr[l_index] != 0) {
+            Rcpp::stop("SNIC internal error: distinct seeds map to the same voxel");
+        }
+        L_ptr[l_index] = k + 1;
+        nassigned++;
+        assignment_order[assignment_pos] = idx + 1;
+        assignment_labels[assignment_pos] = k + 1;
+        assignment_distance[assignment_pos] = 0.0;
+        assignment_pos++;
+
+        Q.push({vx, vy, vz, idx, k + 1, 0.0, true});
+        queue_pushes += 1.0;
+        best_dist[idx] = 0.0;
     }
 
-    int nassigned = 0;
+    int seeds_expanded = 0;
 
     // Main loop - process voxels in priority order
-    // OPTIMIZATION: Early termination when all voxels assigned
-    while (!Q.empty() && nassigned < nvoxels) {
+    while (!Q.empty() && (nassigned < nvoxels || seeds_expanded < K)) {
         // Check for user interrupts periodically
         if (nassigned % 1000 == 0) {
             Rcpp::checkUserInterrupt();
@@ -435,15 +480,26 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
 
         QueueElement e = Q.top();
         Q.pop();
+        queue_pops += 1.0;
 
         // Calculate linear index for 3D volume
         int l_index = e.x + dim_x * (e.y + dim_y * e.z);
 
-        // Check if already labeled
-        if (L_ptr[l_index] == 0) {
+        bool expand_neighbors = false;
+        if (e.is_seed) {
+            if (L_ptr[l_index] != e.k_label) {
+                Rcpp::stop("SNIC internal error: seed ownership was overwritten");
+            }
+            seeds_expanded++;
+            expand_neighbors = true;
+        } else if (L_ptr[l_index] == 0) {
             // Assign label
             L_ptr[l_index] = e.k_label;
             nassigned++;
+            assignment_order[assignment_pos] = e.voxel_idx + 1;
+            assignment_labels[assignment_pos] = e.k_label;
+            assignment_distance[assignment_pos] = e.distance;
+            assignment_pos++;
 
             // Update centroid in-place (fast - no normalization)
             const double* feat_ptr = &vecmat[0] + e.voxel_idx * n_features;
@@ -453,9 +509,13 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
 
             Centroid& ck = C_store[e.k_label - 1];
             ck.add_pixel(nx, ny, nz, feat_ptr, n_features);
+            expand_neighbors = true;
+        }
 
-            // OPTIMIZATION: Lazy normalization - only normalize when needed for distance
-            ck.ensure_normalized(n_features);
+        if (expand_neighbors) {
+            Centroid& ck = C_store[e.k_label - 1];
+            // Directional normalization is coherent only for multi-frame data.
+            ck.ensure_normalized(n_features, n_features > 1);
 
             // Check 26-connected neighbors - inlined for performance
             for (int dz = -1; dz <= 1; ++dz) {
@@ -494,15 +554,25 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
                         double nnz = norm_ptr[neigh_idx + norm_stride * 2];
 
                         // Compute distance (centroid already normalized via ensure_normalized)
-                        double d = compute_dist_cpp(ck.avg_x, ck.avg_y, ck.avg_z, ck.avg_c.data(),
-                                                    nnx, nny, nnz, n_feat_ptr,
-                                                    n_features, s_inv, comp_inv);
+                        double feature_distance = compute_dist_cpp(
+                            ck.avg_x, ck.avg_y, ck.avg_z, ck.avg_c.data(),
+                            nnx, nny, nnz, n_feat_ptr,
+                            n_features, 0.0, 1.0
+                        );
+                        double delta_x = ck.avg_x - nnx;
+                        double delta_y = ck.avg_y - nny;
+                        double delta_z = ck.avg_z - nnz;
+                        double spatial_distance =
+                            (delta_x*delta_x + delta_y*delta_y + delta_z*delta_z) * s_inv;
+                        double d = spatial_mix * spatial_distance +
+                                   (1.0 - spatial_mix) * feature_distance;
 
                         // Paper-faithful: only add to queue if this is a better path
                         // This allows cluster competition while controlling queue size
                         if (d < best_dist[neigh_idx]) {
                             best_dist[neigh_idx] = d;
-                            Q.push({nx_pos, ny_pos, nz_pos, neigh_idx, e.k_label, d});
+                            Q.push({nx_pos, ny_pos, nz_pos, neigh_idx, e.k_label, d, false});
+                            queue_pushes += 1.0;
                         }
                     }
                 }
@@ -510,6 +580,24 @@ IntegerVector snic_main_optimized(IntegerVector L_data,
         }
     }
 
+    if (nassigned != nvoxels) {
+        Rcpp::stop(
+            "SNIC could not reach every masked voxel from its seeds; "
+            "the mask may contain an unseeded disconnected component"
+        );
+    }
+
+    IntegerVector centroid_counts(K);
+    for (int k = 0; k < K; ++k) centroid_counts[k] = C_store[k].count;
+    IntegerVector seed_indices = clone(centroid_idx);
+    for (int k = 0; k < seed_indices.size(); ++k) seed_indices[k] += 1;
+    L_data.attr("snic_centroid_counts") = centroid_counts;
+    L_data.attr("snic_assignment_order") = assignment_order;
+    L_data.attr("snic_assignment_labels") = assignment_labels;
+    L_data.attr("snic_assignment_distance") = assignment_distance;
+    L_data.attr("snic_seed_indices") = seed_indices;
+    L_data.attr("snic_queue_pushes") = queue_pushes;
+    L_data.attr("snic_queue_pops") = queue_pops;
     return L_data;
 }
 

@@ -127,11 +127,9 @@ test_that("ACSC parameter validation", {
   suppressWarnings(result_small_K <- acsc(vec, mask, K = 1))
   expect_true(length(unique(result_small_K$cluster_map[mask > 0])) >= 1)
   
-  # Large K (should be clamped to reasonable value)
-  # This may produce warnings about resolution estimation
-  expect_warning(result_large_K <- acsc(vec, mask, K = nvox), 
-                 "Could not find a resolution matching K")
-  expect_true(length(unique(result_large_K$cluster_map[mask > 0])) <= nvox)
+  # Exact-K postprocessing can split spatially connected clusters up to N.
+  expect_silent(result_large_K <- acsc(vec, mask, K = nvox))
+  expect_identical(result_large_K$actual_k, as.integer(nvox))
   
   # Different connectivity values
   # Test different ann_k values instead of connectivity

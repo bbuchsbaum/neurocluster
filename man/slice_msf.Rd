@@ -2,343 +2,88 @@
 % Please edit documentation in R/slice_cluster.R
 \name{slice_msf}
 \alias{slice_msf}
-\title{SLiCE-MSF: Low-rank, Minimum-Spanning Forest Clustering (volumetric)}
+\title{Volumetric DCT minimum-spanning-forest clustering}
 \usage{
 slice_msf(
   vec,
   mask,
   target_k_global = -1,
-  target_k_per_slice = -1,
   r = 12,
   compactness = 5,
   min_size = 80,
   num_runs = 3,
   consensus = TRUE,
   stitch_z = TRUE,
-  theta_link = 0.85,
-  min_contact = 1,
   nbhd = 8,
   gamma = 1.5,
   k_fuse = NULL,
   min_size_fuse = NULL,
   use_features = FALSE,
   lambda = 0.7,
-  z_mult = 0
+  z_mult = 0,
+  seed = 1L,
+  ensemble_fraction = 0.8
 )
 }
 \arguments{
-\item{vec}{A \code{NeuroVec} or \code{SparseNeuroVec} instance supplying the time series data to cluster.}
+\item{vec}{A \code{NeuroVec} or \code{SparseNeuroVec} containing the time series.}
 
-\item{mask}{A \code{NeuroVol} mask defining the voxels to include in the clustering result.
-If the mask contains \code{numeric} data, nonzero values will define the included voxels.
-If the mask is a \code{\link[neuroim2:LogicalNeuroVol-class]{LogicalNeuroVol}}, then \code{TRUE} will define the set
-of included voxels.}
+\item{mask}{A \code{NeuroVol}; exactly finite values greater than zero are included.}
 
-\item{target_k_global}{Target number of clusters across entire volume. When positive,
-uses region adjacency graph (RAG) agglomeration to achieve exactly K clusters.
-Default is -1 (no target, uses natural Felzenszwalb-Huttenlocher clustering).}
+\item{target_k_global}{\code{-1} for the natural segmentation or a positive exact
+cluster count. Exact K uses the shared adjacency-preserving split/merge engine.}
 
-\item{target_k_per_slice}{Deprecated; volumetric mode only. Ignored and forced to -1.}
+\item{r}{Requested number of non-DC DCT modes. It is capped at \code{T - 1}.}
 
-\item{r}{DCT sketch rank (number of basis functions, excluding DC component). Higher
-values preserve more temporal detail but increase computation. Range: 4-20, Default: 12.}
+\item{compactness}{Finite value in \verb{[0, 10]} controlling FH scale. Larger
+values use a smaller scale and generally produce finer components.}
 
-\item{compactness}{Controls spatial compactness vs feature similarity balance (1-10).
-Lower values (1-3): Feature-driven, may create irregular shapes but better cross-slice
-alignment. Medium (4-6): Balanced. Higher (7-10): Spatially compact but may show more
-z-artifacts. Default is 5.}
+\item{min_size}{Positive minimum component size for each run.}
 
-\item{min_size}{Minimum cluster size in voxels. Smaller clusters are merged with
-nearest neighbors. Affects granularity of parcellation. Default is 80.}
+\item{num_runs}{Positive number of runs. Values above one require consensus.}
 
-\item{num_runs}{Number of independent segmentation runs. Single run (1) is faster but
-less stable. Multiple runs (3-5) with consensus fusion reduce variability and can
-smooth z-transitions. More than 5 has diminishing returns. Default is 3.}
+\item{consensus}{Whether to fuse a multi-run ensemble.}
 
-\item{consensus}{Logical. If TRUE and num_runs > 1, applies consensus fusion across
-runs, improving stability and potentially reducing z-artifacts. Default is TRUE.}
+\item{stitch_z}{Whether graph edges may cross axial slices. When \code{FALSE},
+slices are independent and a global exact-K target is unavailable.}
 
-\item{stitch_z}{Deprecated; volumetric edges already include z-neighbors. Ignored.}
+\item{nbhd}{\code{4}, \code{6}, or \code{8}. Values \code{4} and \code{6} select axial neighbors;
+\code{8} selects the full diagonal neighborhood.}
 
-\item{theta_link}{Deprecated legacy stitching parameter (ignored).}
+\item{gamma}{Non-negative exponent applied to positive split-half reliability;
+it directly scales feature edge distances.}
 
-\item{min_contact}{Deprecated legacy stitching parameter (ignored).}
+\item{k_fuse}{Positive FH scale for consensus; defaults to the run scale.}
 
-\item{nbhd}{Neighborhood connectivity for within-slice clustering. Options: 4 (von
-Neumann), 6 (includes z but mapped to 8), 8 (Moore). Higher connectivity can
-improve within-slice coherence. Default is 8.}
+\item{min_size_fuse}{Positive minimum consensus component size; defaults to
+\code{min_size}.}
 
-\item{gamma}{Reliability weighting exponent for split-half correlation. Higher values
-(>1.5) emphasize high-reliability voxels, useful for noisy data. Lower values (<1)
-treat all voxels more equally. Default is 1.5.}
+\item{use_features}{Include sketch similarity as well as label agreement in
+multi-run consensus.}
 
-\item{k_fuse}{Scale parameter for consensus fusion graph. If NULL, uses same as
-compactness-derived scale. Lower values create more clusters in fusion. Default is NULL.}
+\item{lambda}{Consensus mixture in \verb{[0, 1]}; one uses label agreement only,
+zero uses feature similarity only. Active only when \code{use_features = TRUE}.}
 
-\item{min_size_fuse}{Minimum cluster size during consensus fusion. If NULL, uses
-min_size. Can be set lower to preserve small consistent regions. Default is NULL.}
+\item{z_mult}{DCT-sketch smoothing fraction in \verb{[0, 1]} across axial slices.}
 
-\item{use_features}{Include feature similarity in consensus fusion. When TRUE, uses
-both label agreement and temporal similarity, improving cross-slice consistency.
-Recommended when targeting exact K. Default is FALSE.}
+\item{seed}{Integer seed used to construct multi-run DCT subspaces.}
 
-\item{lambda}{Mixing parameter for consensus (0-1). Controls balance between label
-agreement and feature similarity when use_features=TRUE. Higher values weight
-label agreement more. Default is 0.7.}
-
-\item{z_mult}{Z-smoothing factor (0-1). Values > 0 softly blend DCT sketches between
-adjacent slices before clustering, reducing visible z-plane seams. 0 preserves the
-legacy per-slice behavior. Recommended range 0.1-0.4. Default is 0.0.}
+\item{ensemble_fraction}{Fraction in \verb{(0, 1]} controlling the candidate DCT
+frequency pool for a multi-run ensemble.}
 }
 \value{
-A \code{list} of class \code{slice_msf_cluster_result} with the following elements:
-\describe{
-\item{clusvol}{An instance of type \link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}.}
-\item{cluster}{A vector of cluster indices equal to the number of voxels in the mask.}
-\item{centers}{A matrix of cluster centers with each column representing the feature vector for a cluster.}
-\item{coord_centers}{A matrix of spatial coordinates with each row corresponding to a cluster.}
-\item{runs}{If num_runs > 1, a list of individual run results.}
-}
+A \code{slice_msf_cluster_result} and \code{cluster4d_result}. \code{cluster} is in
+mask order, \code{centers} is K by T, and \code{coord_centers} is K by 3. Multi-run
+results also contain native \code{runs} and complete ensemble provenance in
+\code{metadata}.
 }
 \description{
-Performs spatially constrained clustering on neuroimaging time series using DCT
-sketching, reliability weighting, and graph-based segmentation on a \strong{3-D graph}
-(no per-slice mode). Legacy slice/stitch options are retained for backward
-compatibility but are ignored.
-}
-\details{
-\subsection{Algorithm Overview}{
-
-SLiCE-MSF (Slice-wise, Low-rank, Minimum-Spanning Forest) is designed for fast
-clustering of high-resolution fMRI data. The algorithm proceeds in stages:
-\enumerate{
-\item \strong{Temporal Sketching}: Each voxel's time series is compressed using Discrete
-Cosine Transform (DCT) basis functions, reducing from T timepoints to r coefficients.
-\item \strong{Reliability Weighting}: Split-half correlations are computed to identify
-reliable voxels, which receive higher weight in clustering decisions.
-\item \strong{Slice-wise Clustering}: Each axial slice is clustered independently using
-Felzenszwalb-Huttenlocher graph segmentation, which efficiently finds regions
-with high internal similarity and low external similarity.
-\item \strong{Z-Stitching} (optional): Clusters from adjacent slices are merged based on
-spatial contact and centroid similarity to create 3D parcels.
-\item \strong{Consensus Fusion} (optional): Multiple runs are combined using co-association
-matrices to improve stability.
-}
-}
-
-\subsection{Z-Plane Artifacts and Mitigation}{
-
-Because clustering is performed slice-by-slice, the algorithm can produce visible
-horizontal lines when viewed in sagittal or coronal planes. These artifacts are
-inherent to the slice-based approach but can be minimized:
-\subsection{Artifact Reduction Strategies}{
-
-\strong{Mild artifacts} (slight discontinuities):
-\itemize{
-\item Reduce theta_link to 0.75-0.80 for more aggressive stitching
-\item Set min_contact to 2-3 for balanced connectivity
-\item Use lower compactness (2-4) for more flexible cluster shapes
-\item Set z_mult between 0.1-0.3 to softly bleed information across slices
-}
-
-\strong{Moderate artifacts} (visible lines):
-\itemize{
-\item Use multiple runs (num_runs = 3-5) with consensus = TRUE
-\item Enable use_features = TRUE for feature-based consensus
-\item Adjust lambda to 0.5-0.6 to weight features more
-\item Combine with z_mult smoothing for additional continuity without heavy fusion
-}
-
-\strong{Severe artifacts} (strong discontinuities):
-\itemize{
-\item Consider alternative algorithms like supervoxels() or snic() for true 3D clustering
-\item These provide smoother 3D parcels at the cost of increased computation time
-}
-}
-
-}
-
-\subsection{Parameter Selection Guidelines}{
-\subsection{For Whole-Brain Parcellation}{
-\itemize{
-\item r = 10-15 (balance detail and speed)
-\item compactness = 4-6 (balanced spatial/feature weighting)
-\item min_size = 80-150 (appropriate for ~3mm resolution)
-\item num_runs = 3-5 with consensus = TRUE
-}
-}
-
-\subsection{For ROI Analysis}{
-\itemize{
-\item r = 15-20 (preserve more temporal detail)
-\item compactness = 2-4 (feature-driven clustering)
-\item min_size = 20-50 (allow smaller parcels)
-\item theta_link = 0.75 (aggressive stitching within ROI)
-}
-}
-
-\subsection{For High-Resolution Data (< 2mm)}{
-\itemize{
-\item Increase min_size proportionally (e.g., 200-300 voxels)
-\item Use target_k_global to control final parcel count
-\item Consider target_k_per_slice for consistent slice-wise parcellation
-}
-}
-
-}
-
-\subsection{Performance Considerations}{
-\itemize{
-\item \strong{Memory}: Scales with mask size x r x num_runs
-\item \strong{Speed}: Much faster than full 3D methods, especially for high-resolution data
-\item \strong{Trade-off}: Speed vs. z-continuity - for smooth 3D parcels, use supervoxels()
-}
-}
-
-\subsection{Parallelization Strategy}{
-
-SLiCE-MSF uses \strong{automatic parallelization via RcppParallel} for key operations:
-\subsection{Parallel Operations:}{
-\enumerate{
-\item \strong{DCT Sketching} (\code{SliceSketchWorker}): Each z-slice is processed in parallel
-\itemize{
-\item Detrending and z-scoring of time series
-\item Split-half reliability computation
-\item DCT coefficient calculation
-\item Threads automatically assigned by RcppParallel based on available cores
-}
-\item \strong{Consensus Fusion} (\code{FuseSliceWorker}): When num_runs > 1
-\itemize{
-\item Co-association matrix computation parallelized across slices
-\item Edge weight calculations done in parallel
-\item Graph segmentation remains sequential within each slice
-}
-}
-}
-
-\subsection{Performance Characteristics:}{
-\itemize{
-\item \strong{Scaling}: Near-linear speedup with cores for the sketching phase
-\item \strong{Optimal for}: High-resolution data (many slices to process)
-\item \strong{Automatic}: No user configuration needed - uses all available cores
-\item \strong{Memory-efficient}: Each thread processes independent slices
-\item \strong{Bottleneck}: Graph segmentation phase is sequential per slice
-}
-}
-
-\subsection{Controlling Parallelization:}{
-
-RcppParallel automatically determines the number of threads. To control:
-
-\if{html}{\out{<div class="sourceCode r">}}\preformatted{# Set number of threads globally
-RcppParallel::setThreadOptions(numThreads = 4)
-
-# Reset to automatic
-RcppParallel::setThreadOptions(numThreads = "auto")
-}\if{html}{\out{</div>}}
-}
-
-}
-}
-\section{Troubleshooting Z-Plane Artifacts}{
-
-
-Common issues and solutions:
-
-\strong{Horizontal lines in sagittal/coronal views:}
-\enumerate{
-\item First, verify artifacts aren't anatomically meaningful (e.g., at gray/white boundaries)
-\item Try progressive adjustments:
-\itemize{
-\item Step 1: theta_link = 0.75 (from default 0.85)
-\item Step 2: Add num_runs = 3, consensus = TRUE
-\item Step 3: Set use_features = TRUE, lambda = 0.5
-\item Step 4: Reduce compactness to 2-3
-}
-}
-
-\strong{Over-merging after reducing theta_link:}
-\itemize{
-\item Increase min_contact to 3-5 to require more evidence for merging
-\item Increase min_size to prevent small bridging clusters
-}
-
-\strong{Inconsistent cluster sizes across slices:}
-\itemize{
-\item Use target_k_per_slice (with stitch_z = FALSE) for consistent slice parcellation
-\item Or use target_k_global for consistent total cluster count
-}
-
-\strong{Poor performance in low-SNR regions:}
-\itemize{
-\item Increase gamma to 2.0-2.5 to emphasize reliable voxels
-\item Consider masking out low-SNR regions before clustering
-}
-}
-
-\examples{
-\dontrun{
-# Load example data
-mask <- NeuroVol(array(1, c(64,64,32)), NeuroSpace(c(64,64,32)))
-vec <- replicate(100, NeuroVol(array(rnorm(64*64*32), c(64,64,32)),
-                 NeuroSpace(c(64,64,32))), simplify=FALSE)
-vec <- do.call(concat, vec)
-
-# Example 1: Basic usage (may show z-plane artifacts)
-result_basic <- slice_msf(vec, mask, 
-                          num_runs = 1,
-                          compactness = 5)
-
-# Example 2: Reduced z-artifacts with aggressive stitching
-# Recommended for minimizing slice boundaries
-result_smooth <- slice_msf(vec, mask, 
-                           theta_link = 0.75,      # More aggressive stitching
-                           min_contact = 2,        # Moderate contact requirement
-                           compactness = 3,        # Lower compactness
-                           num_runs = 3,           # Multiple runs
-                           consensus = TRUE,       # Enable consensus
-                           use_features = TRUE,    # Feature-based consensus
-                           lambda = 0.6)           # Balance features/labels
-
-# Example 3: Conservative approach for anatomical boundaries
-# Preserves natural boundaries but may show more z-artifacts
-result_conservative <- slice_msf(vec, mask,
-                                 theta_link = 0.90,    # Conservative stitching
-                                 min_contact = 5,      # Strict contact requirement
-                                 compactness = 7,      # Compact clusters
-                                 min_size = 120)       # Larger minimum size
-
-# Example 4: Exact K targeting with 100 clusters
-result_exact <- slice_msf(vec, mask, 
-                         target_k_global = 100,   # Exactly 100 clusters
-                         use_features = TRUE,     # Required for exact K
-                         num_runs = 3,
-                         consensus = TRUE)
-
-# Example 5: Per-slice consistency (useful for group studies)
-result_per_slice <- slice_msf(vec, mask,
-                              target_k_per_slice = 50,  # 50 clusters per slice
-                              stitch_z = FALSE,         # No z-stitching
-                              compactness = 5)
-
-# Example 6: High-resolution data optimization
-# For data with voxel size < 2mm
-result_highres <- slice_msf(vec, mask,
-                            min_size = 250,         # Larger clusters for high-res
-                            r = 15,                 # More DCT components
-                            compactness = 4,
-                            theta_link = 0.78,
-                            num_runs = 5,
-                            consensus = TRUE)
-
-# Example 7: Comparison with true 3D algorithm
-# If z-artifacts are unacceptable, use supervoxels instead
-result_3d <- supervoxels(vec, mask, n_supvox = 500, alpha = 0.5)
-# supervoxels provides smooth 3D parcels without slice artifacts
-}
-
+Compresses each voxel time series into a non-DC DCT sketch, weights feature
+distances by split-half reliability, and applies Felzenszwalb-Huttenlocher
+segmentation on a masked 3-D neighborhood graph. Multi-run fits use seeded
+DCT subspace and mode-weight resampling followed by consensus segmentation.
 }
 \references{
-Felzenszwalb, P. F., & Huttenlocher, D. P. (2004). Efficient graph-based image segmentation.
-International journal of computer vision, 59(2), 167-181.
+Felzenszwalb, P. F., & Huttenlocher, D. P. (2004). Efficient
+graph-based image segmentation. IJCV, 59(2), 167-181.
 }

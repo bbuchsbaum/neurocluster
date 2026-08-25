@@ -24,48 +24,177 @@ ensure_neurovec <- function(vec) {
   stop("vec must be a NeuroVec, SparseNeuroVec, or NeuroVol object")
 }
 
-validate_cluster4d_inputs <- function(vec, mask, n_clusters, method = "cluster4d") {
+.cluster4d_scalar_number <- function(x, name, method,
+                                     lower = -Inf, upper = Inf,
+                                     integer = FALSE) {
+  if (!is.numeric(x) || length(x) != 1L || is.na(x) || !is.finite(x)) {
+    stop(method, ": ", name, " must be a finite numeric scalar", call. = FALSE)
+  }
+  if (integer && x != floor(x)) {
+    stop(method, ": ", name, " must be an integer-valued scalar", call. = FALSE)
+  }
+  if (x < lower || x > upper) {
+    interval <- paste0("[", lower, ", ", upper, "]")
+    stop(method, ": ", name, " must be in ", interval, ", got: ", x,
+         call. = FALSE)
+  }
+  if (integer) as.integer(x) else as.numeric(x)
+}
+
+.cluster4d_scalar_logical <- function(x, name, method) {
+  if (!is.logical(x) || length(x) != 1L || is.na(x)) {
+    stop(method, ": ", name, " must be TRUE or FALSE", call. = FALSE)
+  }
+  isTRUE(x)
+}
+
+# A voxel is included exactly when its mask value is finite and strictly
+# positive. Non-finite mask values are rejected rather than silently changing
+# the declared voxel set; negative and zero values are valid exclusions.
+cluster4d_mask_array <- function(mask, method = "cluster4d") {
+  if (!inherits(mask, "NeuroVol")) {
+    stop(method, ": mask must be a NeuroVol object", call. = FALSE)
+  }
+  values <- as.array(mask)
+  if (any(!is.finite(values))) {
+    stop(
+      method,
+      ": mask values must be finite; included voxels are exactly values > 0",
+      call. = FALSE
+    )
+  }
+  array(values > 0, dim = dim(values))
+}
+
+.cluster4d_geometry <- function(x) {
+  sp <- neuroim2::space(x)
+  list(
+    dimensions = as.integer(dim(x)[seq_len(3L)]),
+    spacing = as.numeric(neuroim2::spacing(sp)[seq_len(3L)]),
+    affine = unname(as.matrix(neuroim2::trans(sp)))
+  )
+}
+
+.cluster4d_index_to_coord <- function(mask, indices) {
+  grid <- neuroim2::index_to_grid(mask, as.integer(indices))
+  grid <- matrix(as.numeric(grid), ncol = 3L)
+  coords <- neuroim2::grid_to_coord(mask, grid)
+  matrix(as.numeric(coords), ncol = 3L)
+}
+
+.cluster4d_same_numeric <- function(x, y, tolerance = 1e-8) {
+  identical(dim(x), dim(y)) &&
+    length(x) == length(y) &&
+    all(is.finite(x)) && all(is.finite(y)) &&
+    max(abs(x - y), 0) <= tolerance
+}
+
+#' Declared capabilities of each unified cluster4d method
+#'
+#' Internal, fail-closed capability table used to reject common parameters that
+#' a method does not implement. A NULL connectivity set means the unified
+#' connectivity argument is inactive for that method.
+#'
+#' @param method Unified cluster4d method name.
+#' @return A list describing supported common parameters.
+#' @keywords internal
+#' @rdname cluster4d_common
+cluster4d_method_contract <- function(method) {
+  contracts <- list(
+    supervoxels = list(connectivity = c(6L, 18L, 26L, 27L), iterations = TRUE, parallel = TRUE, spatial_weight = TRUE),
+    snic = list(connectivity = NULL, iterations = FALSE, parallel = FALSE, spatial_weight = TRUE),
+    slic = list(connectivity = c(6L, 26L), iterations = TRUE, parallel = TRUE, spatial_weight = TRUE),
+    corr_slic = list(connectivity = c(6L, 26L), iterations = TRUE, parallel = FALSE, spatial_weight = TRUE),
+    brs_slic = list(connectivity = c(6L, 26L), iterations = TRUE, parallel = FALSE, spatial_weight = TRUE),
+    slice_msf = list(connectivity = c(6L, 26L), iterations = FALSE, parallel = FALSE, spatial_weight = TRUE),
+    flash3d = list(connectivity = NULL, iterations = TRUE, parallel = FALSE, spatial_weight = TRUE),
+    g3s = list(connectivity = c(6L, 18L, 26L), iterations = TRUE, parallel = FALSE, spatial_weight = TRUE),
+    rena = list(connectivity = c(6L, 18L, 26L), iterations = TRUE, parallel = FALSE, spatial_weight = FALSE),
+    rena_plus = list(connectivity = c(6L, 18L, 26L), iterations = TRUE, parallel = FALSE, spatial_weight = FALSE),
+    mcl = list(connectivity = c(6L, 18L, 26L), iterations = TRUE, parallel = FALSE, spatial_weight = TRUE),
+    acsc = list(connectivity = NULL, iterations = TRUE, parallel = FALSE, spatial_weight = TRUE),
+    commute = list(connectivity = NULL, iterations = FALSE, parallel = FALSE, spatial_weight = TRUE)
+  )
+  contract <- contracts[[method]]
+  if (is.null(contract)) {
+    stop("Unknown cluster4d method contract: ", method, call. = FALSE)
+  }
+  contract
+}
+
+validate_cluster4d_inputs <- function(vec, mask, n_clusters, method = "cluster4d",
+                                      bad_data_policy = c("error")) {
+  bad_data_policy <- match.arg(bad_data_policy)
+
   # Check vec type
   if (!inherits(vec, "NeuroVec") && !inherits(vec, "SparseNeuroVec")) {
-    stop(method, ": vec must be a NeuroVec or SparseNeuroVec object")
+    stop(method, ": vec must be a NeuroVec or SparseNeuroVec object", call. = FALSE)
   }
   
   # Check mask type
   if (!inherits(mask, "NeuroVol")) {
-    stop(method, ": mask must be a NeuroVol object")
+    stop(method, ": mask must be a NeuroVol object", call. = FALSE)
   }
-  
-  # Check spatial dimensions match
-  vec_dims <- dim(vec)[1:3]
-  mask_dims <- dim(mask)
-  if (!identical(vec_dims, mask_dims)) {
+
+  vec_geometry <- .cluster4d_geometry(vec)
+  mask_geometry <- .cluster4d_geometry(mask)
+  if (!identical(vec_geometry$dimensions, mask_geometry$dimensions)) {
     stop(method, ": vec and mask must have identical spatial dimensions. ",
-         "vec: ", paste(vec_dims, collapse="x"), 
-         ", mask: ", paste(mask_dims, collapse="x"))
+         "vec: ", paste(vec_geometry$dimensions, collapse="x"),
+         ", mask: ", paste(mask_geometry$dimensions, collapse="x"),
+         call. = FALSE)
   }
-  
-  # Check n_clusters
-  if (!is.numeric(n_clusters) || length(n_clusters) != 1) {
-    stop(method, ": n_clusters must be a single numeric value")
+
+  if (!.cluster4d_same_numeric(vec_geometry$spacing, mask_geometry$spacing)) {
+    stop(method, ": vec and mask must have identical spatial spacing", call. = FALSE)
   }
-  
-  if (n_clusters <= 0) {
-    stop(method, ": n_clusters must be positive, got: ", n_clusters)
+
+  if (!.cluster4d_same_numeric(vec_geometry$affine, mask_geometry$affine)) {
+    stop(method, ": vec and mask must have identical spatial affine transforms",
+         call. = FALSE)
   }
-  
-  # Check mask has valid voxels
-  mask_idx <- which(mask > 0)
+
+  included <- cluster4d_mask_array(mask, method)
+  mask_idx <- which(included)
   if (length(mask_idx) == 0) {
-    stop(method, ": No nonzero voxels in mask")
+    stop(method, ": mask contains no finite positive voxels", call. = FALSE)
   }
-  
-  # Check n_clusters vs voxel count
+
+  n_clusters <- .cluster4d_scalar_number(
+    n_clusters, "n_clusters", method, integer = TRUE
+  )
+  if (n_clusters < 1L) {
+    stop(method, ": n_clusters must be positive", call. = FALSE)
+  }
   if (n_clusters > length(mask_idx)) {
-    stop(method, sprintf(": Cannot create %d clusters from %d masked voxels", 
-                        n_clusters, length(mask_idx)))
+    stop(
+      method, ": Cannot create ", n_clusters, " clusters from ",
+      length(mask_idx), " masked voxels",
+      call. = FALSE
+    )
   }
-  
-  invisible(NULL)
+
+  feature_values <- neuroim2::series(vec, mask_idx)
+  bad_features <- !is.finite(feature_values)
+  if (bad_data_policy == "error" && any(bad_features)) {
+    stop(
+      method, ": feature data contain ", sum(bad_features),
+      " non-finite value(s) inside the declared mask; bad_data_policy='error'",
+      call. = FALSE
+    )
+  }
+
+  structure(
+    list(
+      mask = included,
+      mask_idx = mask_idx,
+      n_voxels = length(mask_idx),
+      n_clusters = n_clusters,
+      geometry = mask_geometry,
+      bad_data_policy = bad_data_policy
+    ),
+    class = "cluster4d_input_contract"
+  )
 }
 
 prepare_cluster4d_data <- function(vec, mask, 
@@ -73,11 +202,16 @@ prepare_cluster4d_data <- function(vec, mask,
                                   scale_coords = FALSE) {
   
   # Get mask indices
-  mask_idx <- which(mask > 0)
+  mask_idx <- which(cluster4d_mask_array(mask))
   n_voxels <- length(mask_idx)
   
   # Extract time series - series returns T x N
   features <- series(vec, mask_idx)
+  if (!is.matrix(features)) {
+    # A single-frame NeuroVec is simplified to a length-N vector by neuroim2.
+    # Restore the documented T x N shape before transposing to voxel rows.
+    features <- matrix(features, nrow = 1L)
+  }
   # Transpose to N x T for consistency
   features <- t(as.matrix(features))
   
@@ -89,8 +223,7 @@ prepare_cluster4d_data <- function(vec, mask,
   }
   
   # Get spatial coordinates in mm
-  coords <- index_to_coord(mask, mask_idx)
-  coords <- as.matrix(coords)
+  coords <- .cluster4d_index_to_coord(mask, mask_idx)
   
   # Optionally normalize coordinates
   if (scale_coords) {
@@ -182,14 +315,156 @@ compute_cluster_centers <- function(labels, features, coords, method = "mean") {
   )
 }
 
+.cluster4d_original_data <- function(vec, mask, method = "cluster4d") {
+  input <- validate_cluster4d_inputs(vec, mask, 1L, method)
+  feature_values <- neuroim2::series(vec, input$mask_idx)
+  features <- if (is.matrix(feature_values)) {
+    t(as.matrix(feature_values))
+  } else {
+    matrix(as.numeric(feature_values), nrow = length(input$mask_idx))
+  }
+  coords <- .cluster4d_index_to_coord(mask, input$mask_idx)
+  dimnames(features) <- NULL
+  dimnames(coords) <- NULL
+  list(
+    features = features,
+    coords = coords,
+    mask_idx = input$mask_idx,
+    geometry = input$geometry
+  )
+}
+
+.cluster4d_merge_parameters <- function(existing, canonical) {
+  if (!is.list(existing)) existing <- list()
+  if (!is.list(canonical)) canonical <- list()
+  for (name in names(canonical)) {
+    if (!is.null(canonical[[name]])) existing[[name]] <- canonical[[name]]
+  }
+  existing
+}
+
+# Canonical public boundary for every unified cluster4d method. Method-specific
+# centers are retained only in metadata; the public centers are always means of
+# final labels in the original feature space.
+finalize_cluster4d_result <- function(result, vec, mask, method,
+                                      parameters = list()) {
+  data <- .cluster4d_original_data(
+    vec, mask, paste0("cluster4d:", method, ":result")
+  )
+
+  raw_labels <- if (!is.null(result$labels)) result$labels else result$cluster
+  if (!is.numeric(raw_labels) || length(raw_labels) != nrow(data$features) ||
+      any(!is.finite(raw_labels)) || any(raw_labels != floor(raw_labels)) ||
+      any(raw_labels <= 0)) {
+    stop(
+      "cluster4d:", method,
+      ": result labels must be finite positive integers, one per masked voxel",
+      call. = FALSE
+    )
+  }
+
+  original_label_ids <- sort(unique(as.integer(raw_labels)))
+  labels <- as.integer(match(as.integer(raw_labels), original_label_ids))
+  actual_k <- as.integer(length(original_label_ids))
+  label_ids <- seq_len(actual_k)
+
+  center_info <- compute_cluster_centers(
+    labels, data$features, data$coords, method = "mean"
+  )
+  centers <- unname(as.matrix(center_info$centers))
+  coord_centers <- unname(as.matrix(center_info$coord_centers))
+
+  included_mask <- neuroim2::NeuroVol(
+    cluster4d_mask_array(mask, paste0("cluster4d:", method, ":result")),
+    space = neuroim2::space(mask)
+  )
+  clusvol <- suppressWarnings(
+    neuroim2::ClusteredNeuroVol(included_mask, clusters = labels)
+  )
+
+  merged_parameters <- .cluster4d_merge_parameters(
+    result$parameters, parameters
+  )
+  if (is.null(merged_parameters$n_clusters_requested)) {
+    merged_parameters$n_clusters_requested <- if (!is.null(parameters$n_clusters)) {
+      as.integer(parameters$n_clusters)
+    } else actual_k
+  }
+
+  provenance <- list(
+    schema_version = "1.0.0",
+    label_space = list(
+      ids = label_ids,
+      row_to_label = label_ids,
+      original_ids = original_label_ids,
+      relabeled = !identical(original_label_ids, label_ids)
+    ),
+    feature_space = list(
+      representation = "original",
+      summary = "mean",
+      n_features = as.integer(ncol(data$features)),
+      source = "masked voxel series from vec"
+    ),
+    coordinate_space = list(
+      units = "mm",
+      summary = "mean",
+      source = "mask affine",
+      geometry = data$geometry
+    ),
+    mask = list(
+      inclusion_rule = "finite values strictly greater than zero",
+      n_voxels = as.integer(nrow(data$features))
+    )
+  )
+
+  standard_names <- c(
+    "labels", "cluster", "clusvol", "centers", "coord_centers",
+    "actual_k", "n_clusters", "label_ids", "method", "parameters",
+    "provenance", "metadata"
+  )
+  extras <- result[setdiff(names(result), standard_names)]
+  metadata <- if (is.list(result$metadata)) result$metadata else list()
+  old_classes <- setdiff(
+    class(result), c("cluster4d_result", "cluster_result", "list")
+  )
+
+  canonical <- c(
+    list(
+      labels = labels,
+      cluster = labels,
+      clusvol = clusvol,
+      centers = centers,
+      coord_centers = coord_centers,
+      actual_k = actual_k,
+      n_clusters = actual_k,
+      label_ids = label_ids,
+      method = method,
+      parameters = merged_parameters,
+      provenance = provenance,
+      metadata = metadata
+    ),
+    extras
+  )
+  structure(
+    canonical,
+    class = unique(c(old_classes, "cluster4d_result", "cluster_result", "list"))
+  )
+}
+
 create_cluster4d_result <- function(labels, mask, data_prep, 
                                    method, parameters,
                                    metadata = list(),
                                    compute_centers = TRUE,
                                    center_method = "mean") {
   
-  # Create ClusteredNeuroVol
-  clusvol <- ClusteredNeuroVol(mask > 0, clusters = labels)
+  # Preserve mask geometry while enforcing the package-wide inclusion rule.
+  included_mask <- neuroim2::NeuroVol(
+    cluster4d_mask_array(mask, method),
+    space = neuroim2::space(mask)
+  )
+  clusvol <- suppressWarnings(
+    ClusteredNeuroVol(included_mask, clusters = labels)
+  )
   
   # Compute centers if requested
   if (compute_centers) {
@@ -270,11 +545,18 @@ map_cluster4d_params <- function(method, ...) {
         params$max_iterations <- params$iterations
       }
     }
-  } else if (method == "snic" || method == "slic" || method == "corr_slic" || method == "brs_slic") {
+  } else if (method == "snic") {
     if ("compactness" %in% names(params)) {
       if (!"spatial_weight" %in% names(params)) {
-        # Higher compactness = more spatial weight
-        # Map roughly: compactness 1-10 -> spatial_weight 0.1-0.9
+        params$spatial_weight <- params$compactness / 10
+      }
+    }
+    if ("max_iter" %in% names(params)) {
+      stop("map_cluster4d_params:snic: max_iter is not supported", call. = FALSE)
+    }
+  } else if (method == "slic" || method == "corr_slic" || method == "brs_slic") {
+    if ("compactness" %in% names(params)) {
+      if (!"spatial_weight" %in% names(params)) {
         params$spatial_weight <- min(0.9, params$compactness / 10)
       }
     }

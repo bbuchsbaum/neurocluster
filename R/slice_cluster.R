@@ -1,289 +1,147 @@
-#' SLiCE-MSF: Low-rank, Minimum-Spanning Forest Clustering (volumetric)
+# Seeded DCT subspace specifications for genuine ensemble runs.
+
+.slice_msf_run_specs <- function(n_time, r, num_runs, seed,
+                                 ensemble_fraction) {
+  r_available <- min(as.integer(r), as.integer(n_time - 1L))
+  if (r_available < 1L) stop("slice_msf: at least two timepoints are required")
+  if (num_runs == 1L) {
+    return(list(list(
+      frequencies = seq_len(r_available),
+      weights = rep(1, r_available)
+    )))
+  }
+
+  pool_size <- min(
+    as.integer(n_time - 1L),
+    max(r_available, as.integer(ceiling(r_available / ensemble_fraction)))
+  )
+  old_seed <- if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+    get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  } else NULL
+  on.exit({
+    if (is.null(old_seed)) {
+      if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+        rm(".Random.seed", envir = .GlobalEnv)
+      }
+    } else {
+      assign(".Random.seed", old_seed, envir = .GlobalEnv)
+    }
+  }, add = TRUE)
+  set.seed(seed)
+
+  lapply(seq_len(num_runs), function(run_id) {
+    frequencies <- sort(sample.int(pool_size, r_available, replace = FALSE))
+    weights <- exp(stats::rnorm(r_available, sd = 0.35))
+    weights <- weights / sqrt(mean(weights^2))
+    list(frequencies = frequencies, weights = weights)
+  })
+}
+
+#' Volumetric DCT minimum-spanning-forest clustering
 #'
-#' Performs spatially constrained clustering on neuroimaging time series using DCT
-#' sketching, reliability weighting, and graph-based segmentation on a **3-D graph**
-#' (no per-slice mode). Legacy slice/stitch options are retained for backward
-#' compatibility but are ignored.
+#' Compresses each voxel time series into a non-DC DCT sketch, weights feature
+#' distances by split-half reliability, and applies Felzenszwalb-Huttenlocher
+#' segmentation on a masked 3-D neighborhood graph. Multi-run fits use seeded
+#' DCT subspace and mode-weight resampling followed by consensus segmentation.
 #'
-#' @param vec A \code{NeuroVec} or \code{SparseNeuroVec} instance supplying the time series data to cluster.
-#' @param mask A \code{NeuroVol} mask defining the voxels to include in the clustering result.
-#' If the mask contains \code{numeric} data, nonzero values will define the included voxels.
-#' If the mask is a \code{\link[neuroim2:LogicalNeuroVol-class]{LogicalNeuroVol}}, then \code{TRUE} will define the set
-#' of included voxels.
-#' @param target_k_global Target number of clusters across entire volume. When positive,
-#'   uses region adjacency graph (RAG) agglomeration to achieve exactly K clusters.
-#'   Default is -1 (no target, uses natural Felzenszwalb-Huttenlocher clustering).
-#' @param target_k_per_slice Deprecated; volumetric mode only. Ignored and forced to -1.
-#' @param r DCT sketch rank (number of basis functions, excluding DC component). Higher
-#'   values preserve more temporal detail but increase computation. Range: 4-20, Default: 12.
-#' @param compactness Controls spatial compactness vs feature similarity balance (1-10).
-#'   Lower values (1-3): Feature-driven, may create irregular shapes but better cross-slice
-#'   alignment. Medium (4-6): Balanced. Higher (7-10): Spatially compact but may show more
-#'   z-artifacts. Default is 5.
-#' @param min_size Minimum cluster size in voxels. Smaller clusters are merged with
-#'   nearest neighbors. Affects granularity of parcellation. Default is 80.
-#' @param num_runs Number of independent segmentation runs. Single run (1) is faster but
-#'   less stable. Multiple runs (3-5) with consensus fusion reduce variability and can
-#'   smooth z-transitions. More than 5 has diminishing returns. Default is 3.
-#' @param consensus Logical. If TRUE and num_runs > 1, applies consensus fusion across
-#'   runs, improving stability and potentially reducing z-artifacts. Default is TRUE.
-#' @param stitch_z Deprecated; volumetric edges already include z-neighbors. Ignored.
-#' @param theta_link Deprecated legacy stitching parameter (ignored).
-#' @param min_contact Deprecated legacy stitching parameter (ignored).
-#' @param nbhd Neighborhood connectivity for within-slice clustering. Options: 4 (von
-#'   Neumann), 6 (includes z but mapped to 8), 8 (Moore). Higher connectivity can
-#'   improve within-slice coherence. Default is 8.
-#' @param gamma Reliability weighting exponent for split-half correlation. Higher values
-#'   (>1.5) emphasize high-reliability voxels, useful for noisy data. Lower values (<1)
-#'   treat all voxels more equally. Default is 1.5.
-#' @param k_fuse Scale parameter for consensus fusion graph. If NULL, uses same as
-#'   compactness-derived scale. Lower values create more clusters in fusion. Default is NULL.
-#' @param min_size_fuse Minimum cluster size during consensus fusion. If NULL, uses
-#'   min_size. Can be set lower to preserve small consistent regions. Default is NULL.
-#' @param use_features Include feature similarity in consensus fusion. When TRUE, uses
-#'   both label agreement and temporal similarity, improving cross-slice consistency.
-#'   Recommended when targeting exact K. Default is FALSE.
-#' @param lambda Mixing parameter for consensus (0-1). Controls balance between label
-#'   agreement and feature similarity when use_features=TRUE. Higher values weight
-#'   label agreement more. Default is 0.7.
-#' @param z_mult Z-smoothing factor (0-1). Values > 0 softly blend DCT sketches between
-#'   adjacent slices before clustering, reducing visible z-plane seams. 0 preserves the
-#'   legacy per-slice behavior. Recommended range 0.1-0.4. Default is 0.0.
+#' @param vec A `NeuroVec` or `SparseNeuroVec` containing the time series.
+#' @param mask A `NeuroVol`; exactly finite values greater than zero are included.
+#' @param target_k_global `-1` for the natural segmentation or a positive exact
+#'   cluster count. Exact K uses the shared adjacency-preserving split/merge engine.
+#' @param r Requested number of non-DC DCT modes. It is capped at `T - 1`.
+#' @param compactness Finite value in `[0, 10]` controlling FH scale. Larger
+#'   values use a smaller scale and generally produce finer components.
+#' @param min_size Positive minimum component size for each run.
+#' @param num_runs Positive number of runs. Values above one require consensus.
+#' @param consensus Whether to fuse a multi-run ensemble.
+#' @param stitch_z Whether graph edges may cross axial slices. When `FALSE`,
+#'   slices are independent and a global exact-K target is unavailable.
+#' @param nbhd `4`, `6`, or `8`. Values `4` and `6` select axial neighbors;
+#'   `8` selects the full diagonal neighborhood.
+#' @param gamma Non-negative exponent applied to positive split-half reliability;
+#'   it directly scales feature edge distances.
+#' @param k_fuse Positive FH scale for consensus; defaults to the run scale.
+#' @param min_size_fuse Positive minimum consensus component size; defaults to
+#'   `min_size`.
+#' @param use_features Include sketch similarity as well as label agreement in
+#'   multi-run consensus.
+#' @param lambda Consensus mixture in `[0, 1]`; one uses label agreement only,
+#'   zero uses feature similarity only. Active only when `use_features = TRUE`.
+#' @param z_mult DCT-sketch smoothing fraction in `[0, 1]` across axial slices.
+#' @param seed Integer seed used to construct multi-run DCT subspaces.
+#' @param ensemble_fraction Fraction in `(0, 1]` controlling the candidate DCT
+#'   frequency pool for a multi-run ensemble.
 #'
-#' @return A \code{list} of class \code{slice_msf_cluster_result} with the following elements:
-#' \describe{
-#' \item{clusvol}{An instance of type \link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}.}
-#' \item{cluster}{A vector of cluster indices equal to the number of voxels in the mask.}
-#' \item{centers}{A matrix of cluster centers with each column representing the feature vector for a cluster.}
-#' \item{coord_centers}{A matrix of spatial coordinates with each row corresponding to a cluster.}
-#' \item{runs}{If num_runs > 1, a list of individual run results.}
-#' }
-#' 
-#' @details
-#' ## Algorithm Overview
-#' 
-#' SLiCE-MSF (Slice-wise, Low-rank, Minimum-Spanning Forest) is designed for fast
-#' clustering of high-resolution fMRI data. The algorithm proceeds in stages:
-#' 
-#' 1. **Temporal Sketching**: Each voxel's time series is compressed using Discrete 
-#'    Cosine Transform (DCT) basis functions, reducing from T timepoints to r coefficients.
-#' 
-#' 2. **Reliability Weighting**: Split-half correlations are computed to identify
-#'    reliable voxels, which receive higher weight in clustering decisions.
-#' 
-#' 3. **Slice-wise Clustering**: Each axial slice is clustered independently using
-#'    Felzenszwalb-Huttenlocher graph segmentation, which efficiently finds regions
-#'    with high internal similarity and low external similarity.
-#' 
-#' 4. **Z-Stitching** (optional): Clusters from adjacent slices are merged based on
-#'    spatial contact and centroid similarity to create 3D parcels.
-#' 
-#' 5. **Consensus Fusion** (optional): Multiple runs are combined using co-association
-#'    matrices to improve stability.
-#' 
-#' ## Z-Plane Artifacts and Mitigation
-#' 
-#' Because clustering is performed slice-by-slice, the algorithm can produce visible
-#' horizontal lines when viewed in sagittal or coronal planes. These artifacts are
-#' inherent to the slice-based approach but can be minimized:
-#' 
-#' ### Artifact Reduction Strategies
-#' 
-#' **Mild artifacts** (slight discontinuities):
-#' - Reduce theta_link to 0.75-0.80 for more aggressive stitching
-#' - Set min_contact to 2-3 for balanced connectivity
-#' - Use lower compactness (2-4) for more flexible cluster shapes
-#' - Set z_mult between 0.1-0.3 to softly bleed information across slices
-#' 
-#' **Moderate artifacts** (visible lines):
-#' - Use multiple runs (num_runs = 3-5) with consensus = TRUE
-#' - Enable use_features = TRUE for feature-based consensus
-#' - Adjust lambda to 0.5-0.6 to weight features more
-#' - Combine with z_mult smoothing for additional continuity without heavy fusion
-#' 
-#' **Severe artifacts** (strong discontinuities):
-#' - Consider alternative algorithms like supervoxels() or snic() for true 3D clustering
-#' - These provide smoother 3D parcels at the cost of increased computation time
-#' 
-#' ## Parameter Selection Guidelines
-#' 
-#' ### For Whole-Brain Parcellation
-#' - r = 10-15 (balance detail and speed)
-#' - compactness = 4-6 (balanced spatial/feature weighting)
-#' - min_size = 80-150 (appropriate for ~3mm resolution)
-#' - num_runs = 3-5 with consensus = TRUE
-#' 
-#' ### For ROI Analysis
-#' - r = 15-20 (preserve more temporal detail)
-#' - compactness = 2-4 (feature-driven clustering)
-#' - min_size = 20-50 (allow smaller parcels)
-#' - theta_link = 0.75 (aggressive stitching within ROI)
-#' 
-#' ### For High-Resolution Data (< 2mm)
-#' - Increase min_size proportionally (e.g., 200-300 voxels)
-#' - Use target_k_global to control final parcel count
-#' - Consider target_k_per_slice for consistent slice-wise parcellation
-#' 
-#' ## Performance Considerations
-#' 
-#' - **Memory**: Scales with mask size x r x num_runs
-#' - **Speed**: Much faster than full 3D methods, especially for high-resolution data
-#' - **Trade-off**: Speed vs. z-continuity - for smooth 3D parcels, use supervoxels()
-#' 
-#' ## Parallelization Strategy
-#' 
-#' SLiCE-MSF uses **automatic parallelization via RcppParallel** for key operations:
-#' 
-#' ### Parallel Operations:
-#' 1. **DCT Sketching** (`SliceSketchWorker`): Each z-slice is processed in parallel
-#'    - Detrending and z-scoring of time series
-#'    - Split-half reliability computation
-#'    - DCT coefficient calculation
-#'    - Threads automatically assigned by RcppParallel based on available cores
-#' 
-#' 2. **Consensus Fusion** (`FuseSliceWorker`): When num_runs > 1
-#'    - Co-association matrix computation parallelized across slices
-#'    - Edge weight calculations done in parallel
-#'    - Graph segmentation remains sequential within each slice
-#' 
-#' ### Performance Characteristics:
-#' - **Scaling**: Near-linear speedup with cores for the sketching phase
-#' - **Optimal for**: High-resolution data (many slices to process)
-#' - **Automatic**: No user configuration needed - uses all available cores
-#' - **Memory-efficient**: Each thread processes independent slices
-#' - **Bottleneck**: Graph segmentation phase is sequential per slice
-#' 
-#' ### Controlling Parallelization:
-#' RcppParallel automatically determines the number of threads. To control:
-#' ```r
-#' # Set number of threads globally
-#' RcppParallel::setThreadOptions(numThreads = 4)
-#' 
-#' # Reset to automatic
-#' RcppParallel::setThreadOptions(numThreads = "auto")
-#' ```
-#' 
-#' @section Troubleshooting Z-Plane Artifacts:
-#' 
-#' Common issues and solutions:
-#' 
-#' **Horizontal lines in sagittal/coronal views:**
-#' 1. First, verify artifacts aren't anatomically meaningful (e.g., at gray/white boundaries)
-#' 2. Try progressive adjustments:
-#'    - Step 1: theta_link = 0.75 (from default 0.85)
-#'    - Step 2: Add num_runs = 3, consensus = TRUE
-#'    - Step 3: Set use_features = TRUE, lambda = 0.5
-#'    - Step 4: Reduce compactness to 2-3
-#' 
-#' **Over-merging after reducing theta_link:**
-#' - Increase min_contact to 3-5 to require more evidence for merging
-#' - Increase min_size to prevent small bridging clusters
-#' 
-#' **Inconsistent cluster sizes across slices:**
-#' - Use target_k_per_slice (with stitch_z = FALSE) for consistent slice parcellation
-#' - Or use target_k_global for consistent total cluster count
-#' 
-#' **Poor performance in low-SNR regions:**
-#' - Increase gamma to 2.0-2.5 to emphasize reliable voxels
-#' - Consider masking out low-SNR regions before clustering
+#' @return A `slice_msf_cluster_result` and `cluster4d_result`. `cluster` is in
+#'   mask order, `centers` is K by T, and `coord_centers` is K by 3. Multi-run
+#'   results also contain native `runs` and complete ensemble provenance in
+#'   `metadata`.
 #'
-#' @examples
-#' \dontrun{
-#' # Load example data
-#' mask <- NeuroVol(array(1, c(64,64,32)), NeuroSpace(c(64,64,32)))
-#' vec <- replicate(100, NeuroVol(array(rnorm(64*64*32), c(64,64,32)),
-#'                  NeuroSpace(c(64,64,32))), simplify=FALSE)
-#' vec <- do.call(concat, vec)
-#' 
-#' # Example 1: Basic usage (may show z-plane artifacts)
-#' result_basic <- slice_msf(vec, mask, 
-#'                           num_runs = 1,
-#'                           compactness = 5)
-#' 
-#' # Example 2: Reduced z-artifacts with aggressive stitching
-#' # Recommended for minimizing slice boundaries
-#' result_smooth <- slice_msf(vec, mask, 
-#'                            theta_link = 0.75,      # More aggressive stitching
-#'                            min_contact = 2,        # Moderate contact requirement
-#'                            compactness = 3,        # Lower compactness
-#'                            num_runs = 3,           # Multiple runs
-#'                            consensus = TRUE,       # Enable consensus
-#'                            use_features = TRUE,    # Feature-based consensus
-#'                            lambda = 0.6)           # Balance features/labels
-#'
-#' # Example 3: Conservative approach for anatomical boundaries
-#' # Preserves natural boundaries but may show more z-artifacts
-#' result_conservative <- slice_msf(vec, mask,
-#'                                  theta_link = 0.90,    # Conservative stitching
-#'                                  min_contact = 5,      # Strict contact requirement
-#'                                  compactness = 7,      # Compact clusters
-#'                                  min_size = 120)       # Larger minimum size
-#'
-#' # Example 4: Exact K targeting with 100 clusters
-#' result_exact <- slice_msf(vec, mask, 
-#'                          target_k_global = 100,   # Exactly 100 clusters
-#'                          use_features = TRUE,     # Required for exact K
-#'                          num_runs = 3,
-#'                          consensus = TRUE)
-#'
-#' # Example 5: Per-slice consistency (useful for group studies)
-#' result_per_slice <- slice_msf(vec, mask,
-#'                               target_k_per_slice = 50,  # 50 clusters per slice
-#'                               stitch_z = FALSE,         # No z-stitching
-#'                               compactness = 5)
-#'
-#' # Example 6: High-resolution data optimization
-#' # For data with voxel size < 2mm
-#' result_highres <- slice_msf(vec, mask,
-#'                             min_size = 250,         # Larger clusters for high-res
-#'                             r = 15,                 # More DCT components
-#'                             compactness = 4,
-#'                             theta_link = 0.78,
-#'                             num_runs = 5,
-#'                             consensus = TRUE)
-#'
-#' # Example 7: Comparison with true 3D algorithm
-#' # If z-artifacts are unacceptable, use supervoxels instead
-#' result_3d <- supervoxels(vec, mask, n_supvox = 500, alpha = 0.5)
-#' # supervoxels provides smooth 3D parcels without slice artifacts
-#' }
-#'
-#' @references
-#' Felzenszwalb, P. F., & Huttenlocher, D. P. (2004). Efficient graph-based image segmentation.
-#' International journal of computer vision, 59(2), 167-181.
-#'
-#' @importFrom neuroim2 NeuroVec NeuroVol series spacing index_to_coord ClusteredNeuroVol concat
-#' @importFrom Matrix t
-#' @import assertthat
+#' @references Felzenszwalb, P. F., & Huttenlocher, D. P. (2004). Efficient
+#'   graph-based image segmentation. IJCV, 59(2), 167-181.
+#' @importFrom neuroim2 series spacing
 #' @export
 slice_msf <- function(vec, mask, 
                       target_k_global = -1,
-                      target_k_per_slice = -1,
                       r = 12,
                       compactness = 5,
                       min_size = 80,
                       num_runs = 3,
                       consensus = TRUE,
                       stitch_z = TRUE,
-                      theta_link = 0.85,
-                      min_contact = 1,
                       nbhd = 8,
                       gamma = 1.5,
                       k_fuse = NULL,
                       min_size_fuse = NULL,
                       use_features = FALSE,
                       lambda = 0.7,
-                      z_mult = 0.0) {
-  
-  # Basic parameter validation
-  assert_that(nbhd %in% c(4, 6, 8))
-  assert_that(r >= 1)
-  assert_that(num_runs >= 1)
-  assert_that(is.numeric(z_mult), length(z_mult) == 1, z_mult >= 0, z_mult <= 1)
-
-  # Legacy options: keep working for tests, but warn about volumetric default
-  if (target_k_per_slice > 0 && stitch_z) {
-    warning("stitch_z + target_k_per_slice: volumetric edges already include z-neighbors; per-slice exact-K will ignore stitching.")
+                      z_mult = 0.0,
+                      seed = 1L,
+                      ensemble_fraction = 0.8) {
+  method <- "slice_msf"
+  r <- .cluster4d_scalar_number(r, "r", method, lower = 1, integer = TRUE)
+  compactness <- .cluster4d_scalar_number(
+    compactness, "compactness", method, lower = 0, upper = 10
+  )
+  min_size <- .cluster4d_scalar_number(
+    min_size, "min_size", method, lower = 1, integer = TRUE
+  )
+  num_runs <- .cluster4d_scalar_number(
+    num_runs, "num_runs", method, lower = 1, integer = TRUE
+  )
+  consensus <- .cluster4d_scalar_logical(consensus, "consensus", method)
+  stitch_z <- .cluster4d_scalar_logical(stitch_z, "stitch_z", method)
+  nbhd <- .cluster4d_scalar_number(nbhd, "nbhd", method, integer = TRUE)
+  if (!nbhd %in% c(4L, 6L, 8L)) stop("slice_msf: nbhd must be 4, 6, or 8")
+  if (nbhd == 6L) nbhd <- 4L
+  gamma <- .cluster4d_scalar_number(gamma, "gamma", method, lower = 0)
+  lambda <- .cluster4d_scalar_number(lambda, "lambda", method, lower = 0, upper = 1)
+  use_features <- .cluster4d_scalar_logical(
+    use_features, "use_features", method
+  )
+  z_mult <- .cluster4d_scalar_number(z_mult, "z_mult", method, lower = 0, upper = 1)
+  seed <- .cluster4d_scalar_number(
+    seed, "seed", method,
+    lower = -.Machine$integer.max, upper = .Machine$integer.max, integer = TRUE
+  )
+  ensemble_fraction <- .cluster4d_scalar_number(
+    ensemble_fraction, "ensemble_fraction", method,
+    lower = .Machine$double.eps, upper = 1
+  )
+  if (num_runs > 1L && !consensus) {
+    stop("slice_msf: num_runs > 1 requires consensus = TRUE")
+  }
+  if (num_runs == 1L && use_features) {
+    stop("slice_msf: use_features is only active for multi-run consensus")
+  }
+  target_k_global <- .cluster4d_scalar_number(
+    target_k_global, "target_k_global", method, integer = TRUE
+  )
+  if (target_k_global == 0L || target_k_global < -1L) {
+    stop("slice_msf: target_k_global must be -1 or a positive integer")
+  }
+  if (target_k_global > 0L && !stitch_z) {
+    stop("slice_msf: target_k_global requires stitch_z = TRUE")
   }
   
   # Check spatial dimension compatibility
@@ -295,17 +153,9 @@ slice_msf <- function(vec, mask,
          ", mask dimensions: ", paste(mask_dims, collapse="x"))
   }
   
-  # Map nbhd=6 to nbhd=8 (C++ implementation only supports 4 or 8)
-  if (nbhd == 6) {
-    message("Note: nbhd=6 is mapped to nbhd=8 for compatibility")
-    nbhd <- 8
-  }
-  
-  # Extract data
-  mask.idx <- which(mask > 0)
-  if (length(mask.idx) == 0) {
-    stop("No valid voxels found in mask. Mask must contain at least one positive value.")
-  }
+  effective_k <- if (target_k_global > 0L) target_k_global else 1L
+  input <- validate_cluster4d_inputs(vec, mask, effective_k, method)
+  mask.idx <- input$mask_idx
 
   # For very small test problems, avoid spinning up many RcppParallel threads.
   # This reduces overhead and prevents rare hangs on some platforms/CI.
@@ -329,9 +179,6 @@ slice_msf <- function(vec, mask,
       }, error = function(e) NULL)
     }, add = TRUE)
   }
-  effective_k <- if (target_k_global > 0) target_k_global else min(100, length(mask.idx))
-  validate_cluster4d_inputs(vec, mask, effective_k, "slice_msf")
-  
   # Get time series matrix for all voxels
   # The C++ function expects data for the full volume
   all_idx <- seq_len(prod(dim(mask)))
@@ -340,9 +187,11 @@ slice_msf <- function(vec, mask,
   if (!is.matrix(TS)) {
     TS <- matrix(TS, nrow = dim(vec)[4])  # Ensure 1 x N for single-volume inputs
   }
+  if (nrow(TS) < 2L) stop("slice_msf: at least two timepoints are required")
   
   # Prepare mask and dimensions
-  mask_flat <- as.integer(mask@.Data)
+  included_mask <- cluster4d_mask_array(mask, method)
+  mask_flat <- as.integer(as.vector(included_mask))
   vol_dim <- dim(mask)
   
   # Map compactness to fh_scale parameter (inverse relationship)
@@ -355,11 +204,19 @@ slice_msf <- function(vec, mask,
   # Set fusion parameters
   if (is.null(k_fuse)) k_fuse <- fh_scale
   if (is.null(min_size_fuse)) min_size_fuse <- min_size
-  
-  # Single run or multiple runs
-  if (num_runs == 1 || !consensus) {
-    # Single run
-    result <- slice_msf_runwise(
+  k_fuse <- .cluster4d_scalar_number(
+    k_fuse, "k_fuse", method, lower = .Machine$double.eps
+  )
+  min_size_fuse <- .cluster4d_scalar_number(
+    min_size_fuse, "min_size_fuse", method, lower = 1, integer = TRUE
+  )
+
+  run_specs <- .slice_msf_run_specs(
+    nrow(TS), r, num_runs, seed, ensemble_fraction
+  )
+  run_one <- function(run_id) {
+    spec <- run_specs[[run_id]]
+    slice_msf_runwise(
       TS = TS,
       mask = mask_flat,
       vol_dim = vol_dim,
@@ -368,47 +225,25 @@ slice_msf <- function(vec, mask,
       min_size = min_size,
       nbhd = nbhd,
       stitch_z = stitch_z,
-      theta_link = theta_link,
-      min_contact = min_contact,
       rows_are_time = TRUE,
       gamma = gamma,
       voxel_dim = voxel_dim,
       spatial_beta = 0.0,
-      target_k_global = target_k_global,
-      target_k_per_slice = target_k_per_slice,
-      z_mult = z_mult
+      target_k_global = -1L,
+      target_k_per_slice = -1L,
+      z_mult = z_mult,
+      w_threshold = 0,
+      dct_frequencies = as.integer(spec$frequencies),
+      dct_weights = as.numeric(spec$weights)
     )
-    
-    labels <- result$labels
-    
+  }
+
+  if (num_runs == 1L) {
+    result <- run_one(1L)
+    runs <- NULL
   } else {
-    # Multiple runs with consensus
-    runs <- vector("list", num_runs)
-    
-    for (i in seq_len(num_runs)) {
-      runs[[i]] <- slice_msf_runwise(
-        TS = TS,
-        mask = mask_flat,
-        vol_dim = vol_dim,
-        r = r,
-        fh_scale = fh_scale,
-        min_size = min_size,
-        nbhd = nbhd,
-        stitch_z = FALSE,
-        theta_link = theta_link,
-        min_contact = min_contact,
-        rows_are_time = TRUE,
-        gamma = gamma,
-        voxel_dim = voxel_dim,
-        spatial_beta = 0.0,
-        target_k_global = target_k_global,
-        target_k_per_slice = target_k_per_slice,
-        z_mult = z_mult
-      )
-    }
-    
-    # Consensus fusion
-    consensus_result <- slice_fuse_consensus(
+    runs <- lapply(seq_len(num_runs), run_one)
+    result <- slice_fuse_consensus(
       run_results = runs,
       vol_dim = vol_dim,
       nbhd = nbhd,
@@ -418,147 +253,173 @@ slice_msf <- function(vec, mask,
       lambda = lambda,
       voxel_dim = voxel_dim,
       spatial_beta = 0.0,
-      target_k_global = target_k_global,
-      target_k_per_slice = target_k_per_slice,
+      target_k_global = -1L,
+      target_k_per_slice = -1L,
       stitch_z = stitch_z
     )
-    
-    labels <- consensus_result$labels
-    result <- list(labels = labels, runs = runs)
   }
-  
+
+  labels <- as.integer(result$labels)
   # Extract labels for mask voxels only
   cluster_ids <- labels[mask.idx]
-  
-  # Compute cluster centers and spatial centroids
-  centers_info <- compute_slice_cluster_centers(vec, mask, cluster_ids, mask.idx)
-  
-  # Create ClusteredNeuroVol with consistent logical mask (only positive values are TRUE)
-  logical_mask <- mask > 0
-  kvol <- suppressWarnings(ClusteredNeuroVol(logical_mask, clusters = cluster_ids))
-  
-  # Prepare return structure
+  if (any(cluster_ids <= 0L)) {
+    stop("slice_msf: native result omitted one or more included mask voxels")
+  }
+  original <- .cluster4d_original_data(vec, mask, method)
+  graph_info <- .exact_k_graph(mask, if (nbhd == 4L) 6L else 26L)
+  cluster_ids <- .exact_k_connected_labels(
+    cluster_ids, graph_info$graph, graph_info$edges
+  )
+  if (target_k_global > 0L) {
+    cluster_ids <- force_exact_k(
+      cluster_ids, original$features, target_k_global,
+      mask = mask, connectivity = if (nbhd == 4L) 6L else 26L
+    )
+  }
+  labels[] <- 0L
+  labels[mask.idx] <- cluster_ids
+
+  run_metadata <- lapply(seq_len(num_runs), function(i) {
+    list(
+      run_id = as.integer(i),
+      dct_frequencies = as.integer(run_specs[[i]]$frequencies),
+      dct_weights = as.numeric(run_specs[[i]]$weights),
+      native_params = if (is.null(runs)) result$params else runs[[i]]$params,
+      n_clusters = as.integer(length(unique(
+        (if (is.null(runs)) result$labels else runs[[i]]$labels)[mask.idx]
+      )))
+    )
+  })
+  parameters <- list(
+    target_k_global = if (target_k_global > 0L) target_k_global else NULL,
+    r = r,
+    compactness = compactness,
+    fh_scale = fh_scale,
+    min_size = min_size,
+    num_runs = num_runs,
+    consensus = consensus,
+    stitch_z = stitch_z,
+    nbhd = nbhd,
+    gamma = gamma,
+    k_fuse = k_fuse,
+    min_size_fuse = min_size_fuse,
+    use_features = use_features,
+    lambda = lambda,
+    z_mult = z_mult,
+    seed = seed,
+    ensemble_fraction = ensemble_fraction
+  )
   ret <- structure(
     list(
-      clusvol = kvol,
       cluster = cluster_ids,
-      centers = centers_info$centers,
-      coord_centers = centers_info$coord_centers,
-      metadata = result$params
+      cluster_map = array(labels, dim = vol_dim),
+      method = "slice_msf",
+      parameters = parameters,
+      metadata = list(
+        native = result$params,
+        ensemble = list(
+          seeded = TRUE,
+          seed = seed,
+          subspace_fraction = ensemble_fraction,
+          runs = run_metadata
+        ),
+        consensus = if (num_runs > 1L) result$params else NULL,
+        topology = list(
+          volumetric = stitch_z,
+          connectivity = if (nbhd == 4L) 6L else 26L,
+          exact_k_engine = if (target_k_global > 0L) "shared_adjacency_preserving" else NULL
+        )
+      )
     ),
-    class = c("slice_msf_cluster_result", "cluster_result", "list")
+    class = c(
+      "slice_msf_cluster_result", "cluster4d_result", "cluster_result", "list"
+    )
   )
-  
-  # Add run information if multiple runs
-  if (num_runs > 1 && consensus) {
+  if (!is.null(runs)) {
     ret$runs <- runs
   }
-  
-  ret
+  finalize_cluster4d_result(ret, vec, mask, "slice_msf", parameters)
 }
 
-#' Single Run SLiCE-MSF Segmentation
+#' Run one Slice-MSF segmentation
 #'
-#' Lower-level function that performs a single run of SLiCE-MSF segmentation without
-#' consensus fusion. This function is useful for testing parameters or when you need
-#' direct access to the DCT sketch and reliability weights. Most users should use 
-#' \code{slice_msf} instead for better stability through consensus.
+#' Low-level diagnostic interface returning native full-volume labels, split-half
+#' reliability weights, and an `r_used` by voxel DCT sketch.
 #'
-#' @param vec A \code{NeuroVec} instance supplying the time series data.
-#' @param mask A \code{NeuroVol} mask defining the voxels to include.
-#' @param r DCT sketch rank (number of basis functions). Higher values preserve more
-#'   temporal detail but increase computation. Range: 4-20. Default is 12.
-#' @param k Scale parameter for Felzenszwalb-Huttenlocher segmentation (0-2). Controls
-#'   the trade-off between under- and over-segmentation. Smaller values (0.1-0.3) create
-#'   more clusters, larger values (0.5-1.0) create fewer, larger clusters. Default is 0.32.
-#' @param min_size Minimum cluster size in voxels. Clusters smaller than this are merged
-#'   with neighbors. Default is 80.
-#' @param nbhd Neighborhood connectivity for within-slice edges (4 or 8). Note that 6 is
-#'   automatically mapped to 8. Default is 8.
-#' @param stitch_z Enable cross-slice stitching to create 3D clusters. When FALSE, each
-#'   slice is treated independently. Default is TRUE.
-#' @param theta_link Centroid correlation threshold for z-stitching (0-1). Lower values
-#'   allow more aggressive merging across slices. Only used if stitch_z=TRUE. Default is 0.85.
-#' @param min_contact Minimum number of vertically adjacent voxels required to consider
-#'   stitching two clusters. Only used if stitch_z=TRUE. Default is 1.
-#' @param gamma Reliability weighting exponent based on split-half correlations. Higher
-#'   values give more weight to reliable voxels. Default is 1.5.
-#' @param z_mult Z-smoothing factor (0-1). Values > 0 blend slice sketches prior to
-#'   clustering to reduce boundary artifacts. Default is 0.0.
+#' @inheritParams slice_msf
+#' @param k Positive FH segmentation scale.
+#' @param dct_frequencies Optional unique non-DC DCT frequencies in `[1, T - 1]`.
+#' @param dct_weights Optional positive weights paired with `dct_frequencies`.
 #'
-#' @return A list with the following components:
-#' \describe{
-#'   \item{labels}{Integer vector of cluster labels for each voxel}
-#'   \item{weights}{Numeric vector of reliability weights for each voxel}
-#'   \item{sketch}{Matrix of DCT coefficients (r x n_voxels)}
-#'   \item{params}{List of parameters used in the segmentation}
-#' }
-#' 
-#' @details
-#' This function exposes the core SLiCE-MSF algorithm without consensus fusion. The
-#' returned sketch matrix contains the DCT coefficients that summarize each voxel's
-#' time series, and the weights indicate the reliability of each voxel based on
-#' split-half correlations. These can be useful for diagnostic purposes or custom
-#' post-processing.
-#' 
-#' The k parameter is particularly important: it directly controls the scale of
-#' segmentation. For typical fMRI data, values between 0.2-0.5 work well. Lower
-#' values are needed for fine-grained parcellation, while higher values produce
-#' coarser segmentation.
+#' @return A list with full-volume `labels`, `weights`, `sketch`, and `params`.
 #' @export
 slice_msf_single <- function(vec, mask, 
                             r = 12,
                             k = 0.32,
                             min_size = 80,
                             nbhd = 8,
-                            stitch_z = FALSE,
-                            theta_link = 0.85,
-                            min_contact = 1,
+                            stitch_z = TRUE,
                             gamma = 1.5,
-                            z_mult = 0.0) {
-  
-  # Validate inputs
-  assert_that(inherits(vec, "NeuroVec") || inherits(vec, "SparseNeuroVec"))
-  assert_that(inherits(mask, "NeuroVol"))
-  
-  # Check spatial dimension compatibility
-  vec_dims <- dim(vec)[1:3]  # First 3 dimensions are spatial (x, y, z)
-  mask_dims <- dim(mask)
-  if (!identical(vec_dims, mask_dims)) {
-    stop("NeuroVec and mask must have identical spatial dimensions. ",
-         "NeuroVec dimensions: ", paste(vec_dims, collapse="x"), 
-         ", mask dimensions: ", paste(mask_dims, collapse="x"))
+                            z_mult = 0.0,
+                            dct_frequencies = NULL,
+                            dct_weights = NULL) {
+  method <- "slice_msf_single"
+  validate_cluster4d_inputs(vec, mask, 1L, method)
+  r <- .cluster4d_scalar_number(r, "r", method, lower = 1, integer = TRUE)
+  k <- .cluster4d_scalar_number(
+    k, "k", method, lower = .Machine$double.eps
+  )
+  min_size <- .cluster4d_scalar_number(
+    min_size, "min_size", method, lower = 1, integer = TRUE
+  )
+  nbhd <- .cluster4d_scalar_number(nbhd, "nbhd", method, integer = TRUE)
+  if (!nbhd %in% c(4L, 6L, 8L)) {
+    stop("slice_msf_single: nbhd must be 4, 6, or 8", call. = FALSE)
   }
-  
-  # Map nbhd=6 to nbhd=8 (C++ implementation only supports 4 or 8)
-  if (nbhd == 6) {
-    message("Note: nbhd=6 is mapped to nbhd=8 for compatibility")
-    nbhd <- 8
-  }
-  if (stitch_z) {
-    warning("stitch_z is deprecated and ignored; volumetric edges already include z-neighbors.")
-    stitch_z <- FALSE
-  }
-  if (min_contact != 1 || theta_link != 0.85) {
-    warning("theta_link/min_contact are legacy stitching parameters and are ignored in volumetric mode.")
-  }
-  
-  # Extract data
-  mask.idx <- which(mask > 0)
+  if (nbhd == 6L) nbhd <- 4L
+  stitch_z <- .cluster4d_scalar_logical(stitch_z, "stitch_z", method)
+  gamma <- .cluster4d_scalar_number(gamma, "gamma", method, lower = 0)
+  z_mult <- .cluster4d_scalar_number(
+    z_mult, "z_mult", method, lower = 0, upper = 1
+  )
+
   all_idx <- seq_len(prod(dim(mask)))
-  # series() returns T x N when vec is a NeuroVec
   TS <- series(vec, all_idx)
   if (!is.matrix(TS)) {
-    TS <- matrix(TS, nrow = dim(vec)[4])  # Ensure time x voxel matrix when T = 1
+    TS <- matrix(TS, nrow = dim(vec)[4])
   }
-  
-  mask_flat <- as.integer(mask@.Data)
+  if (nrow(TS) < 2L) {
+    stop("slice_msf_single: at least two timepoints are required", call. = FALSE)
+  }
+
+  if (is.null(dct_frequencies)) {
+    dct_frequencies <- seq_len(min(r, nrow(TS) - 1L))
+  }
+  if (!is.numeric(dct_frequencies) || length(dct_frequencies) < 1L ||
+      anyNA(dct_frequencies) || any(!is.finite(dct_frequencies)) ||
+      any(dct_frequencies != as.integer(dct_frequencies)) ||
+      any(dct_frequencies < 1L | dct_frequencies >= nrow(TS)) ||
+      anyDuplicated(dct_frequencies)) {
+    stop(
+      "slice_msf_single: dct_frequencies must be unique integers in [1, T - 1]",
+      call. = FALSE
+    )
+  }
+  dct_frequencies <- as.integer(dct_frequencies)
+  if (is.null(dct_weights)) dct_weights <- rep(1, length(dct_frequencies))
+  if (!is.numeric(dct_weights) || length(dct_weights) != length(dct_frequencies) ||
+      anyNA(dct_weights) || any(!is.finite(dct_weights)) || any(dct_weights <= 0)) {
+    stop(
+      "slice_msf_single: dct_weights must be positive finite values matching dct_frequencies",
+      call. = FALSE
+    )
+  }
+
+  mask_flat <- as.integer(as.vector(cluster4d_mask_array(mask, method)))
   vol_dim <- dim(mask)
   voxel_dim <- spacing(mask)
-  assert_that(is.numeric(z_mult), length(z_mult) == 1, z_mult >= 0, z_mult <= 1)
-  
-  # Call C++ function
-  result <- slice_msf_runwise(
+
+  slice_msf_runwise(
     TS = TS,
     mask = mask_flat,
     vol_dim = vol_dim,
@@ -566,72 +427,94 @@ slice_msf_single <- function(vec, mask,
     fh_scale = k,
     min_size = min_size,
     nbhd = nbhd,
-    stitch_z = FALSE,
-    theta_link = theta_link,
-    min_contact = min_contact,
+    stitch_z = stitch_z,
     rows_are_time = TRUE,
     gamma = gamma,
     voxel_dim = voxel_dim,
     spatial_beta = 0.0,
-    z_mult = z_mult
+    target_k_global = -1L,
+    target_k_per_slice = -1L,
+    z_mult = z_mult,
+    w_threshold = 0,
+    dct_frequencies = dct_frequencies,
+    dct_weights = as.numeric(dct_weights)
   )
-  
-  result
 }
 
-#' Consensus Fusion for SLiCE-MSF
+#' Fuse Slice-MSF runs on a masked graph
 #'
-#' Combines multiple SLiCE-MSF segmentation runs using consensus clustering to improve
-#' stability and reduce variability. This function can help reduce z-plane artifacts
-#' by averaging cluster assignments across multiple independent runs.
+#' Builds neighbor-edge co-association scores from at least two run results and
+#' optionally mixes those scores with DCT-sketch similarity.
 #'
-#' @param run_results List of results from \code{slice_msf_single}, each containing
-#'   labels, weights, and sketch matrices.
-#' @param mask A \code{NeuroVol} mask used in the original segmentation.
-#' @param nbhd Neighborhood connectivity (4, 6, or 8). Should match the value used
-#'   in the original segmentation. Default is 8.
-#' @param k_fuse Scale parameter for consensus fusion graph (0-2). Lower values create
-#'   more refined clusters during fusion. If too low, may fragment consensus clusters.
-#'   Default is 0.30.
-#' @param min_size_fuse Minimum cluster size during fusion. Can be set lower than
-#'   the original min_size to preserve small but consistent clusters. Default is 80.
-#' @param use_features Include feature similarity in consensus fusion. When TRUE,
-#'   uses both label co-occurrence and temporal similarity from DCT sketches. This
-#'   can improve cross-slice consistency and is recommended when targeting exact K.
-#'   Default is FALSE.
-#' @param lambda Mixing parameter (0-1) controlling the balance between label agreement
-#'   and feature similarity when use_features=TRUE. Higher values (0.7-0.9) emphasize
-#'   label agreement, lower values (0.3-0.6) emphasize features. Default is 0.7.
+#' @param run_results At least two results from [slice_msf_single()].
+#' @param mask The original `NeuroVol` mask. Outside-mask labels are discarded.
+#' @param nbhd `4`, `6`, or `8`; see [slice_msf()].
+#' @param k_fuse Positive FH scale for the consensus graph.
+#' @param min_size_fuse Positive minimum consensus component size.
+#' @param use_features Whether DCT-sketch similarity contributes to edges.
+#' @param lambda Mixture in `[0, 1]`; active when `use_features = TRUE`.
+#' @param stitch_z Whether consensus edges may cross axial slices.
 #'
-#' @return A list with the following components:
-#' \describe{
-#'   \item{labels}{Integer vector of consensus cluster labels}
-#'   \item{params}{List of parameters used in consensus fusion}
-#' }
-#' 
-#' @details
-#' Consensus fusion works by building a co-association matrix that counts how often
-#' each pair of voxels is assigned to the same cluster across runs. This matrix is
-#' then used as edge weights in a new graph segmentation. When use_features=TRUE,
-#' the edge weights also incorporate the similarity of DCT sketches, providing
-#' additional stability.
-#' 
-#' For reducing z-artifacts, using use_features=TRUE with lambda around 0.5-0.6 can
-#' help ensure that clusters are consistent both in terms of their boundaries and
-#' their temporal characteristics.
+#' @return A list with full-volume consensus `labels` and complete `params`.
 #' @export
 slice_msf_consensus <- function(run_results, mask,
                                nbhd = 8,
                                k_fuse = 0.30,
                                min_size_fuse = 80,
                                use_features = FALSE,
-                               lambda = 0.7) {
-  
+                               lambda = 0.7,
+                               stitch_z = TRUE) {
+  method <- "slice_msf_consensus"
+  if (!inherits(mask, "NeuroVol")) {
+    stop("slice_msf_consensus: mask must be a NeuroVol", call. = FALSE)
+  }
+  if (!is.list(run_results) || length(run_results) < 2L) {
+    stop("slice_msf_consensus: run_results must contain at least two runs", call. = FALSE)
+  }
+  nbhd <- .cluster4d_scalar_number(nbhd, "nbhd", method, integer = TRUE)
+  if (!nbhd %in% c(4L, 6L, 8L)) {
+    stop("slice_msf_consensus: nbhd must be 4, 6, or 8", call. = FALSE)
+  }
+  if (nbhd == 6L) nbhd <- 4L
+  k_fuse <- .cluster4d_scalar_number(
+    k_fuse, "k_fuse", method, lower = .Machine$double.eps
+  )
+  min_size_fuse <- .cluster4d_scalar_number(
+    min_size_fuse, "min_size_fuse", method, lower = 1, integer = TRUE
+  )
+  use_features <- .cluster4d_scalar_logical(
+    use_features, "use_features", method
+  )
+  lambda <- .cluster4d_scalar_number(
+    lambda, "lambda", method, lower = 0, upper = 1
+  )
+  stitch_z <- .cluster4d_scalar_logical(stitch_z, "stitch_z", method)
+
   vol_dim <- dim(mask)
   voxel_dim <- spacing(mask)
-  
-  # Call C++ consensus function
-  result <- slice_fuse_consensus(
+  included <- as.vector(cluster4d_mask_array(mask, method))
+  n_voxels <- prod(vol_dim)
+  run_results <- lapply(run_results, function(run) {
+    if (!is.list(run) || is.null(run$labels) || length(run$labels) != n_voxels) {
+      stop(
+        "slice_msf_consensus: every run must have one label per mask voxel",
+        call. = FALSE
+      )
+    }
+    run$labels <- as.integer(run$labels)
+    if (any(run$labels[included] <= 0L)) {
+      stop(
+        "slice_msf_consensus: every run must label every included mask voxel",
+        call. = FALSE
+      )
+    }
+    run$labels[!included] <- 0L
+    if (!is.null(run$weights)) run$weights[!included] <- 0
+    if (!is.null(run$sketch)) run$sketch[, !included] <- 0
+    run
+  })
+
+  slice_fuse_consensus(
     run_results = run_results,
     vol_dim = vol_dim,
     nbhd = nbhd,
@@ -640,10 +523,11 @@ slice_msf_consensus <- function(run_results, mask,
     use_features = use_features,
     lambda = lambda,
     voxel_dim = voxel_dim,
-    spatial_beta = 0.0
+    spatial_beta = 0.0,
+    target_k_global = -1L,
+    target_k_per_slice = -1L,
+    stitch_z = stitch_z
   )
-  
-  result
 }
 
 # Helper function to compute cluster centers
@@ -662,7 +546,7 @@ compute_slice_cluster_centers <- function(vec, mask, cluster_ids, mask.idx) {
   }
   
   # Compute data centers (mean time series per cluster)
-  centers <- matrix(0, nrow = nrow(vecmat), ncol = n_clusters)
+  centers <- matrix(0, nrow = n_clusters, ncol = nrow(vecmat))
   coord_centers <- matrix(0, nrow = n_clusters, ncol = 3)
   
   coords <- index_to_coord(mask, mask.idx)
@@ -673,7 +557,7 @@ compute_slice_cluster_centers <- function(vec, mask, cluster_ids, mask.idx) {
     
     if (length(idx) > 0) {
       # Mean time series
-      centers[, i] <- rowMeans(vecmat[, idx, drop = FALSE])
+      centers[i, ] <- rowMeans(vecmat[, idx, drop = FALSE])
       
       # Spatial centroid
       coord_centers[i, ] <- colMeans(coords[idx, , drop = FALSE])

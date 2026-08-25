@@ -8,8 +8,11 @@
 #' @param mask A NeuroVol-like object (logical or numeric mask).
 #' @param block_size Approximate side length of blocks (e.g., 2 or 3). Must be > 0.
 #' @param ann_k Number of approximate (or exact) nearest neighbors per block. Must be >= 1.
-#' @param alpha Weighting for correlation vs. spatial proximity (0 <= alpha <= 1).
-#' @param correlation_metric Correlation metric ("pearson", "spearman", "robust").
+#' @param alpha Feature-similarity weight in `[0, 1]`. Zero is spatial-only and
+#'   one is feature-only; both endpoints are supported.
+#' @param correlation_metric Similarity definition: Pearson correlation,
+#'   Spearman correlation of average ranks, or robust biweight midcorrelation
+#'   with tuning constant 9.
 #' @param spatial_weighting Spatial adjacency weighting ("gaussian", "binary").
 #' @param refine Logical; whether to refine boundaries.
 #' @param max_refine_iter Maximum iterations for boundary refinement. Must be >= 0.
@@ -22,7 +25,9 @@
 #' @param knn_proj_seed Integer seed used when \code{knn_proj_method="rp"} (RNG
 #'   state is restored after graph construction).
 #'
-#' @return A list with elements:
+#' @return A standardized `cluster4d_result` (also classed `acsc_result`) with
+#'   final contiguous labels, original-space centers, physical coordinate
+#'   centers, provenance, and these ACSC-specific elements:
 #'   \describe{
 #'     \item{cluster_map}{3D array with cluster labels per voxel.}
 #'     \item{graph}{An \code{igraph} object used for clustering.}
@@ -30,84 +35,23 @@
 #'   }
 #'
 #' @details
-#' ## C++ Acceleration
+#' ACSC builds feature-neighbor edges from the declared correlation metric and
+#' unions them with six-neighbor block-grid edges. Edge correlations are mapped
+#' to non-negative Louvain similarities as `(correlation + 1) / 2`. At
+#' `alpha = 0`, feature-neighbor selection is bypassed entirely, so the graph
+#' topology and weights depend only on spatial adjacency. Optional DCT or random
+#' projection changes feature-neighbor candidate selection, but edge weights are
+#' always recomputed using the declared metric.
 #'
-#' ACSC now includes **C++ acceleration for boundary refinement** using RcppParallel,
-#' providing 3-6x speedup for typical datasets. The C++ implementation:
+#' Boundary refinement uses the same metric representation as graph building.
+#' Pearson uses centered unit vectors, Spearman uses centered average ranks, and
+#' robust mode uses median-centered Tukey-bisquare residuals. The C++ path
+#' accelerates centroid dot products and recomputes the active boundary after
+#' every synchronous pass; failures fall back to the equivalent R path.
 #'
-#' - Uses optimized correlation via normalized dot products (10-15x faster than R's `cor()`)
-#' - Processes boundary voxels in parallel using multiple CPU cores
-#' - Automatically falls back to R implementation if C++ fails
-#'
-#' ### Performance Gains:
-#'
-#' - **Small datasets** (<1,000 voxels): 1.5-2x overall speedup
-#' - **Medium datasets** (1,000-5,000 voxels): 2-4x overall speedup
-#' - **Large datasets** (>5,000 voxels): 3-6x overall speedup
-#' - **Boundary refinement phase**: 6-8x faster than pure R implementation
-#'
-#' ### C++ Implementation Details:
-#'
-#' The C++ acceleration normalizes feature vectors to unit length, enabling fast
-#' correlation computation via dot products. This is mathematically equivalent to
-#' Pearson correlation for centered data and provides significant performance benefits.
-#'
-#' ## Parallelization Strategy
-#'
-#' ACSC uses **dual-layer parallelization**:
-#'
-#' 1. **R-level parallelization** (via future package):
-#'    - Data preprocessing (detrending)
-#'    - Block summary computation
-#'    - Graph edge construction
-#'    - User-configurable across platforms
-#'
-#' 2. **C++ thread parallelization** (via RcppParallel):
-#'    - Boundary voxel refinement
-#'    - Automatic multi-core utilization
-#'    - No configuration needed
-#'
-#' ### Configuring R-level Parallelization:
-#'
-#' ```r
-#' library(future)
-#'
-#' # Sequential (default)
-#' plan(sequential)
-#' result <- acsc(bvec, mask, K = 100)
-#'
-#' # Parallel on local machine (uses all cores)
-#' plan(multisession)
-#' result <- acsc(bvec, mask, K = 100)
-#'
-#' # Parallel with specific number of workers
-#' plan(multisession, workers = 4)
-#' result <- acsc(bvec, mask, K = 100)
-#'
-#' # On a cluster
-#' plan(cluster, workers = c("node1", "node2", "node3"))
-#' result <- acsc(bvec, mask, K = 100)
-#'
-#' # Reset to sequential
-#' plan(sequential)
-#' ```
-#'
-#' ### Performance Characteristics:
-#'
-#' - **Best speedup**: Boundary refinement (6-8x) and graph construction (2-3x)
-#' - **Overhead**: Small for C++ calls, moderate for future parallelization
-#' - **Memory**: Each future worker needs data copy; C++ threads share memory
-#' - **Optimal workers**: Usually matches physical cores (not threads)
-#' - **Break-even point**: C++ benefits all dataset sizes; future benefits >5,000 voxels
-#'
-#' ### Performance Tips:
-#'
-#' - C++ acceleration is enabled by default and recommended for all use cases
-#' - For small datasets (<1,000 voxels), sequential future plan may be faster
-#' - Use `plan(multisession)` on Windows/macOS for stability
-#' - Use `plan(multicore)` on Linux for lower memory overhead
-#' - C++ and future parallelization work together without conflicts
-#' - Monitor memory usage with many workers on large datasets
+#' After refinement, labels are flood-filled into connected components. If `K`
+#' is supplied, the shared adjacency-preserving exact-K engine merges or splits
+#' those components and fails closed when the target is topologically infeasible.
 #'
 #' @importFrom FNN get.knn
 #' @importFrom igraph make_empty_graph graph_from_data_frame cluster_louvain communities membership
@@ -131,27 +75,32 @@ acsc <- function(bvec, mask,
   ## ------------------------------------------------------------------------
   correlation_metric <- match.arg(correlation_metric)
   spatial_weighting  <- match.arg(spatial_weighting)
-
-  stopifnot(is.logical(refine),
-            length(refine) == 1,
-            is.numeric(block_size),
-            block_size > 0,
-            is.numeric(ann_k),
-            ann_k >= 1,
-            is.numeric(alpha),
-            alpha >= 0 && alpha <= 1,
-            is.numeric(max_refine_iter),
-            max_refine_iter >= 0)
+  refine <- .cluster4d_scalar_logical(refine, "refine", "acsc")
+  block_size <- .cluster4d_scalar_number(
+    block_size, "block_size", "acsc", lower = .Machine$double.eps
+  )
+  ann_k <- .cluster4d_scalar_number(
+    ann_k, "ann_k", "acsc", lower = 1, integer = TRUE
+  )
+  alpha <- .cluster4d_scalar_number(
+    alpha, "alpha", "acsc", lower = 0, upper = 1
+  )
+  max_refine_iter <- .cluster4d_scalar_number(
+    max_refine_iter, "max_refine_iter", "acsc", lower = 0, integer = TRUE
+  )
 
   knn_proj_method <- match.arg(knn_proj_method)
-  stopifnot(is.numeric(knn_proj_dim), length(knn_proj_dim) == 1, knn_proj_dim >= 0)
-  stopifnot(is.numeric(knn_proj_seed), length(knn_proj_seed) == 1)
-  knn_proj_dim <- as.integer(knn_proj_dim)
-  knn_proj_seed <- as.integer(knn_proj_seed)
+  knn_proj_dim <- .cluster4d_scalar_number(
+    knn_proj_dim, "knn_proj_dim", "acsc", lower = 0, integer = TRUE
+  )
+  knn_proj_seed <- .cluster4d_scalar_number(
+    knn_proj_seed, "knn_proj_seed", "acsc",
+    lower = -.Machine$integer.max, upper = .Machine$integer.max, integer = TRUE
+  )
   
   # Validate K parameter
   if (!is.null(K)) {
-    stopifnot(is.numeric(K), length(K) == 1, K > 0)
+    K <- .cluster4d_scalar_number(K, "K", "acsc", lower = 1, integer = TRUE)
   }
 
   if (!inherits(mask, "NeuroVol")) {
@@ -164,9 +113,17 @@ acsc <- function(bvec, mask,
     stop("mask has invalid dimensions.")
   }
 
-  mask.idx <- which(mask > 0)
+  mask_values <- as.array(mask)
+  if (any(!is.finite(mask_values))) {
+    stop("acsc: mask values must be finite; included voxels are exactly values > 0")
+  }
+
+  mask.idx <- which(mask_values > 0)
   if (length(mask.idx) == 0) {
     stop("No nonzero voxels in mask. Nothing to cluster.")
+  }
+  if (!is.null(K) && K > length(mask.idx)) {
+    stop("acsc: K must not exceed the number of included mask voxels")
   }
 
   ## ------------------------------------------------------------------------
@@ -181,55 +138,45 @@ acsc <- function(bvec, mask,
   ## 2. Coarse partition into blocks
   ## ------------------------------------------------------------------------
   block_id <- block_partition(coords, block_size)
-  block_summary <- summarize_blocks(feature_mat, coords, block_id)
+  block_summary <- summarize_blocks(
+    feature_mat, coords, block_id, block_size = block_size
+  )
   
   # Validate ann_k parameter
   nb <- length(unique(block_id))
-  if (nb < 2) {
-    # Special case: single block (e.g., single voxel)
-    if (nb == 1) {
-      # Create a trivial clustering result for single block
-      cluster_map <- array(0L, dim(mask))
-      cluster_map[mask.idx] <- 1L
-      
-      # Create a minimal graph with single vertex
-      graph <- igraph::make_empty_graph(n = 1, directed = FALSE)
-      
-      return(list(
-        cluster_map       = cluster_map,
-        graph             = graph,
-        init_block_label  = construct_block_label_array(block_id, mask)
-      ))
-    } else {
-      stop("Dataset too small for ACSC clustering. Need at least 2 blocks. ",
-           "Consider using a larger dataset or smaller block_size (current: ", block_size, ")")
-    }
-  }
-  
   # ann_k must be strictly less than nb for FNN::get.knn
-  if (ann_k >= nb) {
+  if (nb > 1L && ann_k >= nb) {
     ann_k <- max(1, nb - 1)
   }
 
   ## ------------------------------------------------------------------------
   ## 3. Construct adjacency graph
   ## ------------------------------------------------------------------------
-  graph <- build_acsc_graph(
-    block_summary,
-    ann_k,
-    alpha,
-    spatial_weighting,
-    block_size,
-    knn_proj_dim = knn_proj_dim,
-    knn_proj_method = knn_proj_method,
-    knn_proj_seed = knn_proj_seed
-  )
+  graph <- if (nb == 1L) {
+    igraph::make_empty_graph(n = 1L, directed = FALSE)
+  } else {
+    build_acsc_graph(
+      block_summary,
+      ann_k,
+      alpha,
+      spatial_weighting,
+      block_size,
+      correlation_metric = correlation_metric,
+      knn_proj_dim = knn_proj_dim,
+      knn_proj_method = knn_proj_method,
+      knn_proj_seed = knn_proj_seed
+    )
+  }
 
   ## ------------------------------------------------------------------------
   ## 4. Run clustering (Louvain)
   ## ------------------------------------------------------------------------
-  if (!is.null(K)) {
-    res_est <- estimate_resolution(K, graph)
+  if (nb == 1L) {
+    cluster_result <- 1L
+  } else if (igraph::ecount(graph) == 0L || (!is.null(K) && K >= nb)) {
+    cluster_result <- seq_len(nb)
+  } else if (!is.null(K)) {
+    res_est <- estimate_resolution(min(K, nb), graph)
     cluster_result <- run_louvain_clustering(graph, resolution = res_est)
   } else {
     cluster_result <- run_louvain_clustering(graph)
@@ -249,15 +196,26 @@ acsc <- function(bvec, mask,
       feature_mat,
       coords,
       max_refine_iter,
-      dims = dim(mask)
+      dims = dim(mask),
+      correlation_metric = correlation_metric
     )
   }
+
+  # Refinement can split a label into disconnected islands. Canonicalize every
+  # connected component before any target-K merge/split operation.
+  graph_info <- .exact_k_graph(mask, 6L)
+  voxel_labels <- .exact_k_connected_labels(
+    voxel_labels, graph_info$graph, graph_info$edges
+  )
 
   ## ------------------------------------------------------------------------
   ## 6b. Force exact K if requested (merge/split as needed for downstream ARI)
   ## ------------------------------------------------------------------------
   if (!is.null(K)) {
-    voxel_labels <- force_exact_k(voxel_labels, feature_mat, K)
+    voxel_labels <- force_exact_k(
+      voxel_labels, feature_mat, K,
+      mask = mask, connectivity = 6L
+    )
   }
 
   ## ------------------------------------------------------------------------
@@ -276,7 +234,9 @@ acsc <- function(bvec, mask,
   result <- structure(
     list(
       cluster = voxel_labels,
-      clusvol = neuroim2::ClusteredNeuroVol(mask, clusters = voxel_labels),
+      clusvol = suppressWarnings(
+        neuroim2::ClusteredNeuroVol(mask, clusters = voxel_labels)
+      ),
       n_clusters = length(unique(voxel_labels[voxel_labels > 0])),
       cluster_map = cluster_map,
       method = "acsc",
@@ -295,13 +255,29 @@ acsc <- function(bvec, mask,
       ),
       metadata = list(
         graph = graph,
-        init_block_label = construct_block_label_array(block_id, mask)
+        init_block_label = construct_block_label_array(block_id, mask),
+        correlation = list(
+          metric = correlation_metric,
+          similarity = switch(
+            correlation_metric,
+            pearson = "Pearson correlation",
+            spearman = "Pearson correlation of average ranks",
+            robust = "biweight midcorrelation with tuning constant 9"
+          ),
+          graph_weight_mapping = "(correlation + 1) / 2",
+          alpha_semantics = "feature similarity weight; 0 is spatial-only and 1 is feature-only"
+        ),
+        topology = list(
+          block_connectivity = 6L,
+          final_voxel_connectivity = 6L,
+          exact_k = !is.null(K)
+        )
       )
     ),
     class = c("acsc_result", "cluster4d_result", "cluster_result", "list")
   )
 
-  result
+  finalize_cluster4d_result(result, bvec, mask, "acsc", result$parameters)
 }
 
 #' Preprocess fMRI time-series data
@@ -356,16 +332,70 @@ preprocess_time_series <- function(bvec, mask, correlation_metric) {
     feature_mat <- t(feature_mat)  # (voxels x time)
   }
 
-  ## "robust" placeholder:
-  ## if correlation_metric == "robust", we just do a robust location estimate
-  ## (this doesn't actually produce a robust correlation unless used consistently
-  ## in adjacency or refinement).
-  if (correlation_metric == "robust") {
-    # If robustbase not loaded, user must have it installed
-    feature_mat <- t(apply(feature_mat, 1, function(x) robustbase::huberM(x)$mu))
+  feature_mat <- unname(as.matrix(feature_mat))
+  if (!identical(dim(feature_mat), dim(feature_mat0))) {
+    stop(
+      "ACSC preprocessing changed the voxel-by-time shape from ",
+      paste(dim(feature_mat0), collapse = "x"), " to ",
+      paste(dim(feature_mat), collapse = "x"),
+      call. = FALSE
+    )
+  }
+  if (any(!is.finite(feature_mat))) {
+    stop("ACSC preprocessing produced non-finite values", call. = FALSE)
+  }
+  feature_mat
+}
+
+# Convert each time series into a unit-vector representation whose dot product
+# is the declared similarity. Robust mode is the biweight midcorrelation
+# representation: median-centered residuals receive Tukey bisquare weights
+# with tuning constant 9 before unit normalization.
+acsc_metric_representation <- function(feature_mat,
+                                       correlation_metric = c("pearson", "spearman", "robust")) {
+  correlation_metric <- match.arg(correlation_metric)
+  feature_mat <- unname(as.matrix(feature_mat))
+  if (!is.numeric(feature_mat) || nrow(feature_mat) < 1L || ncol(feature_mat) < 2L) {
+    stop("ACSC similarity input must be a nonempty numeric N by T matrix with T >= 2")
+  }
+  if (any(!is.finite(feature_mat))) {
+    stop("ACSC similarity input must contain only finite values")
   }
 
-  feature_mat
+  transformed <- switch(
+    correlation_metric,
+    pearson = sweep(feature_mat, 1L, rowMeans(feature_mat), "-"),
+    spearman = {
+      ranked <- t(apply(feature_mat, 1L, rank, ties.method = "average"))
+      sweep(ranked, 1L, rowMeans(ranked), "-")
+    },
+    robust = {
+      medians <- apply(feature_mat, 1L, stats::median)
+      residuals <- sweep(feature_mat, 1L, medians, "-")
+      scales <- apply(abs(residuals), 1L, stats::median)
+      safe_scales <- scales
+      safe_scales[safe_scales <= sqrt(.Machine$double.eps)] <- 1
+      u <- residuals / (9 * safe_scales)
+      weights <- (1 - pmin(u^2, 1))^2
+      weights[abs(u) >= 1] <- 0
+      transformed <- residuals * weights
+      transformed[scales <= sqrt(.Machine$double.eps), ] <- 0
+      transformed
+    }
+  )
+
+  norms <- sqrt(rowSums(transformed^2))
+  live <- norms > sqrt(.Machine$double.eps)
+  transformed[live, ] <- transformed[live, , drop = FALSE] / norms[live]
+  transformed[!live, ] <- 0
+  unname(transformed)
+}
+
+acsc_similarity_matrix <- function(feature_mat,
+                                   correlation_metric = c("pearson", "spearman", "robust")) {
+  representation <- acsc_metric_representation(feature_mat, correlation_metric)
+  similarity <- tcrossprod(representation)
+  pmax(pmin(similarity, 1), -1)
 }
 
 #' Convert linear indices to 3D grid coordinates
@@ -402,7 +432,7 @@ block_partition <- function(coords, block_size) {
 
 #' Summarize voxel blocks
 #' @keywords internal
-summarize_blocks <- function(feature_mat, coords, block_id) {
+summarize_blocks <- function(feature_mat, coords, block_id, block_size = 1) {
   unique_blocks <- sort(unique(block_id))
   nb <- length(unique_blocks)
   # Compute block means in O(N) using rowsum() rather than per-block `which(...)`.
@@ -412,12 +442,18 @@ summarize_blocks <- function(feature_mat, coords, block_id) {
 
   block_summaries <- rowsum(feature_mat, grp, reorder = FALSE) / counts
   block_spatial <- rowsum(coords, grp, reorder = FALSE) / counts
+  voxel_block_grid <- floor(
+    sweep(coords, 2L, apply(coords, 2L, min), "-") / block_size
+  )
+  block_grid <- rowsum(voxel_block_grid, grp, reorder = FALSE) / counts
   dimnames(block_summaries) <- NULL
   dimnames(block_spatial) <- NULL
+  dimnames(block_grid) <- NULL
 
   list(
     summaries = block_summaries,
     spatial   = block_spatial,
+    grid = block_grid,
     unique_blocks = unique_blocks
   )
 }
@@ -429,23 +465,97 @@ build_acsc_graph <- function(block_summary,
                              alpha,
                              spatial_weighting,
                              block_size,
+                             correlation_metric = c("pearson", "spearman", "robust"),
                              knn_proj_dim = 0L,
                              knn_proj_method = c("none", "dct", "rp"),
                              knn_proj_seed = 1L) {
-  block_summaries <- block_summary$summaries
-  block_spatial   <- block_summary$spatial
+  correlation_metric <- match.arg(correlation_metric)
+  spatial_weighting <- match.arg(spatial_weighting, c("gaussian", "binary"))
+  block_summaries <- unname(as.matrix(block_summary$summaries))
+  block_spatial <- unname(as.matrix(block_summary$spatial))
   nb <- nrow(block_summaries)
-
-  # Optional: project block summaries to a lower-dimensional space before kNN.
-  # This can significantly reduce the `FNN::get.knn()` cost when timepoints are large.
+  if (nb < 1L || nrow(block_spatial) != nb || ncol(block_spatial) != 3L) {
+    stop("build_acsc_graph: block summaries and N by 3 spatial centers must align")
+  }
+  if (any(!is.finite(block_summaries)) || any(!is.finite(block_spatial))) {
+    stop("build_acsc_graph: block summaries and spatial centers must be finite")
+  }
+  ann_k <- min(
+    nb - 1L,
+    .cluster4d_scalar_number(
+      ann_k, "ann_k", "build_acsc_graph", lower = 1, integer = TRUE
+    )
+  )
+  alpha <- .cluster4d_scalar_number(
+    alpha, "alpha", "build_acsc_graph", lower = 0, upper = 1
+  )
+  block_size <- .cluster4d_scalar_number(
+    block_size, "block_size", "build_acsc_graph", lower = .Machine$double.eps
+  )
   knn_proj_method <- match.arg(knn_proj_method)
-  knn_proj_dim <- as.integer(knn_proj_dim)
-  if (isTRUE(knn_proj_dim > 0L) && ncol(block_summaries) > knn_proj_dim) {
-    if (identical(knn_proj_method, "dct") && exists("make_dct_basis", mode = "function")) {
-      basis <- make_dct_basis(n_time = ncol(block_summaries), n_basis = knn_proj_dim)
-      block_summaries <- block_summaries %*% basis
-    } else if (identical(knn_proj_method, "rp")) {
-      # Deterministic random projection; restore RNG state to avoid perturbing global streams.
+  knn_proj_dim <- .cluster4d_scalar_number(
+    knn_proj_dim, "knn_proj_dim", "build_acsc_graph", lower = 0, integer = TRUE
+  )
+
+  empty_graph <- function() {
+    graph <- igraph::make_empty_graph(n = nb, directed = FALSE)
+    graph <- igraph::set_graph_attr(graph, "correlation_metric", value = correlation_metric)
+    igraph::set_graph_attr(graph, "alpha_feature_weight", value = alpha)
+  }
+  if (nb == 1L) return(empty_graph())
+
+  # Six-neighbor block adjacency is built independently of feature values. The
+  # alpha=0 endpoint uses only these edges, so feature permutations cannot alter
+  # either topology or weights.
+  block_grid <- block_summary$grid
+  spatial_pairs <- matrix(integer(), ncol = 2L)
+  if (is.matrix(block_grid) && identical(dim(block_grid), c(nb, 3L))) {
+    block_grid <- round(block_grid)
+    key <- apply(block_grid, 1L, paste, collapse = ":")
+    pairs <- vector("list", 3L)
+    for (axis in seq_len(3L)) {
+      neighbor_grid <- block_grid
+      neighbor_grid[, axis] <- neighbor_grid[, axis] + 1L
+      target <- match(apply(neighbor_grid, 1L, paste, collapse = ":"), key)
+      keep <- !is.na(target)
+      pairs[[axis]] <- cbind(which(keep), target[keep])
+    }
+    spatial_pairs <- do.call(rbind, pairs)
+  } else {
+    spatial_distance <- as.matrix(stats::dist(block_spatial))
+    spatial_pairs <- which(
+      upper.tri(spatial_distance) &
+        spatial_distance <= block_size * (1 + 1e-8),
+      arr.ind = TRUE
+    )
+  }
+  if (length(spatial_pairs)) {
+    spatial_pairs <- cbind(
+      pmin(spatial_pairs[, 1L], spatial_pairs[, 2L]),
+      pmax(spatial_pairs[, 1L], spatial_pairs[, 2L])
+    )
+    spatial_pairs <- unique(spatial_pairs)
+  } else {
+    spatial_pairs <- matrix(integer(), ncol = 2L)
+  }
+
+  representation <- NULL
+  feature_pairs <- matrix(integer(), ncol = 2L)
+  if (alpha > 0) {
+    representation <- acsc_metric_representation(
+      block_summaries, correlation_metric
+    )
+    use_projection <- knn_proj_dim > 0L &&
+      knn_proj_method != "none" && ncol(representation) > knn_proj_dim
+    if (use_projection) {
+      search_space <- representation
+      if (identical(knn_proj_method, "dct")) {
+        basis <- make_dct_basis(
+          n_time = ncol(representation), n_basis = knn_proj_dim
+        )
+        search_space <- representation %*% basis
+      } else if (identical(knn_proj_method, "rp")) {
+        # Deterministic projection without perturbing the caller's RNG stream.
       seed_state <- if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
         get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
       } else {
@@ -461,70 +571,94 @@ build_acsc_graph <- function(block_summary,
         }
       }, add = TRUE)
       set.seed(as.integer(knn_proj_seed))
-      P <- matrix(stats::rnorm(ncol(block_summaries) * knn_proj_dim),
-                  nrow = ncol(block_summaries), ncol = knn_proj_dim)
-      block_summaries <- (block_summaries %*% P) / sqrt(knn_proj_dim)
+        projection <- matrix(
+          stats::rnorm(ncol(representation) * knn_proj_dim),
+          nrow = ncol(representation), ncol = knn_proj_dim
+        )
+        search_space <- (representation %*% projection) / sqrt(knn_proj_dim)
+      }
+      nearest <- FNN::get.knn(search_space, k = ann_k)$nn.index
+      feature_pairs <- cbind(
+        rep(seq_len(nb), each = ann_k),
+        as.vector(t(nearest))
+      )
+    } else {
+      similarity <- tcrossprod(representation)
+      diag(similarity) <- -Inf
+      nearest <- t(vapply(seq_len(nb), function(i) {
+        order(-similarity[i, ], seq_len(nb))[seq_len(ann_k)]
+      }, integer(ann_k)))
+      feature_pairs <- cbind(
+        rep(seq_len(nb), each = ann_k),
+        as.vector(t(nearest))
+      )
     }
-    dimnames(block_summaries) <- NULL
+    feature_pairs <- cbind(
+      pmin(feature_pairs[, 1L], feature_pairs[, 2L]),
+      pmax(feature_pairs[, 1L], feature_pairs[, 2L])
+    )
+    feature_pairs <- unique(feature_pairs[feature_pairs[, 1L] != feature_pairs[, 2L], , drop = FALSE])
   }
 
-  # Normalize rows to unit length to approximate correlation with Eucl dist
-  row_norms <- sqrt(rowSums(block_summaries^2))
-  row_norms[row_norms < 1e-8] <- 1e-8
-  norm_summaries <- block_summaries / row_norms
+  pairs <- if (alpha == 0) spatial_pairs else unique(rbind(spatial_pairs, feature_pairs))
+  if (!nrow(pairs)) return(empty_graph())
+  pairs <- pairs[order(pairs[, 1L], pairs[, 2L]), , drop = FALSE]
+  pair_key <- paste(pairs[, 1L], pairs[, 2L], sep = ":")
+  spatial_key <- if (nrow(spatial_pairs)) {
+    paste(spatial_pairs[, 1L], spatial_pairs[, 2L], sep = ":")
+  } else character()
+  feature_key <- if (nrow(feature_pairs)) {
+    paste(feature_pairs[, 1L], feature_pairs[, 2L], sep = ":")
+  } else character()
+  is_spatial <- pair_key %in% spatial_key
+  is_feature <- pair_key %in% feature_key
 
-  # Approx nearest neighbors in row space
-  nnres <- FNN::get.knn(norm_summaries, k = ann_k)
-
-  # Vectorized edge construction: flatten (source, target, dist) and compute weights in bulk.
-  k <- ncol(nnres$nn.index)
-  src <- rep(seq_len(nb), times = k)
-  tgt <- as.vector(nnres$nn.index)
-  dists <- as.vector(nnres$nn.dist)
-
-  valid <- tgt > 0 & tgt <= nb
-  src <- src[valid]
-  tgt <- tgt[valid]
-  dists <- dists[valid]
-
-  w_corr <- pmax(0, 1 - dists)
-  dx <- block_spatial[tgt, 1] - block_spatial[src, 1]
-  dy <- block_spatial[tgt, 2] - block_spatial[src, 2]
-  dz <- block_spatial[tgt, 3] - block_spatial[src, 3]
-  sp_dists <- dx * dx + dy * dy + dz * dz
-
+  delta <- block_spatial[pairs[, 1L], , drop = FALSE] -
+    block_spatial[pairs[, 2L], , drop = FALSE]
+  spatial_distance2 <- rowSums(delta^2)
+  spatial_similarity <- numeric(nrow(pairs))
   if (spatial_weighting == "gaussian") {
-    w_spatial <- exp(-sp_dists / (2 * block_size^2))
+    spatial_similarity[is_spatial] <- exp(
+      -spatial_distance2[is_spatial] / (2 * block_size^2)
+    )
   } else {
-    w_spatial <- as.numeric(sp_dists <= block_size^2)
+    spatial_similarity[is_spatial] <- 1
   }
 
-  final_weight <- alpha * w_corr + (1 - alpha) * w_spatial
+  correlation <- numeric(nrow(pairs))
+  correlation_similarity <- numeric(nrow(pairs))
+  if (alpha > 0) {
+    correlation <- rowSums(
+      representation[pairs[, 1L], , drop = FALSE] *
+        representation[pairs[, 2L], , drop = FALSE]
+    )
+    correlation <- pmax(-1, pmin(1, correlation))
+    correlation_similarity <- (correlation + 1) / 2
+  }
+  final_weight <- alpha * correlation_similarity +
+    (1 - alpha) * spatial_similarity
+  keep <- is.finite(final_weight) & final_weight > 0
+  if (!any(keep)) return(empty_graph())
 
   edges_df <- data.frame(
-    source = src,
-    target = tgt,
-    weight = final_weight,
+    source = pairs[keep, 1L],
+    target = pairs[keep, 2L],
+    weight = final_weight[keep],
+    correlation = correlation[keep],
+    correlation_similarity = correlation_similarity[keep],
+    spatial_similarity = spatial_similarity[keep],
+    edge_source = ifelse(
+      is_spatial[keep] & is_feature[keep], "both",
+      ifelse(is_spatial[keep], "spatial", "feature")
+    ),
     stringsAsFactors = FALSE
   )
-  
-  # Remove rows with empty data (no valid neighbors)
-  if (nrow(edges_df) == 0) {
-    # No edges at all - create a graph with just vertices
-    graph <- igraph::make_empty_graph(n = nb, directed = FALSE)
-    return(graph)
-  }
-  
-  # Ensure all edge vertices are valid
-  valid_edges <- edges_df[edges_df$source %in% seq_len(nb) & edges_df$target %in% seq_len(nb), ]
-  
-  if (nrow(valid_edges) == 0) {
-    # No valid edges - create a graph with just vertices
-    graph <- igraph::make_empty_graph(n = nb, directed = FALSE)
-    return(graph)
-  }
-  
-  igraph::graph_from_data_frame(valid_edges, directed = FALSE, vertices = seq_len(nb))
+  graph <- igraph::graph_from_data_frame(
+    edges_df, directed = FALSE,
+    vertices = data.frame(name = as.character(seq_len(nb)))
+  )
+  graph <- igraph::set_graph_attr(graph, "correlation_metric", value = correlation_metric)
+  igraph::set_graph_attr(graph, "alpha_feature_weight", value = alpha)
 }
 
 #' Run Louvain clustering
@@ -608,7 +742,11 @@ expand_block_labels <- function(cluster_result, block_id, mask.idx) {
   # cluster_result: an igraph clustering object
   # block_id: an integer vector for each voxel
   # We need to map raw block_id -> consecutive index for membership
-  block_labels <- igraph::membership(cluster_result)  # length = nb
+  block_labels <- if (is.numeric(cluster_result)) {
+    as.integer(cluster_result)
+  } else {
+    igraph::membership(cluster_result)
+  }
   nb <- length(block_labels)
 
   if (nb == 0) {
@@ -636,55 +774,8 @@ expand_block_labels <- function(cluster_result, block_id, mask.idx) {
 construct_block_label_array <- function(block_id, mask) {
   block_array <- array(0L, dim(mask))
   mask.idx    <- which(mask > 0)
-  block_array[mask.idx] <- block_id
+  block_array[mask.idx] <- match(block_id, sort(unique(block_id)))
   block_array
-}
-
-#' Force clustering to have exactly K clusters by merging or splitting
-#' @keywords internal
-force_exact_k <- function(labels, feature_mat, K_target) {
-  labels <- as.integer(labels)
-  valid <- labels[labels > 0]
-  if (length(valid) == 0) return(labels)
-
-  # K_target cannot exceed number of voxels; kmeans also requires centers < nrow
-  K_target <- max(1L, min(K_target, nrow(feature_mat) - 1L))
-
-  relabel <- function(lbl) {
-    u <- sort(unique(lbl[lbl > 0]))
-    map <- setNames(seq_along(u), u)
-    newlbl <- integer(length(lbl))
-    sel <- lbl > 0
-    newlbl[sel] <- unname(map[as.character(lbl[sel])])
-    newlbl
-  }
-
-  labels <- relabel(labels)
-  k_curr <- length(unique(labels[labels > 0]))
-  if (k_curr == K_target) return(labels)
-
-  # Helper: compute centroids
-  compute_centroids <- function(lbls) {
-    idx <- lbls > 0
-    lbls2 <- lbls[idx]
-    rowsum(feature_mat[idx, , drop = FALSE], lbls2) / as.numeric(table(lbls2))
-  }
-
-  if (k_curr > K_target) {
-    cent <- compute_centroids(labels)
-    # Ward merge down to K_target
-    hc <- hclust(dist(cent), method = "ward.D2")
-    cut <- cutree(hc, k = K_target)
-    labels[labels > 0] <- cut[labels[labels > 0]]
-    labels <- relabel(labels)
-    return(labels)
-  }
-
-  # k_curr < K_target: split via kmeans over all voxels
-  km <- kmeans(feature_mat, centers = K_target, iter.max = 50, nstart = 5)
-  labels[] <- km$cluster
-  labels <- relabel(labels)
-  labels
 }
 
 #' Normalize feature matrix to unit-length vectors
@@ -703,14 +794,18 @@ normalize_features <- function(feature_mat) {
 #'
 #' @param use_cpp Logical; if TRUE, use C++ accelerated version (default)
 #' @keywords internal
-refine_voxel_boundaries <- function(voxel_labels, feature_mat, coords, max_iter, use_cpp = TRUE, dims = NULL) {
+refine_voxel_boundaries <- function(voxel_labels, feature_mat, coords, max_iter,
+                                    use_cpp = TRUE, dims = NULL,
+                                    correlation_metric = c("pearson", "spearman", "robust")) {
+
+  correlation_metric <- match.arg(correlation_metric)
+  metric_features <- acsc_metric_representation(
+    feature_mat, correlation_metric
+  )
 
   # Try C++ implementation first if requested
   if (use_cpp && requireNamespace("neurocluster", quietly = TRUE)) {
     tryCatch({
-      # Normalize feature matrix to unit length (CRITICAL for fast correlation)
-      feature_mat_norm <- normalize_features(feature_mat)
-
       # Build 6-connected neighbors on the voxel grid (much cheaper than kNN)
       neighbor_indices <- if (!is.null(dims)) {
         .grid_neighbors6_from_coords(coords, dims)
@@ -728,7 +823,7 @@ refine_voxel_boundaries <- function(voxel_labels, feature_mat, coords, max_iter,
       # Call C++ refinement
       result <- refine_boundaries_cpp(
         voxel_labels = as.integer(voxel_labels),
-        feature_mat_normalized = feature_mat_norm,
+        feature_mat_normalized = metric_features,
         neighbor_indices = neighbor_indices,
         boundary_voxels = as.integer(boundary_voxels),
         max_iter = as.integer(max_iter)
@@ -741,7 +836,9 @@ refine_voxel_boundaries <- function(voxel_labels, feature_mat, coords, max_iter,
   }
 
   # Fallback to R implementation
-  refine_voxel_boundaries_r(voxel_labels, feature_mat, coords, max_iter, dims = dims)
+  refine_voxel_boundaries_r(
+    voxel_labels, metric_features, coords, max_iter, dims = dims
+  )
 }
 
 #' Refine voxel boundaries using R implementation (fallback)
@@ -825,6 +922,10 @@ compute_cluster_centroids <- function(voxel_labels, feature_mat) {
   counts <- as.numeric(tabulate(as.integer(grp), nbins = length(unique_lbls)))
   counts[counts == 0] <- NA_real_
   centers <- sums / counts
+  norms <- sqrt(rowSums(centers^2))
+  live <- norms > sqrt(.Machine$double.eps)
+  centers[live, ] <- centers[live, , drop = FALSE] / norms[live]
+  centers[!live, ] <- 0
   dimnames(centers) <- NULL
 
   cluster_centroids <- lapply(seq_along(unique_lbls), function(i) centers[i, ])
@@ -837,22 +938,11 @@ compute_cluster_centroids <- function(voxel_labels, feature_mat) {
 cor_to_centroid <- function(voxel_idx, lbl, feature_mat, cluster_centroids) {
   lbl_str <- as.character(lbl)
   centroid_vec <- cluster_centroids[[lbl_str]]
-  # correlation of two numeric vectors
-  # quick approach => cor(...) or dot product over norms
   x <- feature_mat[voxel_idx, ]
-  
-  # Handle constant signals (zero variance) - return 1 if both are constant, 0 otherwise
-  tryCatch({
-    correlation <- stats::cor(x, centroid_vec)
-    if (is.na(correlation)) {
-      # If correlation is NA (likely due to constant signals), use 1.0 as perfect similarity
-      return(1.0)
-    }
-    return(correlation)
-  }, error = function(e) {
-    # If correlation computation fails, return 0
-    return(0.0)
-  })
+  if (is.null(centroid_vec) || any(!is.finite(centroid_vec))) return(-Inf)
+  correlation <- sum(x * centroid_vec)
+  if (!is.finite(correlation)) return(-Inf)
+  max(-1, min(1, correlation))
 }
 
 #' Identify boundary voxels

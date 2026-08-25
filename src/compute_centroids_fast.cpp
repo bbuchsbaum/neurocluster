@@ -8,6 +8,8 @@
 using namespace Rcpp;
 using namespace RcppParallel;
 
+namespace {
+
 struct CentroidReducer : public Worker {
   const RMatrix<double> data;   // D x n
   const RMatrix<double> coords; // 3 x n
@@ -70,6 +72,8 @@ struct CentroidReducer : public Worker {
     for (int k = 0; k < K; ++k) counts[k] += rhs.counts[k];
   }
 };
+
+} // namespace
 
 // [[Rcpp::export]]
 List compute_centroids_parallel_fast(IntegerVector cluster_ids,

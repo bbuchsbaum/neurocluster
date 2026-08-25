@@ -18,6 +18,8 @@ using namespace RcppParallel;
 //   return ( (uint64_t)(uint32_t)x << 42 ) ^ ( (uint64_t)(uint32_t)y << 21 ) ^ (uint64_t)(uint32_t)z;
 // }
 
+namespace {
+
 struct GridIndex {
   // Grid step size in world units (voxel space)
   double step;
@@ -129,6 +131,88 @@ static GridIndex build_grid(const NumericMatrix &coords,          // 3 x n
   return g;
 }
 
+static void validate_binned_inputs(
+    const IntegerMatrix& nn_index,
+    const NumericMatrix& nn_dist,
+    const IntegerVector& curclus,
+    const NumericMatrix& coords,
+    const NumericMatrix& data_centroids,
+    const NumericMatrix& coord_centroids,
+    const IntegerVector& cluster_counts,
+    const NumericMatrix& data,
+    double dthresh,
+    double sigma1,
+    double sigma2,
+    double alpha) {
+  const int n = coords.ncol();
+  const int K = coord_centroids.ncol();
+  if (coords.nrow() != 3) stop("coords must be a 3 x n matrix");
+  if (data.ncol() != n || nn_index.nrow() != n || nn_dist.nrow() != n ||
+      curclus.size() != n) {
+    stop("all voxel inputs must agree on n");
+  }
+  if (nn_index.ncol() != nn_dist.ncol()) {
+    stop("nn_index and nn_dist must have identical dimensions");
+  }
+  if (K < 1 || data_centroids.ncol() != K ||
+      data_centroids.nrow() != data.nrow() ||
+      coord_centroids.nrow() != 3 || cluster_counts.size() != K) {
+    stop("center matrices and cluster_counts must describe the same K labels");
+  }
+  long long count_sum = 0;
+  for (int k = 0; k < K; ++k) {
+    if (IntegerVector::is_na(cluster_counts[k]) || cluster_counts[k] <= 0) {
+      stop("cluster_counts must prove that every center is non-empty");
+    }
+    count_sum += cluster_counts[k];
+    for (int d = 0; d < data_centroids.nrow(); ++d) {
+      if (!std::isfinite(data_centroids(d, k))) {
+        stop("data_centroids must contain only finite values");
+      }
+    }
+    for (int d = 0; d < 3; ++d) {
+      if (!std::isfinite(coord_centroids(d, k))) {
+        stop("coord_centroids must contain only finite values");
+      }
+    }
+  }
+  if (count_sum != n) stop("cluster_counts must sum to n voxels");
+  std::vector<int> observed_counts((size_t)K, 0);
+  for (int i = 0; i < n; ++i) {
+    if (IntegerVector::is_na(curclus[i]) || curclus[i] < 0 || curclus[i] >= K) {
+      stop("curclus must contain zero-based labels in [0, K)");
+    }
+    observed_counts[(size_t)curclus[i]] += 1;
+    for (int d = 0; d < 3; ++d) {
+      if (!std::isfinite(coords(d, i))) stop("coords must be finite");
+    }
+    for (int d = 0; d < data.nrow(); ++d) {
+      if (!std::isfinite(data(d, i))) stop("data must be finite");
+    }
+    for (int j = 0; j < nn_index.ncol(); ++j) {
+      const int neighbor = nn_index(i, j);
+      if (IntegerVector::is_na(neighbor) || neighbor < -1 || neighbor >= n) {
+        stop("neighbor indices must be -1 padding or zero-based voxel indices");
+      }
+      const double distance = nn_dist(i, j);
+      if (!std::isfinite(distance) || distance < 0.0) {
+        stop("neighbor distances must be non-negative and finite");
+      }
+    }
+  }
+  for (int k = 0; k < K; ++k) {
+    if (observed_counts[(size_t)k] != cluster_counts[k]) {
+      stop("cluster_counts must exactly match curclus memberships");
+    }
+  }
+  if (!std::isfinite(dthresh) || dthresh < 0.0 ||
+      !std::isfinite(sigma1) || sigma1 <= 0.0 ||
+      !std::isfinite(sigma2) || sigma2 <= 0.0 ||
+      !std::isfinite(alpha) || alpha < 0.0 || alpha > 1.0) {
+    stop("dthresh, sigmas, and alpha are outside their finite domains");
+  }
+}
+
 struct BinnedAssignWorker : public Worker {
   // Inputs (views)
   const RMatrix<int> nn_index;    // n x knn
@@ -155,12 +239,6 @@ struct BinnedAssignWorker : public Worker {
 
   // Output
   RVector<int> out;
-
-  // Thread-local scratch
-  // We keep these mutable and re-used across voxels to avoid allocations.
-  mutable std::vector<int> cand;
-  mutable std::vector<int> seen_stamp;
-  mutable int cur_stamp;
 
   BinnedAssignWorker(const IntegerMatrix &nn_index_,
                      const NumericMatrix &nn_dist_,
@@ -201,26 +279,13 @@ struct BinnedAssignWorker : public Worker {
         }
         return out;
       }()),
-      out(out_),
-      cand(),
-      seen_stamp(n_clusters, 0),
-      cur_stamp(1)
-  {
-    cand.reserve(64);
-  }
-
-  inline void reset_seen_if_needed() const {
-    // Prevent overflow of cur_stamp; reset stamps if necessary.
-    if (cur_stamp == std::numeric_limits<int>::max()) {
-      std::fill(seen_stamp.begin(), seen_stamp.end(), 0);
-      cur_stamp = 1;
-    } else {
-      ++cur_stamp;
-    }
-  }
+      out(out_) {}
 
   // Gather candidate clusters from spatial bins around the voxel coordinate.
-  inline void gather_bin_candidates(double vx, double vy, double vz) const {
+  inline void gather_bin_candidates(double vx, double vy, double vz,
+                                    std::vector<int>& cand,
+                                    std::vector<int>& seen_stamp,
+                                    int cur_stamp) const {
     cand.clear();
     int ix, iy, iz;
     grid.coord_to_cell(vx, vy, vz, ix, iy, iz);
@@ -272,7 +337,10 @@ struct BinnedAssignWorker : public Worker {
     (void)voxel_index; // suppress unused parameter warning
   }
 
-  inline int choose_best_for_voxel(int i) const {
+  inline int choose_best_for_voxel(int i,
+                                   std::vector<int>& cand,
+                                   std::vector<int>& seen_stamp,
+                                   int cur_stamp) const {
     // If cand empty, optionally fall back to neighbor clusters
     if (cand.empty()) {
       // Gather neighbor cluster IDs as candidates
@@ -339,26 +407,43 @@ struct BinnedAssignWorker : public Worker {
   }
 
   void operator()(std::size_t begin, std::size_t end) {
+    // Scratch belongs to this operator invocation.  RcppParallel may copy or
+    // split Worker instances; keeping mutable scratch on the Worker itself made
+    // that ownership implicit and was unsafe on some Apple Silicon schedules.
+    std::vector<int> cand;
+    cand.reserve(64);
+    std::vector<int> seen_stamp((size_t)n_clusters, 0);
+    int cur_stamp = 0;
+
     for (std::size_t i = begin; i < end; ++i) {
-      reset_seen_if_needed();
+      if (cur_stamp == std::numeric_limits<int>::max()) {
+        std::fill(seen_stamp.begin(), seen_stamp.end(), 0);
+        cur_stamp = 1;
+      } else {
+        ++cur_stamp;
+      }
 
       const double vx = coords(0, i);
       const double vy = coords(1, i);
       const double vz = coords(2, i);
 
       // 1) Spatial bin candidates around (vx,vy,vz)
-      gather_bin_candidates(vx, vy, vz);
+      gather_bin_candidates(vx, vy, vz, cand, seen_stamp, cur_stamp);
 
       // 2) Intersect with neighbor clusters (within dthresh) to preserve locality.
       //    If intersection becomes empty, we'll fallback to neighbors inside choose_best_for_voxel.
       intersect_with_neighbor_clusters((int)i);
 
       // 3) Score only the remaining few candidates
-      const int best_c = choose_best_for_voxel((int)i);
+      const int best_c = choose_best_for_voxel(
+        (int)i, cand, seen_stamp, cur_stamp
+      );
       out[i] = best_c;
     }
   }
 };
+
+} // namespace
 
 // [[Rcpp::export]]
 IntegerVector fused_assignment_parallel_binned(IntegerMatrix nn_index,
@@ -367,6 +452,7 @@ IntegerVector fused_assignment_parallel_binned(IntegerMatrix nn_index,
                                                NumericMatrix coords,           // 3 x n (columns are voxels)
                                                NumericMatrix data_centroids,   // D x K
                                                NumericMatrix coord_centroids,  // 3 x K
+                                               IntegerVector cluster_counts,   // K, all positive
                                                NumericMatrix data,             // D x n
                                                double dthresh,
                                                double sigma1,
@@ -378,16 +464,14 @@ IntegerVector fused_assignment_parallel_binned(IntegerMatrix nn_index,
   const int n = coords.ncol();
   if (n == 0) return IntegerVector();
 
-  // Basic validation
-  if (data.ncol() != n || nn_index.nrow() != n || nn_dist.nrow() != n) {
-    stop("Dimension mismatch: ncols(data|coords) and nrows(nn_index|nn_dist) must match n voxels.");
-  }
-  if (data_centroids.nrow() != data.nrow()) stop("data_centroids rows must match data rows (feature dimension).");
-  if (coord_centroids.nrow() != coords.nrow()) stop("coord_centroids rows must match coords rows (usually 3).");
-  if (alpha < 0.0 || alpha > 1.0) stop("alpha must be in [0,1].");
-  if (sigma1 <= 0.0 || sigma2 <= 0.0) stop("sigmas must be positive.");
+  validate_binned_inputs(
+    nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids,
+    cluster_counts, data, dthresh, sigma1, sigma2, alpha
+  );
   if (bin_expand < 0) stop("bin_expand must be >= 0.");
-  if (window_factor <= 0.0) window_factor = 2.0;
+  if (!std::isfinite(window_factor) || window_factor <= 0.0) {
+    stop("window_factor must be positive and finite");
+  }
 
   // Build centroid grid once per iteration
   GridIndex grid = build_grid(coords, coord_centroids);
@@ -420,6 +504,7 @@ IntegerVector fused_assignment_binned(IntegerMatrix nn_index,
                                       NumericMatrix coords,           // 3 x n (columns are voxels)
                                       NumericMatrix data_centroids,   // D x K
                                       NumericMatrix coord_centroids,  // 3 x K
+                                      IntegerVector cluster_counts,   // K, all positive
                                       NumericMatrix data,             // D x n
                                       double dthresh,
                                       double sigma1,
@@ -429,6 +514,15 @@ IntegerVector fused_assignment_binned(IntegerMatrix nn_index,
                                       int bin_expand = 1) {
   const int n = coords.ncol();
   if (n == 0) return IntegerVector();
+
+  validate_binned_inputs(
+    nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids,
+    cluster_counts, data, dthresh, sigma1, sigma2, alpha
+  );
+  if (bin_expand < 0) stop("bin_expand must be >= 0");
+  if (!std::isfinite(window_factor) || window_factor <= 0.0) {
+    stop("window_factor must be positive and finite");
+  }
 
   GridIndex grid = build_grid(coords, coord_centroids);
   const double window_radius = window_factor * grid.step;

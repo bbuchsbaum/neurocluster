@@ -1,116 +1,36 @@
-#' G3S: Gradient-Guided Geodesic Supervoxels
+#' Gradient-guided geodesic clustering on a masked grid
 #'
-#' The "Platonic Ideal" of fMRI clustering: combines manifold learning (SVD compression),
-#' gradient-based seeding, and geodesic propagation for O(N log N) speed with high
-#' biological plausibility.
+#' Compresses voxel features, selects low-gradient seeds, and assigns voxels by
+#' deterministic multi-source Dijkstra propagation. Edges are exactly the
+#' requested masked-grid neighbors; excluded gaps are never bridged. The edge
+#' objective is `alpha * feature_distance + (1 - alpha) * physical_distance /
+#' compactness`.
 #'
-#' @param vec A \code{NeuroVec} instance supplying the 4D neuroimaging data to cluster.
-#' @param mask A \code{NeuroVol} mask defining voxels to include. Nonzero = included.
-#' @param K Integer; target number of clusters. Default: 100.
-#' @param n_components Integer; number of SVD components for feature compression.
-#'   Default: 15. Higher values preserve more variance but reduce speed gains.
-#' @param variance_threshold Numeric (0-1); minimum variance to preserve in SVD.
-#'   If n_components doesn't meet this, more components will be added. Default: 0.95.
-#' @param alpha Numeric (0-1); feature weight. 0 = all spatial, 1 = all feature.
-#'   Default: 0.5 (balanced).
-#' @param compactness Numeric; spatial scaling factor. Larger = more compact clusters.
-#'   Default: auto-computed from volume and K.
-#' @param max_refinement_iter Integer; number of boundary refinement iterations.
-#'   Default: 3. Set to 0 to skip refinement.
-#' @param verbose Logical; print progress messages. Default: FALSE.
-#' @param use_irlba Logical; use fast randomized SVD for large datasets. Default: TRUE.
-#' @param use_rsvd Logical; if TRUE and the \pkg{rsvd} package is installed,
-#'   prefer the randomized SVD backend in \code{compress_features_svd}. Default: TRUE.
-#' @param knn_backend Character; spatial kNN backend used for seed/propagation
-#'   graph construction. One of \code{"rann"} (default) or \code{"fnn"}.
+#' @param vec A `NeuroVec` or `SparseNeuroVec` containing the input features.
+#' @param mask A `NeuroVol`; exactly finite values greater than zero are included.
+#' @param K Positive requested cluster count.
+#' @param n_components Requested SVD feature count.
+#' @param variance_threshold Minimum retained variance in `[0, 1]`.
+#' @param alpha Feature-distance weight in `[0, 1]`; zero is spatial-only and
+#'   one is feature-only.
+#' @param compactness Positive finite physical length scale. Smaller values
+#'   impose a stronger spatial penalty. The default uses masked voxel measure,
+#'   K, and the effective dimension, so single-slice masks remain well-defined.
+#' @param max_refinement_iter Non-negative number of boundary passes. Refinement
+#'   uses the same feature/spatial mixture and final labels are repaired through
+#'   the shared adjacency-preserving exact-K engine.
+#' @param verbose Whether to report phase progress.
+#' @param use_irlba Whether large SVDs may use `irlba`.
+#' @param use_rsvd Whether randomized SVD may be used when available.
+#' @param connectivity Exact grid connectivity: 6, 18, or 26.
 #'
-#' @return A \code{cluster4d_result} object (also inherits \code{g3s_result},
-#'   \code{cluster_result}) with components:
-#'   \item{clusvol}{\code{ClusteredNeuroVol} with cluster assignments.}
-#'   \item{cluster}{Integer vector of cluster labels for masked voxels.}
-#'   \item{centers}{Matrix of cluster centers in feature space.}
-#'   \item{coord_centers}{Matrix of cluster spatial centers.}
-#'   \item{n_clusters}{Actual number of clusters produced.}
-#'   \item{method}{Character; "g3s".}
-#'   \item{parameters}{List of all parameters used.}
-#'   \item{metadata}{G3S-specific metadata including compression info.}
+#' @return A typed `g3s_result` and `cluster4d_result` with K by T centers,
+#'   physical coordinate centers, graph provenance, and physical-scale metadata.
 #'
-#' @details
-#' ## Algorithm Overview
-#'
-#' G3S combines four key phases:
-#'
-#' 1. **Hyper-Compression (Phase 1)**: Uses SVD to reduce T=300 timepoints to
-#'    M=15 dimensions, achieving 20x speedup in similarity calculations while
-#'    preserving 95%+ variance.
-#'
-#' 2. **Gradient Seeding (Phase 2)**: Finds local minima in the functional gradient
-#'    field, placing seeds in stable functional cores rather than on boundaries.
-#'
-#' 3. **Geodesic Propagation (Phase 3)**: Uses a priority queue to grow clusters
-#'    from seeds along paths of least resistance, ensuring contiguity and
-#'    respecting cortical geometry.
-#'
-#' 4. **Boundary Refinement (Phase 4)**: Polishes cluster boundaries by checking
-#'    if surface voxels correlate better with neighboring clusters.
-#'
-#' ## Complexity and Performance
-#'
-#' - **Time**: O(N log N) where N = number of voxels
-#' - **Memory**: O(N x M) where M << T (typically 15 vs 300)
-#' - **Speedup**: 10-20x faster than iterative supervoxels
-#' - **Quality**: Superior boundaries due to geodesic propagation
-#'
-#' ## Comparison with Other Methods
-#'
-#' \tabular{lllll}{
-#'   \strong{Method} \tab \strong{Speed} \tab \strong{Quality} \tab \strong{Memory} \tab \strong{Complexity} \cr
-#'   G3S \tab Fast \tab Excellent \tab Low \tab O(N log N) \cr
-#'   Supervoxels \tab Slow \tab Good \tab High \tab O(N x K x iters) \cr
-#'   SNIC \tab Fast \tab Good \tab Low \tab O(N log N) \cr
-#'   FLASH3D \tab Fast \tab Good \tab Medium \tab O(N) \cr
-#' }
-#'
-#' G3S advantages:
-#' - **vs. Supervoxels**: 10-20x faster, better boundaries, no iterations
-#' - **vs. SNIC**: Better initialization (gradient vs spatial), adaptive centroids
-#' - **vs. FLASH3D**: No quantization artifacts, true correlation-based similarity
-#'
-#' @examples
-#' \dontrun{
-#' # Load example data
-#' mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
-#' vec <- replicate(50, NeuroVol(array(rnorm(20*20*20), c(20,20,20)),
-#'                               NeuroSpace(c(20,20,20))), simplify=FALSE)
-#' vec <- do.call(concat, vec)
-#'
-#' # Basic G3S clustering
-#' result <- cluster4d_g3s(vec, mask, K = 100)
-#' print(result$n_clusters)
-#' print(result$metadata$variance_explained)
-#'
-#' # Conservative compression (preserve 98% variance)
-#' result <- cluster4d_g3s(vec, mask, K = 100, variance_threshold = 0.98)
-#'
-#' # More aggressive compression (faster, less accurate)
-#' result <- cluster4d_g3s(vec, mask, K = 100, n_components = 10)
-#'
-#' # Emphasize spatial compactness
-#' result <- cluster4d_g3s(vec, mask, K = 100, alpha = 0.3)
-#'
-#' # Skip boundary refinement for maximum speed
-#' result <- cluster4d_g3s(vec, mask, K = 100, max_refinement_iter = 0)
-#' }
-#'
-#' @seealso
-#' \code{\link{cluster4d}} for unified clustering interface.
-#' \code{\link{compress_features_svd}} for SVD compression details.
-#' \code{\link{find_gradient_seeds_g3s}} for gradient seeding details.
-#'
+#' @references Dijkstra, E. W. (1959). A note on two problems in connexion
+#'   with graphs. Numerische Mathematik, 1, 269-271.
+#' @importFrom neuroim2 series spacing
 #' @export
-#' @importFrom neuroim2 series index_to_coord ClusteredNeuroVol spacing
-#' @importFrom FNN get.knn
-#' @importFrom RANN nn2
 cluster4d_g3s <- function(vec, mask, K = 100,
                          n_components = 15,
                          variance_threshold = 0.95,
@@ -120,31 +40,43 @@ cluster4d_g3s <- function(vec, mask, K = 100,
                          verbose = FALSE,
                          use_irlba = TRUE,
                          use_rsvd = TRUE,
-                         knn_backend = c("rann", "fnn")) {
+                         connectivity = 26) {
 
-  knn_backend <- match.arg(knn_backend)
+  # Use the package-wide data, geometry, mask, and K contract.
+  input_contract <- validate_cluster4d_inputs(
+    vec, mask, K, "cluster4d_g3s"
+  )
+  K <- input_contract$n_clusters
+  n_components <- .cluster4d_scalar_number(
+    n_components, "n_components", "cluster4d_g3s", lower = 1, integer = TRUE
+  )
+  variance_threshold <- .cluster4d_scalar_number(
+    variance_threshold, "variance_threshold", "cluster4d_g3s",
+    lower = 0, upper = 1
+  )
+  verbose <- .cluster4d_scalar_logical(verbose, "verbose", "cluster4d_g3s")
+  use_irlba <- .cluster4d_scalar_logical(
+    use_irlba, "use_irlba", "cluster4d_g3s"
+  )
+  use_rsvd <- .cluster4d_scalar_logical(
+    use_rsvd, "use_rsvd", "cluster4d_g3s"
+  )
 
-  # Input validation
-  if (!inherits(vec, "NeuroVec")) {
-    stop("vec must be a NeuroVec object")
-  }
-  if (!inherits(mask, "NeuroVol")) {
-    stop("mask must be a NeuroVol object")
-  }
-
-  mask.idx <- which(mask > 0)
+  mask.idx <- input_contract$mask_idx
   n_voxels <- length(mask.idx)
 
-  if (n_voxels == 0) {
-    stop("No nonzero voxels in mask")
-  }
-
-  if (K < 1 || K > n_voxels) {
-    stop("K must be between 1 and ", n_voxels)
-  }
-
-  if (alpha < 0 || alpha > 1) {
-    stop("alpha must be between 0 and 1")
+  alpha <- .cluster4d_scalar_number(
+    alpha, "alpha", "cluster4d_g3s", lower = 0, upper = 1
+  )
+  max_refinement_iter <- .cluster4d_scalar_number(
+    max_refinement_iter, "max_refinement_iter", "cluster4d_g3s",
+    lower = 0, integer = TRUE
+  )
+  connectivity <- .cluster4d_scalar_number(
+    connectivity, "connectivity", "cluster4d_g3s", integer = TRUE
+  )
+  if (!connectivity %in% c(6L, 18L, 26L)) {
+    stop("cluster4d_g3s: connectivity must be 6, 18, or 26", call. = FALSE)
   }
 
   # Get coordinates and raw features
@@ -202,10 +134,21 @@ cluster4d_g3s <- function(vec, mask, K = 100,
     message("Phase 2: Finding gradient-based seeds")
   }
 
-  # Build one spatial k-NN graph and reuse it for both seed selection and
-  # propagation to avoid duplicate nearest-neighbor construction.
-  k_neighbors <- min(26, n_voxels - 1)
-  neib <- build_spatial_knn_g3s(coords, k = k_neighbors, backend = knn_backend)
+  # Build the exact masked-grid graph once and reuse it for seeding,
+  # propagation, refinement, and topology validation.
+  neib <- build_grid_neighbors_g3s(mask, mask.idx, connectivity)
+  graph_components <- igraph::components(neib$graph)$membership
+  minimum_clusters <- max(graph_components)
+  if (K < minimum_clusters) {
+    .exact_k_abort(
+      "disconnected_mask", K, minimum_clusters, n_voxels,
+      paste0(
+        "the requested ", connectivity,
+        "-neighbor mask graph has ", minimum_clusters, " components"
+      )
+    )
+  }
+  k_neighbors <- ncol(neib$nn.index)
 
   seed_indices <- find_gradient_seeds_g3s(
     feature_mat = feature_mat_compressed,
@@ -214,6 +157,10 @@ cluster4d_g3s <- function(vec, mask, K = 100,
     k_neighbors = k_neighbors,
     distance = if (use_cosine) "cosine" else "euclidean",
     knn = neib
+  )
+  seed_indices <- .g3s_cover_components(
+    seed_indices, graph_components, feature_mat_compressed,
+    neib$nn.index, use_cosine
   )
 
   actual_K <- length(seed_indices)
@@ -232,17 +179,22 @@ cluster4d_g3s <- function(vec, mask, K = 100,
 
   # Auto-compute compactness if not provided
   if (is.null(compactness)) {
-    volume <- prod(apply(coords, 2, function(x) diff(range(x))))
-    compactness <- sqrt(volume / actual_K)
+    scale_info <- .g3s_spatial_scale(mask, mask.idx, actual_K)
+    compactness <- scale_info$scale
     if (verbose) {
       message("  Auto-computed compactness: ", round(compactness, 2))
     }
+  } else {
+    scale_info <- .g3s_spatial_scale(mask, mask.idx, actual_K)
   }
+  compactness <- .cluster4d_scalar_number(
+    compactness, "compactness", "cluster4d_g3s",
+    lower = .Machine$double.eps
+  )
 
   # Call optimized C++ propagation
   labels <- g3s_propagate_cpp(
     feature_mat = t(feature_mat_compressed),
-    coords = coords,
     seed_indices = as.integer(seed_indices),
     neighbor_indices = neib$nn.index,
     neighbor_dists = neib$nn.dist,
@@ -262,10 +214,22 @@ cluster4d_g3s <- function(vec, mask, K = 100,
     labels <- refine_boundaries_g3s_cpp(
       labels = as.integer(labels),
       feature_mat = t(feature_mat_compressed),
+      coords = coords,
       neighbor_indices = neib$nn.index,
+      alpha = alpha,
+      compactness = compactness,
       max_iter = as.integer(max_refinement_iter)
     )
   }
+
+  if (any(labels <= 0L)) {
+    stop("cluster4d_g3s: propagation left included voxels unlabeled", call. = FALSE)
+  }
+  labels <- .exact_k_connected_labels(labels, neib$graph, neib$edges)
+  labels <- force_exact_k(
+    labels, t(feature_mat_raw), K,
+    mask = mask, connectivity = connectivity
+  )
 
   # =============================================================================
   # Create Result Object
@@ -302,10 +266,21 @@ cluster4d_g3s <- function(vec, mask, K = 100,
       compactness = compactness,
       max_refinement_iter = max_refinement_iter,
       feature_metric = if (use_cosine) "cosine" else "euclidean",
-      knn_backend = knn_backend
+      connectivity = connectivity
     ),
     metadata = list(
       seed_indices = seed_indices,
+      graph = list(
+        contract = "exact_masked_grid",
+        connectivity = connectivity,
+        n_edges = nrow(neib$edges),
+        n_components = minimum_clusters
+      ),
+      spatial = list(
+        units = "physical",
+        effective_dimension = scale_info$dimension,
+        auto_scale = scale_info$scale
+      ),
       compression_ratio = if (use_cosine) n_timepoints / actual_components else 1,
       svd_rotation = if (use_cosine) compressed$rotation else NULL,
       svd_singular_values = if (use_cosine) compressed$singular_values else NULL,
@@ -323,26 +298,96 @@ cluster4d_g3s <- function(vec, mask, K = 100,
     message("G3S complete: ", result$n_clusters, " clusters formed")
   }
 
-  result
+  finalize_cluster4d_result(result, vec, mask, "g3s", result$parameters)
 }
 
-#' Build spatial kNN graph for G3S.
+#' Build exact masked-grid neighbors for G3S.
 #'
 #' @keywords internal
 #' @noRd
-build_spatial_knn_g3s <- function(coords, k, backend = c("rann", "fnn")) {
-  backend <- match.arg(backend)
+build_grid_neighbors_g3s <- function(mask, mask_idx, connectivity) {
+  graph_info <- .exact_k_graph(mask, connectivity)
+  if (!identical(as.integer(mask_idx), as.integer(graph_info$mask_idx))) {
+    stop("build_grid_neighbors_g3s: mask index contract mismatch", call. = FALSE)
+  }
+  n <- length(mask_idx)
+  degree <- lengths(graph_info$neighbors)
+  max_degree <- if (length(degree)) max(degree) else 0L
+  neighbor_indices <- matrix(0L, nrow = n, ncol = max_degree)
+  neighbor_dists <- matrix(Inf, nrow = n, ncol = max_degree)
+  coords <- .cluster4d_index_to_coord(mask, mask_idx)
+  if (max_degree > 0L) {
+    for (i in seq_len(n)) {
+      adjacent <- graph_info$neighbors[[i]]
+      if (!length(adjacent)) next
+      slots <- seq_along(adjacent)
+      neighbor_indices[i, slots] <- adjacent
+      delta <- coords[adjacent, , drop = FALSE] -
+        matrix(coords[i, ], nrow = length(adjacent), ncol = 3L, byrow = TRUE)
+      neighbor_dists[i, slots] <- sqrt(rowSums(delta * delta))
+    }
+  }
+  c(
+    graph_info,
+    list(nn.index = neighbor_indices, nn.dist = neighbor_dists, coords = coords)
+  )
+}
 
-  if (backend == "rann") {
-    # Self-query; first returned neighbor is self (distance 0), so request k+1.
-    nn <- RANN::nn2(data = coords, query = coords, k = as.integer(k + 1L), searchtype = "standard")
-    return(list(
-      nn.index = nn$nn.idx[, -1, drop = FALSE],
-      nn.dist = nn$nn.dists[, -1, drop = FALSE]
-    ))
+.g3s_spatial_scale <- function(mask, mask_idx, K) {
+  grid <- neuroim2::index_to_grid(mask, mask_idx)
+  grid <- matrix(as.integer(grid), ncol = 3L)
+  active <- vapply(
+    seq_len(3L), function(axis) length(unique(grid[, axis])) > 1L,
+    logical(1L)
+  )
+  dimension <- max(1L, sum(active))
+  voxel_spacing <- as.numeric(neuroim2::spacing(mask))[seq_len(3L)]
+  voxel_measure <- if (any(active)) {
+    prod(voxel_spacing[active])
+  } else {
+    min(voxel_spacing)
+  }
+  scale <- (length(mask_idx) * voxel_measure / K)^(1 / dimension)
+  list(scale = as.numeric(scale), dimension = as.integer(dimension))
+}
+
+.g3s_cover_components <- function(seeds, membership, feature_mat,
+                                  neighbor_indices, use_cosine) {
+  component_ids <- sort(unique(membership))
+  seed_components <- membership[seeds]
+  uncovered <- setdiff(component_ids, seed_components)
+  if (!length(uncovered)) return(sort(as.integer(seeds)))
+
+  gradient <- if (use_cosine) {
+    calculate_local_gradient(t(feature_mat), neighbor_indices)
+  } else {
+    vapply(seq_len(nrow(feature_mat)), function(i) {
+      adjacent <- neighbor_indices[i, ]
+      adjacent <- adjacent[adjacent > 0L]
+      if (!length(adjacent)) return(0)
+      mean(rowSums(
+        (feature_mat[adjacent, , drop = FALSE] -
+           matrix(feature_mat[i, ], nrow = length(adjacent),
+                  ncol = ncol(feature_mat), byrow = TRUE))^2
+      ))
+    }, numeric(1L))
   }
 
-  FNN::get.knn(coords, k = k)
+  for (component in uncovered) {
+    seed_components <- membership[seeds]
+    counts <- table(factor(seed_components, levels = component_ids))
+    donor_positions <- which(counts[match(seed_components, component_ids)] > 1L)
+    if (!length(donor_positions)) {
+      stop("cluster4d_g3s: cannot cover every mask component", call. = FALSE)
+    }
+    remove_position <- donor_positions[
+      order(-gradient[seeds[donor_positions]], -seeds[donor_positions])[1L]
+    ]
+    candidates <- which(membership == component)
+    replacement <- candidates[order(gradient[candidates], candidates)[1L]]
+    seeds[remove_position] <- replacement
+  }
+  sort(as.integer(seeds))
 }
 
 

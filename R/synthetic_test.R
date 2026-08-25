@@ -148,30 +148,39 @@ make_synthetic_clusters <- function(n_time = 100, noise_sd = 0, n_clusters = 27,
 #' @param predicted Integer vector of predicted cluster assignments
 #' @param truth Integer vector of ground truth cluster assignments
 #'
-#' @return A list with:
-#'   \item{ari}{Adjusted Rand Index (-1 to 1, 1 = perfect)}
-#'   \item{nmi}{Normalized Mutual Information (0 to 1, 1 = perfect)}
-#'   \item{accuracy}{Best accuracy after optimal label matching (0 to 1)}
-#'   \item{n_predicted}{Number of unique predicted clusters}
-#'   \item{n_truth}{Number of unique ground truth clusters}
-#'   \item{perfect}{Logical: TRUE if clustering is perfect (ARI = 1)}
+#' @return A list with adjusted Rand index (`ari`), variation of information
+#'   in bits (`variation_of_information_bits`), pairwise Dice
+#'   (`pairwise_dice`), arithmetic normalized mutual information (`nmi`),
+#'   exact maximum one-to-one label-matched accuracy (`matched_accuracy`),
+#'   its compatibility alias `accuracy`, partition counts, and a
+#'   permutation-invariant `perfect` flag.
 #'
 #' @details
-#' Three complementary metrics are computed:
+#' The metrics compare the two induced equivalence relations; cluster names do
+#' not need to match. All observations are included, including a label of zero.
+#' Missing or non-finite labels are rejected rather than silently removed.
+#' Computation uses only observed contingency cells and is linear in the number
+#' of observations for singleton-heavy partitions.
 #'
 #' \strong{Adjusted Rand Index (ARI):}
 #' Measures agreement between two clusterings, adjusted for chance.
 #' ARI = 1 means perfect agreement, ARI = 0 means random, ARI < 0 means
 #' worse than random.
 #'
-#' \strong{Normalized Mutual Information (NMI):}
-#' Information-theoretic measure of clustering similarity.
-#' NMI = 1 means perfect agreement, NMI = 0 means independent.
+#' \strong{Variation of information (VI):}
+#' The sum of the two conditional entropies, measured with base-2 logarithms.
+#' VI is zero exactly for identical partitions and increases with disagreement.
 #'
-#' \strong{Accuracy:}
-#' Fraction of correctly assigned voxels after finding optimal
-#' correspondence between predicted and true labels using the
-#' Hungarian algorithm.
+#' \strong{Pairwise Dice:}
+#' `2 * TP / (2 * TP + FP + FN)` over unordered pairs of observations,
+#' where a positive pair is co-clustered. If both partitions contain only
+#' singleton clusters, their pairwise Dice is defined as one.
+#'
+#' \strong{Matched accuracy:}
+#' The greatest fraction of matched observations under a one-to-one mapping
+#' between predicted and truth labels. It is solved exactly on the sparse
+#' observed contingency graph. `accuracy` is retained as an alias for existing
+#' callers; it is not the former greedy approximation.
 #'
 #' @examples
 #' # Perfect clustering
@@ -181,121 +190,19 @@ make_synthetic_clusters <- function(n_time = 100, noise_sd = 0, n_clusters = 27,
 #'
 #' @export
 clustering_accuracy <- function(predicted, truth) {
-  stopifnot(length(predicted) == length(truth))
-
-  # Remove any zeros (background)
-  valid <- truth > 0 & predicted > 0
-  pred <- predicted[valid]
-  true <- truth[valid]
-
-  n <- length(pred)
-  n_pred <- length(unique(pred))
-  n_true <- length(unique(true))
-
-  # Contingency table
-  cont <- table(pred, true)
-
-  # Adjusted Rand Index
-  ari <- compute_ari(cont, n)
-
-  # Normalized Mutual Information
-  nmi <- compute_nmi(cont, n)
-
-  # Best accuracy via Hungarian algorithm (or greedy for small problems)
-  accuracy <- compute_best_accuracy(cont)
-
+  metrics <- .partition_metrics(predicted, truth)
+  matched_accuracy <- .matched_partition_accuracy(predicted, truth)
   list(
-    ari = ari,
-    nmi = nmi,
-    accuracy = accuracy,
-    n_predicted = n_pred,
-    n_truth = n_true,
-    perfect = abs(ari - 1) < 1e-10
+    ari = metrics$ari,
+    variation_of_information_bits = metrics$variation_of_information_bits,
+    pairwise_dice = metrics$pairwise_dice,
+    nmi = metrics$nmi,
+    matched_accuracy = matched_accuracy,
+    accuracy = matched_accuracy,
+    n_predicted = metrics$n_a,
+    n_truth = metrics$n_b,
+    perfect = metrics$perfect
   )
-}
-
-
-#' Compute Adjusted Rand Index
-#' @keywords internal
-compute_ari <- function(cont, n) {
-  # Row and column sums
-  a <- rowSums(cont)
-  b <- colSums(cont)
-
-  # Sum of combinations
-  sum_comb_cont <- sum(choose(cont, 2))
-  sum_comb_a <- sum(choose(a, 2))
-  sum_comb_b <- sum(choose(b, 2))
-  comb_n <- choose(n, 2)
-
-  # Expected index
-  expected <- sum_comb_a * sum_comb_b / comb_n
-
-  # Max index
-  max_index <- (sum_comb_a + sum_comb_b) / 2
-
-  # ARI
-  if (max_index == expected) {
-    return(1)  # Perfect agreement
-
-  }
-  (sum_comb_cont - expected) / (max_index - expected)
-}
-
-
-#' Compute Normalized Mutual Information
-#' @keywords internal
-compute_nmi <- function(cont, n) {
-  # Probabilities
-  p_ij <- cont / n
-  p_i <- rowSums(p_ij)
-  p_j <- colSums(p_ij)
-
-  # Entropy
-  H_i <- -sum(p_i[p_i > 0] * log(p_i[p_i > 0]))
-  H_j <- -sum(p_j[p_j > 0] * log(p_j[p_j > 0]))
-
-  # Mutual information
-  MI <- 0
-  for (i in seq_along(p_i)) {
-    for (j in seq_along(p_j)) {
-      if (p_ij[i, j] > 0) {
-        MI <- MI + p_ij[i, j] * log(p_ij[i, j] / (p_i[i] * p_j[j]))
-      }
-    }
-  }
-
-  # Normalized MI
-  if (H_i + H_j == 0) return(1)
-  2 * MI / (H_i + H_j)
-}
-
-
-#' Compute Best Accuracy via Greedy Matching
-#' @keywords internal
-compute_best_accuracy <- function(cont) {
-  # Greedy matching: repeatedly assign best remaining pair
-  n_total <- sum(cont)
-  matched <- 0
-  cont_work <- cont
-
-  n_matches <- min(nrow(cont), ncol(cont))
-  for (i in seq_len(n_matches)) {
-    # Find best remaining match
-    best_idx <- which.max(cont_work)
-    best_val <- cont_work[best_idx]
-    if (best_val == 0) break
-
-    matched <- matched + best_val
-
-    # Remove matched row and column
-    best_row <- ((best_idx - 1) %% nrow(cont_work)) + 1
-    best_col <- ((best_idx - 1) %/% nrow(cont_work)) + 1
-    cont_work[best_row, ] <- 0
-    cont_work[, best_col] <- 0
-  }
-
-  matched / n_total
 }
 
 

@@ -11,7 +11,6 @@ cluster4d_mcl(
   spatial_weight = 0.2,
   max_iterations = 8,
   connectivity = 6,
-  parallel = TRUE,
   verbose = FALSE,
   inflation = 1.6,
   expansion = 2L,
@@ -22,54 +21,41 @@ cluster4d_mcl(
   feature_metric = c("correlation", "euclidean"),
   feature_sigma = NULL,
   spatial_sigma = NULL,
-  exact_k = FALSE,
-  ...
+  exact_k = FALSE
 )
 }
 \arguments{
-\item{vec}{A \code{NeuroVec} instance supplying the 4D data (x, y, z, time) to cluster}
+\item{vec}{A NeuroVec, SparseNeuroVec, or NeuroVol containing the features.}
 
-\item{mask}{A \code{NeuroVol} mask defining the voxels to include in clustering.
-If numeric, nonzero values define included voxels. If logical, TRUE values
-define included voxels.}
+\item{mask}{A NeuroVol mask; finite values strictly greater than zero are included.}
 
-\item{n_clusters}{Target number of clusters (default 100). Note that some methods
-may produce slightly different numbers of clusters due to algorithmic constraints.}
+\item{n_clusters}{Requested cluster count. With \code{exact_k = FALSE}, this is
+the target used to select the closest natural MCL partition across a fixed,
+deterministic inflation search. With \code{exact_k = TRUE}, it is an exact
+adjacency-preserving postcondition.}
 
-\item{spatial_weight}{Balance between spatial and feature similarity (0-1).
-Higher values emphasize spatial compactness. Default 0.5.
-Maps to method-specific parameters:
-\itemize{
-\item supervoxels: \code{alpha = 1 - spatial_weight} (0 = all spatial, 1 = all feature)
-\item snic/slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
-\item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
-\item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
-\item mcl: direct blend between feature and spatial edge similarities
-}}
+\item{spatial_weight}{Convex weight from zero through one for physical edge similarity.}
 
-\item{max_iterations}{Maximum iterations for iterative methods. Default 10.
-Maps to: \code{iterations} (supervoxels), \code{max_iter} (snic/slic),
-\code{rounds} (flash3d).}
+\item{max_iterations}{Positive MCL iteration limit for each inflation candidate.}
 
-\item{connectivity}{Neighborhood connectivity (6 or 26). Default 26.
-6 = face neighbors only, 26 = face + edge + corner neighbors.}
+\item{connectivity}{Exact masked grid connectivity: 6, 18, or 26.}
 
-\item{parallel}{Enable parallel processing where supported. Default TRUE.}
+\item{verbose}{Logical; report iteration diagnostics.}
 
-\item{verbose}{Print progress messages. Default FALSE.}
-
-\item{inflation}{MCL inflation parameter (>1). Higher values produce finer clusters.}
+\item{inflation}{Nominal MCL inflation parameter (>1). In natural target mode,
+the deterministic search evaluates this value and fixed multipliers around it.}
 
 \item{expansion}{MCL expansion power (integer >= 2). Default 2.}
 
-\item{loop_weight}{Self-loop weight added before normalization.}
+\item{loop_weight}{Finite non-negative self-loop weight added before normalization.}
 
 \item{prune_k}{Maximum nonzero entries kept per column during MCL iterations.
-Smaller values increase speed and reduce memory.}
+Must be a positive integer; the default is 64 and is independent of the target K.}
 
-\item{prune_threshold}{Minimum value retained during pruning.}
+\item{prune_threshold}{Finite threshold in [0, 1). The strongest entry in
+every column is retained even when all entries fall below the threshold.}
 
-\item{tol}{Convergence tolerance on max absolute matrix delta.}
+\item{tol}{Positive convergence tolerance on maximum absolute matrix delta.}
 
 \item{feature_metric}{Feature similarity metric: \code{"correlation"} or \code{"euclidean"}.}
 
@@ -77,14 +63,21 @@ Smaller values increase speed and reduce memory.}
 
 \item{spatial_sigma}{Optional bandwidth for spatial heat-kernel similarity.}
 
-\item{exact_k}{If TRUE, force exactly \code{n_clusters} using \code{force_exact_k()} post-processing.}
-
-\item{...}{Reserved for future options.}
+\item{exact_k}{If TRUE, use the shared adjacency-preserving exact-K engine.}
 }
 \value{
-A \code{cluster4d_result} object.
+A \code{cluster4d_result}. Metadata records natural and final K,
+convergence, selected inflation, candidate search results, flow sparsity,
+final normalization error, and exact-K policy.
 }
 \description{
 Builds a sparse voxel graph, runs an MCL flow process, and maps attractors to
 cluster labels. The implementation is optimized for sparse neuroimaging graphs.
+}
+\details{
+Every expansion, inflation, and pruning step is checked to remain
+finite, non-negative, and column stochastic. The \code{parallel} argument was
+removed because this sparse Matrix implementation has no parallel backend.
+Supplying it is therefore an ordinary unused-argument error rather than a
+silently sequential execution.
 }

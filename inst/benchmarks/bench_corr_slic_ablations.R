@@ -4,7 +4,6 @@
 #   Rscript inst/benchmarks/bench_corr_slic_ablations.R
 #
 # Optional env vars:
-#   NEUROCLUSTER_BENCH_THREADS=1   # thread count (default: 1 for stable timing)
 #   NEUROCLUSTER_BENCH_REPS=3      # reps per dataset/variant (default: 3)
 
 suppressPackageStartupMessages({
@@ -17,13 +16,20 @@ suppressPackageStartupMessages({
 
 set.seed(123)
 
-bench_threads <- suppressWarnings(as.integer(Sys.getenv("NEUROCLUSTER_BENCH_THREADS", "1")))
-if (is.na(bench_threads) || bench_threads < 1L) bench_threads <- 1L
 bench_reps <- suppressWarnings(as.integer(Sys.getenv("NEUROCLUSTER_BENCH_REPS", "3")))
 if (is.na(bench_reps) || bench_reps < 1L) bench_reps <- 3L
 
-Sys.setenv(OMP_NUM_THREADS = as.character(bench_threads))
-Sys.setenv(RCPP_PARALLEL_NUM_THREADS = as.character(bench_threads))
+score_observed_truth <- function(predicted, truth) {
+  if (length(predicted) != length(truth)) {
+    stop("predicted and truth labels must have the same length")
+  }
+  observed <- !is.na(truth)
+  if (!any(observed)) stop("truth contains no observed labels")
+  if (anyNA(predicted[observed])) {
+    stop("predicted labels are missing where truth is observed")
+  }
+  clustering_accuracy(predicted[observed], truth[observed])
+}
 
 datasets <- list(
   blobs_mid = function() {
@@ -81,7 +87,6 @@ run_once <- function(syn, variant_args) {
     sketch_repeats = 1L,
     max_iterations = 6L,
     connectivity = 6L,
-    parallel = (bench_threads != 1L),
     verbose = FALSE,
     seed = 7L,
     assign_stride = as.integer(variant_args$assign_stride),
@@ -89,7 +94,7 @@ run_once <- function(syn, variant_args) {
   )
   elapsed <- proc.time()[["elapsed"]] - t0
 
-  acc <- clustering_accuracy(res$cluster, syn$truth)
+  acc <- score_observed_truth(res$cluster, syn$truth)
   data.frame(
     elapsed_sec = elapsed,
     ari = acc$ari,
@@ -109,7 +114,6 @@ for (ds_name in names(datasets)) {
       out$dataset <- ds_name
       out$variant <- variant_name
       out$rep <- rep_i
-      out$threads <- bench_threads
       rows[[row_i]] <- out
       row_i <- row_i + 1L
       cat(sprintf(
@@ -121,7 +125,7 @@ for (ds_name in names(datasets)) {
 }
 
 raw <- do.call(rbind, rows)
-raw <- raw[, c("dataset", "variant", "rep", "threads", "elapsed_sec", "ari", "nmi", "accuracy", "n_clusters_found")]
+raw <- raw[, c("dataset", "variant", "rep", "elapsed_sec", "ari", "nmi", "accuracy", "n_clusters_found")]
 
 agg <- aggregate(
   cbind(elapsed_sec, ari, nmi, accuracy, n_clusters_found) ~ dataset + variant,

@@ -31,15 +31,21 @@ slic4d_supervoxels(
 Can also be a 3D \code{\link[neuroim2:NeuroVol-class]{NeuroVol}} for structural image segmentation,
 which will be automatically converted to a single-timepoint NeuroVec internally.}
 
-\item{mask}{A 3D \code{NeuroVol} (or logical array) indicating voxels to include.}
+\item{mask}{A 3D \code{NeuroVol} indicating voxels to include. Finite values
+greater than zero are included; zero and negative values are excluded.}
 
-\item{K}{Target number of supervoxels.}
+\item{K}{Finite integer target number of supervoxels, between one and the
+number of included voxels.}
 
-\item{compactness}{Spatial vs feature tradeoff (like SLIC 'm'). Larger = more compact.}
+\item{compactness}{Finite non-negative spatial vs feature tradeoff (like
+SLIC 'm'). Larger values produce more compact clusters.}
 
-\item{max_iter}{Maximum iterations (default 10).}
+\item{max_iter}{Positive finite integer iteration limit (default 10).}
 
-\item{n_threads}{Number of CPU threads to use (0 = auto).}
+\item{n_threads}{Non-negative finite integer number of CPU threads. Zero
+requests RcppParallel's automatic thread count, one forces serial
+assignment, and values above one request that many threads. Assignment is
+intentionally serial for masks with fewer than 2,000 included voxels.}
 
 \item{step_mm}{Optional approximate spacing between seeds in millimeters; if NULL,
 computed as cubic root of bounding-box volume / K.}
@@ -59,31 +65,48 @@ for speed (Johnson-Lindenstrauss style). 0 = use full time series.}
 
 \item{connectivity}{Neighborhood connectivity: 6 (face neighbors) or 26 (all neighbors).}
 
-\item{strict_connectivity}{Enforce exactly one connected component per label (default TRUE).}
+\item{strict_connectivity}{Enforce exactly one connected component per label
+(default TRUE).}
 
-\item{enforce_connectivity}{Alias for strict_connectivity (backward compatibility).}
+\item{enforce_connectivity}{Deprecated alias for strict connectivity. When
+omitted, it follows \code{strict_connectivity}; if either supplied value is
+TRUE, connectivity is enforced.}
 
-\item{preserve_k}{Ensure exactly K non-empty labels by splitting largest clusters (default FALSE).}
+\item{preserve_k}{Return exactly K non-empty labels when compatible with
+strict connectivity (default FALSE). See Details.}
 
-\item{topup_iters}{Number of refinement iterations after splitting for preserve_k (default 2).}
+\item{topup_iters}{Non-negative number of native refinement iterations before
+the final connectivity and exact-K repair (default 2).}
 
 \item{min_size}{Minimum component size (voxels) to keep before relabel (default 0).}
 
 \item{verbose}{Logical.}
 }
 \value{
-A list of class \code{cluster_result} with elements:
+A \code{cluster4d_result} (also inheriting from
+\code{cluster_result}) with elements:
 \itemize{
 \item \code{clusvol}: \code{ClusteredNeuroVol} with the final labels
 \item \code{cluster}: integer vector of length = #masked voxels
-\item \code{centers}: matrix (K x d_feat) center features
-\item \code{coord_centers}: matrix (K x 3) spatial centers in mm
+\item \code{centers}: matrix (actual_k x d_feat) center features
+\item \code{coord_centers}: matrix (actual_k x 3) spatial centers in mm
 }
 }
 \description{
 Cluster a 4D \code{NeuroVec} (x,y,z,time) into compact, spatially contiguous
 3D supervoxels using an enhanced SLIC-style algorithm with mask-aware seeding,
-gradient-based seed relocation, and exact K preservation.
+gradient-based seed relocation, and topology-aware K preservation.
+}
+\details{
+Connectivity is the final partition constraint. With
+\code{strict_connectivity = TRUE}, every returned label has exactly one
+connected component under the requested neighborhood. If
+\code{preserve_k = TRUE}, an adjacency-preserving repair reaches exactly K
+whenever K is at least the number of connected mask components. When K is
+below that topological minimum, strict connectivity takes precedence, the
+minimum feasible number of labels is returned, and a warning is emitted.
+Returned feature and coordinate centers are recomputed from the final public
+labels in the original feature space and physical coordinate system.
 }
 \note{
 Consider using \code{\link{cluster4d}} with \code{method = "slic"} for a

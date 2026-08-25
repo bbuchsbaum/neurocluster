@@ -3,12 +3,25 @@
 \name{cluster4d_common}
 \alias{cluster4d_common}
 \alias{ensure_neurovec}
+\alias{cluster4d_method_contract}
 \title{Common Utilities for 4D Clustering Algorithms}
 \usage{
 ensure_neurovec(vec)
+
+cluster4d_method_contract(method)
+}
+\arguments{
+\item{method}{Unified cluster4d method name.}
+}
+\value{
+A list describing supported common parameters.
 }
 \description{
 Internal functions shared across all cluster4d methods for consistency
 and code reuse.
+
+Internal, fail-closed capability table used to reject common parameters that
+a method does not implement. A NULL connectivity set means the unified
+connectivity argument is inactive for that method.
 }
 \keyword{internal}

@@ -14,109 +14,37 @@ using namespace Rcpp;
 // Helper structs
 // -----------------------------------------------------------------------------
 
+namespace {
+
 struct G3S_VoxelNode {
   int voxel_idx;
   int cluster_label;
   double cost;
 
   bool operator>(const G3S_VoxelNode& other) const {
-    return cost > other.cost;
+    if (cost != other.cost) return cost > other.cost;
+    if (cluster_label != other.cluster_label) {
+      return cluster_label > other.cluster_label;
+    }
+    return voxel_idx > other.voxel_idx;
   }
 };
 
-struct G3S_Centroid {
-  std::vector<double> feature_sum;
-  std::vector<double> feature_avg;
-  double coord_sum_x, coord_sum_y, coord_sum_z;
-  double coord_avg_x, coord_avg_y, coord_avg_z;
-  int count;
-  bool normalize_features;
-
-  G3S_Centroid(int n_features,
-               double x, double y, double z,
-               const double* feat,
-               bool normalize_features = true)
-    : coord_sum_x(x), coord_sum_y(y), coord_sum_z(z),
-      coord_avg_x(x), coord_avg_y(y), coord_avg_z(z),
-      count(1),
-      normalize_features(normalize_features && n_features > 1) {
-    feature_sum.assign(n_features, 0.0);
-    feature_avg.assign(n_features, 0.0);
-    for (int i = 0; i < n_features; ++i) {
-      feature_sum[i] = feat[i];
-      feature_avg[i] = feat[i];
-    }
-
-    if (this->normalize_features) {
-      double sq_sum = 0.0;
-      for (int i = 0; i < n_features; ++i) {
-        sq_sum += feature_avg[i] * feature_avg[i];
-      }
-      if (sq_sum > 0) {
-        double inv = 1.0 / std::sqrt(sq_sum);
-        for (int i = 0; i < n_features; ++i) {
-          feature_avg[i] *= inv;
-        }
-      }
-    }
-  }
-
-  void add(double x, double y, double z,
-           const double* feat,
-           int n_features) {
-    count++;
-    coord_sum_x += x; coord_sum_y += y; coord_sum_z += z;
-    coord_avg_x = coord_sum_x / count;
-    coord_avg_y = coord_sum_y / count;
-    coord_avg_z = coord_sum_z / count;
-
-    double sq_sum = 0.0;
-    for (int i = 0; i < n_features; ++i) {
-      feature_sum[i] += feat[i];
-      feature_avg[i] = feature_sum[i] / count;
-      sq_sum += feature_avg[i] * feature_avg[i];
-    }
-
-    if (normalize_features && sq_sum > 0) {
-      double inv = 1.0 / std::sqrt(sq_sum);
-      for (int i = 0; i < n_features; ++i) {
-        feature_avg[i] *= inv;
-      }
-    }
-  }
-};
-
-inline double g3s_cost(const G3S_Centroid& C,
-                       double x, double y, double z,
-                       const double* feat,
-                       int n_features,
-                       double alpha,
-                       double compactness) {
-  bool use_cosine = n_features > 1;
-
-  double dx = C.coord_avg_x - x;
-  double dy = C.coord_avg_y - y;
-  double dz = C.coord_avg_z - z;
-  double spatial_dist = std::sqrt(dx*dx + dy*dy + dz*dz);
-
-  double feature_dist;
-  if (use_cosine) {
+inline double g3s_edge_feature_distance(
+    const NumericMatrix& feature_mat, int left, int right) {
+  const int M = feature_mat.nrow();
+  if (M > 1) {
     double dot = 0.0;
-    for (int i = 0; i < n_features; ++i) {
-      dot += C.feature_avg[i] * feat[i];
+    for (int m = 0; m < M; ++m) {
+      dot += feature_mat(m, left) * feature_mat(m, right);
     }
-    feature_dist = 1.0 - dot;
-  } else {
-    double sq = 0.0;
-    for (int i = 0; i < n_features; ++i) {
-      double diff = C.feature_avg[i] - feat[i];
-      sq += diff * diff;
-    }
-    feature_dist = std::sqrt(sq);
+    dot = std::max(-1.0, std::min(1.0, dot));
+    return 1.0 - dot;
   }
-
-  return alpha * feature_dist + (1.0 - alpha) * (spatial_dist / compactness);
+  return std::abs(feature_mat(0, left) - feature_mat(0, right));
 }
+
+} // namespace
 
 // -----------------------------------------------------------------------------
 // 1. Local gradient (C++)
@@ -177,84 +105,87 @@ NumericVector calculate_local_gradient(const NumericMatrix& feature_mat,
 
 // [[Rcpp::export]]
 IntegerVector g3s_propagate_cpp(const NumericMatrix& feature_mat,
-                                const NumericMatrix& coords,
                                 const IntegerVector& seed_indices,
                                 const IntegerMatrix& neighbor_indices,
                                 const NumericMatrix& neighbor_dists,
                                 double alpha,
                                 double compactness) {
-
-  int N = feature_mat.ncol();
-  int M = feature_mat.nrow();
-  int K = seed_indices.size();
-  int K_neighbors = neighbor_indices.ncol();
+  const int N = feature_mat.ncol();
+  const int K = seed_indices.size();
+  const int K_neighbors = neighbor_indices.ncol();
+  if (N < 1 || feature_mat.nrow() < 1) stop("feature_mat must be non-empty");
+  if (neighbor_indices.nrow() != N || neighbor_dists.nrow() != N ||
+      neighbor_dists.ncol() != K_neighbors) {
+    stop("neighbor matrices must have one aligned row per voxel");
+  }
+  if (K < 1) stop("at least one seed is required");
+  if (!std::isfinite(alpha) || alpha < 0.0 || alpha > 1.0) {
+    stop("alpha must be in [0, 1]");
+  }
+  if (!std::isfinite(compactness) || compactness <= 0.0) {
+    stop("compactness must be positive and finite");
+  }
+  for (int i = 0; i < N; ++i) {
+    for (int m = 0; m < feature_mat.nrow(); ++m) {
+      if (!std::isfinite(feature_mat(m, i))) {
+        stop("feature_mat must contain only finite values");
+      }
+    }
+  }
 
   std::vector<int> labels(N, 0);
-  std::vector<G3S_Centroid> centroids;
-  centroids.reserve(K);
-  bool normalize_features = M > 1;
-
+  std::vector<int> best_label(N, 0);
+  std::vector<double> best_cost(N, std::numeric_limits<double>::infinity());
   std::priority_queue<G3S_VoxelNode,
                       std::vector<G3S_VoxelNode>,
                       std::greater<G3S_VoxelNode>> pq;
 
-  // Initialize seeds
   for (int k = 0; k < K; ++k) {
-    int idx = seed_indices[k] - 1;
-    if (idx < 0 || idx >= N) continue;
-    if (labels[idx] != 0) continue; // skip duplicates defensively
-
-    const int new_label = static_cast<int>(centroids.size()) + 1;
-    centroids.emplace_back(
-      M,
-      coords(idx, 0), coords(idx, 1), coords(idx, 2),
-      &feature_mat(0, idx),
-      normalize_features
-    );
-    labels[idx] = new_label;
-
-    for (int n = 0; n < K_neighbors; ++n) {
-      int neigh = neighbor_indices(idx, n) - 1;
-      if (neigh < 0 || neigh >= N) continue;
-      if (labels[neigh] != 0) continue;
-
-      double cost = g3s_cost(centroids.back(),
-                             coords(neigh, 0), coords(neigh, 1), coords(neigh, 2),
-                             &feature_mat(0, neigh),
-                             M, alpha, compactness);
-      pq.push({neigh, new_label, cost});
-    }
+    const int idx = seed_indices[k] - 1;
+    if (idx < 0 || idx >= N) stop("seed_indices are out of range");
+    const int label = k + 1;
+    if (best_cost[idx] == 0.0) stop("seed_indices must be unique");
+    best_cost[idx] = 0.0;
+    best_label[idx] = label;
+    pq.push({idx, label, 0.0});
   }
 
-  int assigned = static_cast<int>(centroids.size());
-
-  while (!pq.empty() && assigned < N) {
-    if (assigned % 2000 == 0) Rcpp::checkUserInterrupt();
-
+  int finalized = 0;
+  const double tolerance = 1e-12;
+  while (!pq.empty()) {
     G3S_VoxelNode top = pq.top();
     pq.pop();
-
     if (labels[top.voxel_idx] != 0) continue;
+    if (std::abs(top.cost - best_cost[top.voxel_idx]) > tolerance ||
+        top.cluster_label != best_label[top.voxel_idx]) continue;
 
     labels[top.voxel_idx] = top.cluster_label;
-    assigned++;
+    ++finalized;
+    if (finalized % 2000 == 0) Rcpp::checkUserInterrupt();
 
-    int c_idx = top.cluster_label - 1;
-    centroids[c_idx].add(coords(top.voxel_idx, 0),
-                         coords(top.voxel_idx, 1),
-                         coords(top.voxel_idx, 2),
-                         &feature_mat(0, top.voxel_idx), M);
+    for (int slot = 0; slot < K_neighbors; ++slot) {
+      const int neighbor = neighbor_indices(top.voxel_idx, slot) - 1;
+      if (neighbor < 0) continue;
+      if (neighbor >= N) stop("neighbor index is out of range");
+      const double physical_distance = neighbor_dists(top.voxel_idx, slot);
+      if (!std::isfinite(physical_distance) || physical_distance <= 0.0) {
+        stop("active neighbor distances must be positive and finite");
+      }
+      if (labels[neighbor] != 0) continue;
 
-    for (int n = 0; n < K_neighbors; ++n) {
-      int neigh = neighbor_indices(top.voxel_idx, n) - 1;
-      if (neigh < 0 || neigh >= N) continue;
-      if (labels[neigh] != 0) continue;
-
-      double cost = g3s_cost(centroids[c_idx],
-                             coords(neigh, 0), coords(neigh, 1), coords(neigh, 2),
-                             &feature_mat(0, neigh),
-                             M, alpha, compactness);
-      pq.push({neigh, top.cluster_label, cost});
+      const double feature_distance = g3s_edge_feature_distance(
+        feature_mat, top.voxel_idx, neighbor
+      );
+      const double edge_cost = alpha * feature_distance +
+        (1.0 - alpha) * (physical_distance / compactness);
+      const double candidate = top.cost + edge_cost;
+      if (candidate + tolerance < best_cost[neighbor] ||
+          (std::abs(candidate - best_cost[neighbor]) <= tolerance &&
+           top.cluster_label < best_label[neighbor])) {
+        best_cost[neighbor] = candidate;
+        best_label[neighbor] = top.cluster_label;
+        pq.push({neighbor, top.cluster_label, candidate});
+      }
     }
   }
 
@@ -270,13 +201,27 @@ IntegerVector g3s_propagate_cpp(const NumericMatrix& feature_mat,
 // [[Rcpp::export]]
 IntegerVector refine_boundaries_g3s_cpp(IntegerVector labels,
                                         const NumericMatrix& feature_mat,
+                                        const NumericMatrix& coords,
                                         const IntegerMatrix& neighbor_indices,
+                                        double alpha,
+                                        double compactness,
                                         int max_iter) {
 
   int N = labels.size();
   int M = feature_mat.nrow();
   int K_neighbors = neighbor_indices.ncol();
   bool use_cosine = M > 1;
+  if (feature_mat.ncol() != N || coords.nrow() != N || coords.ncol() != 3 ||
+      neighbor_indices.nrow() != N) {
+    stop("refinement inputs must have one aligned row or column per voxel");
+  }
+  if (!std::isfinite(alpha) || alpha < 0.0 || alpha > 1.0) {
+    stop("alpha must be in [0, 1]");
+  }
+  if (!std::isfinite(compactness) || compactness <= 0.0) {
+    stop("compactness must be positive and finite");
+  }
+  if (max_iter < 0) stop("max_iter must be non-negative");
 
   std::vector<int> cur(labels.begin(), labels.end());
   std::vector<int> next = cur;
@@ -288,6 +233,7 @@ IntegerVector refine_boundaries_g3s_cpp(IntegerVector labels,
     const int label_stride = max_label + 1;
     std::vector<int> counts(max_label + 1, 0);
     std::vector<double> centroids((size_t)label_stride * (size_t)M, 0.0);
+    std::vector<double> coord_centroids((size_t)label_stride * 3U, 0.0);
 
     #ifdef _OPENMP
     {
@@ -339,6 +285,13 @@ IntegerVector refine_boundaries_g3s_cpp(IntegerVector labels,
     }
     #endif
 
+    for (int i = 0; i < N; ++i) {
+      const int lab = cur[i];
+      if (lab <= 0) continue;
+      double* center = coord_centroids.data() + (size_t)lab * 3U;
+      for (int axis = 0; axis < 3; ++axis) center[axis] += coords(i, axis);
+    }
+
     #ifdef _OPENMP
     #pragma omp parallel for schedule(static)
     #endif
@@ -357,6 +310,8 @@ IntegerVector refine_boundaries_g3s_cpp(IntegerVector labels,
           row[m] *= norm;
         }
       }
+      double* coord_center = coord_centroids.data() + (size_t)lab * 3U;
+      for (int axis = 0; axis < 3; ++axis) coord_center[axis] *= inv;
     }
 
     int changed = 0;
@@ -390,32 +345,41 @@ IntegerVector refine_boundaries_g3s_cpp(IntegerVector labels,
         continue;
       }
 
-      double best_dot = -2.0;
-      double best_dist = std::numeric_limits<double>::infinity();
+      double best_cost = std::numeric_limits<double>::infinity();
       int best_lab = lab;
 
       for (int cand : candidates) {
         if (counts[cand] == 0) continue;
         const double* c_row = centroids.data() + (size_t)cand * (size_t)M;
+        double feature_distance = 0.0;
         if (use_cosine) {
           double dot = 0.0;
           for (int m = 0; m < M; ++m) {
             dot += feature_mat(m, i) * c_row[m];
           }
-          if (dot > best_dot) {
-            best_dot = dot;
-            best_lab = cand;
-          }
+          dot = std::max(-1.0, std::min(1.0, dot));
+          feature_distance = 1.0 - dot;
         } else {
           double dist_sq = 0.0;
           for (int m = 0; m < M; ++m) {
             double diff = feature_mat(m, i) - c_row[m];
             dist_sq += diff * diff;
           }
-          if (dist_sq < best_dist) {
-            best_dist = dist_sq;
-            best_lab = cand;
-          }
+          feature_distance = std::sqrt(dist_sq);
+        }
+        const double* coord_center =
+          coord_centroids.data() + (size_t)cand * 3U;
+        double spatial_sq = 0.0;
+        for (int axis = 0; axis < 3; ++axis) {
+          const double delta = coords(i, axis) - coord_center[axis];
+          spatial_sq += delta * delta;
+        }
+        const double cost = alpha * feature_distance +
+          (1.0 - alpha) * (std::sqrt(spatial_sq) / compactness);
+        if (cost < best_cost - 1e-12 ||
+            (std::abs(cost - best_cost) <= 1e-12 && cand < best_lab)) {
+          best_cost = cost;
+          best_lab = cand;
         }
       }
 

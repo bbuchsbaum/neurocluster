@@ -19,8 +19,10 @@
 #'   tall-and-skinny matrices. Default: TRUE.
 #'
 #' @return A list with components:
-#'   \item{features}{Compressed feature matrix (N x M) where M <= n_components.
-#'     Each row is normalized to unit length for cosine similarity calculations.}
+#'   \item{features}{Compressed feature matrix (N x M), starting from the
+#'     requested \code{n_components} and increasing M when needed to satisfy
+#'     \code{variance_threshold}. Each row is normalized to unit length for
+#'     cosine similarity calculations.}
 #'   \item{variance_explained}{Proportion of total variance explained by the
 #'     retained components (0-1).}
 #'   \item{n_components}{Actual number of components retained (may be > n_components
@@ -62,18 +64,22 @@
 #' - **Large (M=25)**: High accuracy, use for high SNR data or critical applications
 #'
 #' The function will automatically increase n_components if needed to meet
-#' variance_threshold, ensuring accuracy is never sacrificed for speed.
+#' variance_threshold. If that requires the full available rank, the exact
+#' full-rank decomposition is used.
 #'
 #' @examples
 #' # Simulate fMRI time series data
 #' n_voxels <- 1000
 #' n_timepoints <- 300
-#' feature_mat <- matrix(rnorm(n_voxels * n_timepoints), n_voxels, n_timepoints)
+#' latent <- matrix(rnorm(n_voxels * 8), n_voxels, 8)
+#' loadings <- matrix(rnorm(n_timepoints * 8), n_timepoints, 8)
+#' feature_mat <- latent %*% t(loadings) +
+#'   matrix(rnorm(n_voxels * n_timepoints, sd = 0.05), n_voxels, n_timepoints)
 #'
 #' # Compress to 15 dimensions (typical for G3S)
 #' compressed <- compress_features_svd(feature_mat, n_components = 15)
-#' print(compressed$variance_explained)  # Should be ~0.95
-#' print(ncol(compressed$features))      # Should be 15
+#' print(compressed$variance_explained)  # At least 0.95
+#' print(ncol(compressed$features))      # 15 here; may increase when necessary
 #'
 #' # More aggressive compression
 #' compressed_fast <- compress_features_svd(feature_mat, n_components = 10)
@@ -104,18 +110,29 @@ compress_features_svd <- function(feature_mat,
 
   n_voxels <- nrow(feature_mat)
   n_timepoints <- ncol(feature_mat)
+  max_possible <- min(n_voxels, n_timepoints)
 
-  if (n_components < 1) {
-    stop("n_components must be >= 1")
+  if (max_possible < 1L) {
+    stop("feature_mat must have at least one row and one column")
   }
+  if (length(n_components) != 1L || is.na(n_components) ||
+      !is.finite(n_components) || n_components < 1 ||
+      n_components != floor(n_components)) {
+    stop("n_components must be a positive finite integer")
+  }
+  n_components <- as.integer(n_components)
+  requested_components <- n_components
 
-  if (n_components > min(n_voxels, n_timepoints)) {
+  if (n_components > max_possible) {
     warning("n_components (", n_components, ") exceeds matrix dimensions. ",
-            "Setting to ", min(n_voxels, n_timepoints))
-    n_components <- min(n_voxels, n_timepoints)
+            "Setting to ", max_possible)
+    n_components <- max_possible
+    requested_components <- n_components
   }
 
-  if (variance_threshold < 0 || variance_threshold > 1) {
+  if (length(variance_threshold) != 1L || is.na(variance_threshold) ||
+      !is.finite(variance_threshold) || variance_threshold < 0 ||
+      variance_threshold > 1) {
     stop("variance_threshold must be between 0 and 1")
   }
 
@@ -125,14 +142,15 @@ compress_features_svd <- function(feature_mat,
   col_sds <- apply(feature_mat, 2, sd, na.rm = TRUE)
 
   # Replace zero SDs with 1 to avoid division by zero
-  col_sds[col_sds == 0] <- 1
+  col_means[!is.finite(col_means)] <- 0
+  col_sds[!is.finite(col_sds) | col_sds == 0] <- 1
 
   feature_mat_scaled <- base::scale(feature_mat, center = col_means, scale = col_sds)
 
   # Handle any remaining NAs
-  if (any(is.na(feature_mat_scaled))) {
-    warning("NA values detected after scaling. Replacing with 0.")
-    feature_mat_scaled[is.na(feature_mat_scaled)] <- 0
+  if (any(!is.finite(feature_mat_scaled))) {
+    warning("Non-finite values detected after scaling. Replacing with 0.")
+    feature_mat_scaled[!is.finite(feature_mat_scaled)] <- 0
   }
 
   rsvd_available <- isTRUE(use_rsvd) && requireNamespace("rsvd", quietly = TRUE)
@@ -141,14 +159,14 @@ compress_features_svd <- function(feature_mat,
   use_irlba_backend <- isTRUE(use_irlba) && n_voxels > 10000 && irlba_available
 
   compute_svd <- function(k, announce = TRUE) {
-    if (use_rsvd_backend) {
+    if (use_rsvd_backend && k < max_possible) {
       if (announce) {
         message("Using randomized SVD (rsvd) with k=", k)
       }
       return(rsvd::rsvd(feature_mat_scaled, k = k, nu = k, nv = k))
     }
 
-    if (use_irlba_backend) {
+    if (use_irlba_backend && k < max_possible) {
       if (announce) {
         message("Using fast randomized SVD (irlba) for large dataset")
       }
@@ -163,31 +181,80 @@ compress_features_svd <- function(feature_mat,
     )
   }
 
-  # Step 2: SVD decomposition
-  svd_result <- compute_svd(n_components)
-
-  # Step 3: Check variance explained and adjust if needed
+  # Step 2: SVD decomposition and bounded rank expansion. Partial randomized
+  # decompositions do not reveal the omitted spectrum, so keep increasing the
+  # requested rank until the observed retained energy meets the contract. The
+  # full-rank endpoint is computed with base SVD to make the terminal check
+  # exact rather than dependent on a randomized backend's truncation behavior.
   total_variance <- sum(feature_mat_scaled^2)
-  explained_variance <- sum(svd_result$d^2)
-  variance_ratio <- explained_variance / total_variance
+  threshold_tolerance <- 100 * .Machine$double.eps
+  initial_variance_ratio <- NA_real_
+  announce <- TRUE
 
-  # If variance threshold not met, try to add more components
-  if (variance_ratio < variance_threshold) {
-    max_possible <- min(n_voxels, n_timepoints)
-    if (n_components < max_possible) {
-      # Try with more components
-      n_components_new <- min(n_components + 10, max_possible)
-      warning("Initial n_components (", n_components, ") only explained ",
-              round(variance_ratio * 100, 1), "% variance. ",
-              "Trying with ", n_components_new, " components.")
-
-      # Recompute SVD with more components
-      svd_result <- compute_svd(n_components_new, announce = FALSE)
-
-      n_components <- n_components_new
-      explained_variance <- sum(svd_result$d^2)
-      variance_ratio <- explained_variance / total_variance
+  repeat {
+    svd_result <- compute_svd(n_components, announce = announce)
+    announce <- FALSE
+    explained_variance <- sum(svd_result$d^2)
+    variance_ratio <- if (total_variance == 0) {
+      1
+    } else {
+      min(1, max(0, explained_variance / total_variance))
     }
+    if (is.na(initial_variance_ratio)) {
+      initial_variance_ratio <- variance_ratio
+    }
+
+    if (variance_ratio + threshold_tolerance >= variance_threshold ||
+        n_components >= max_possible) {
+      break
+    }
+
+    ratio_estimate <- if (variance_ratio > 0) {
+      min(max_possible, ceiling(n_components * variance_threshold / variance_ratio))
+    } else {
+      max_possible
+    }
+    n_components <- as.integer(min(
+      max_possible,
+      max(n_components + 10L, ceiling(1.5 * n_components), ratio_estimate)
+    ))
+  }
+
+  if (variance_ratio + threshold_tolerance < variance_threshold) {
+    stop(
+      "variance_threshold could not be met at the full available rank: retained ",
+      signif(variance_ratio, 6), " < requested ", variance_threshold,
+      call. = FALSE
+    )
+  }
+
+  # A growth step may deliberately overshoot the first feasible rank. Retain
+  # the smallest available prefix that satisfies the threshold (but never less
+  # than the user's requested dimensionality) so the accuracy contract does
+  # not silently defeat the purpose of compression by retaining extra noise.
+  if (total_variance > 0) {
+    prefix_ratio <- cumsum(svd_result$d^2) / total_variance
+    feasible <- which(prefix_ratio + threshold_tolerance >= variance_threshold)
+    if (length(feasible)) {
+      retained_components <- max(requested_components, feasible[[1L]])
+      if (retained_components < n_components) {
+        keep <- seq_len(retained_components)
+        svd_result$u <- svd_result$u[, keep, drop = FALSE]
+        svd_result$d <- svd_result$d[keep]
+        svd_result$v <- svd_result$v[, keep, drop = FALSE]
+        n_components <- as.integer(retained_components)
+        variance_ratio <- min(1, prefix_ratio[[retained_components]])
+      }
+    }
+  }
+
+  if (n_components > requested_components) {
+    message(
+      "Requested n_components (", requested_components, ") explained ",
+      round(initial_variance_ratio * 100, 1), "% variance; increased to ",
+      n_components, " components to retain ",
+      round(variance_ratio * 100, 1), "%."
+    )
   }
 
   # Step 4: Create compressed features = U * diag(d)
@@ -248,15 +315,15 @@ transform_new_data_svd <- function(new_data, compression_result) {
                                  center = compression_result$center,
                                  scale = compression_result$scale)
 
-  # Handle NAs
-  if (any(is.na(new_data_scaled))) {
-    new_data_scaled[is.na(new_data_scaled)] <- 0
+  # Handle non-finite values using the same policy as training compression.
+  if (any(!is.finite(new_data_scaled))) {
+    new_data_scaled[!is.finite(new_data_scaled)] <- 0
   }
 
-  # Project onto principal components: X_new * V * diag(d)
-  compressed <- new_data_scaled %*% compression_result$rotation %*%
-                diag(compression_result$singular_values,
-                     nrow = length(compression_result$singular_values))
+  # Project onto principal components: X_new * V. On the training data this is
+  # exactly U * D, which is the score representation returned above. Applying
+  # D again would produce U * D^2 and change cosine geometry component-wise.
+  compressed <- new_data_scaled %*% compression_result$rotation
 
   # Normalize to unit length
   row_norms <- sqrt(rowSums(compressed^2))

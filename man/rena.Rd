@@ -18,21 +18,20 @@ rena(
 \item{bvec}{A \code{NeuroVec} instance supplying the 4D data to cluster.}
 
 \item{mask}{A \code{NeuroVol} mask defining the voxels to include in clustering.
-If numeric, nonzero values define included voxels. If logical, TRUE values
-define included voxels.}
+Exactly finite values greater than zero are included.}
 
 \item{K}{The number of clusters to find (default 100).}
 
-\item{connectivity}{Neighborhood connectivity (6 or 26). Default 26.
-6 = face neighbors only, 26 = face + edge + corner neighbors.}
+\item{connectivity}{Exact masked-grid connectivity (6, 18, or 26).}
 
 \item{max_iterations}{Maximum number of recursion iterations (default 50).
 Algorithm stops when K clusters are reached or max_iterations is hit.}
 
 \item{verbose}{Logical; whether to print progress messages. Default FALSE.}
 
-\item{exact_k}{Logical; whether to use edge pruning to ensure exactly K clusters.
-Default TRUE. If FALSE, may produce slightly more or fewer than K clusters.}
+\item{exact_k}{Logical; whether to use the shared adjacency-preserving merge
+and split engine to ensure exactly K clusters. A target below the number of
+disconnected mask components is infeasible.}
 }
 \value{
 A \code{list} of class \code{rena_cluster_result} (inheriting from
@@ -127,7 +126,9 @@ the previous iteration's clustering result.
 \item \strong{Reduce connectivity}: Use connectivity=6 instead of 26 for larger graphs
 \item \strong{Use smaller K}: Fewer target clusters means fewer iterations
 \item \strong{Pre-smooth data}: Reduces noise, improves cluster coherence
-\item \strong{Alternative for parallelism}: Consider \code{slice_msf()} or \code{flash3d()}
+\item \strong{Parallel alternatives}: In the unified API, \code{supervoxels} and \code{slic}
+support \code{parallel = TRUE}. The other methods do not advertise a parallel
+clustering contract.
 }
 }
 

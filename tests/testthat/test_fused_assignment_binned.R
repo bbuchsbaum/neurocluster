@@ -20,7 +20,7 @@ test_that("fused_assignment_binned matches brute-force scoring when all centroid
 
   nn_index <- matrix(-1L, nrow = n, ncol = 1)
   nn_dist <- matrix(0.0, nrow = n, ncol = 1)
-  curclus <- rep(0L, n)
+  curclus <- c(0L, 0L, 1L, 2L)
 
   dthresh <- 0
   sigma1 <- 1.3
@@ -35,6 +35,7 @@ test_that("fused_assignment_binned matches brute-force scoring when all centroid
     coords = coords,
     data_centroids = data_centroids,
     coord_centroids = coord_centroids,
+    cluster_counts = c(n - K + 1L, rep.int(1L, K - 1L)),
     data = data,
     dthresh = dthresh,
     sigma1 = sigma1,
@@ -62,4 +63,3 @@ test_that("fused_assignment_binned matches brute-force scoring when all centroid
 
   expect_identical(as.integer(res), as.integer(brute))
 })
-

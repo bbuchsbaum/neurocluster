@@ -47,7 +47,8 @@ print.cluster4d_result <- function(x, ...) {
 #' @param ... Additional arguments (ignored)
 #'
 #' @return A summary list (invisibly)
-#' @export
+#' @method summary cluster4d_result
+#' @exportS3Method summary cluster4d_result
 summary.cluster4d_result <- function(object, ...) {
   # Basic info
   cat("Cluster4D Analysis Summary\n")
@@ -255,132 +256,167 @@ plot.cluster4d_result <- function(x, slice = NULL, view = "all",
 
 #' Compare multiple cluster4d results
 #'
-#' Compares clustering results from different methods or parameters.
+#' Compares clustering results over exactly the same included mask voxels and
+#' physical coordinate system. Ambiguous center-based scores are not used.
 #'
 #' @param ... cluster4d_result objects to compare
-#' @param metrics Comparison metrics to compute. Options:
+#' @param metrics Character vector selecting explicit estimands:
 #'   \itemize{
-#'     \item "summary": Basic statistics
-#'     \item "spatial_coherence": Spatial compactness measure
-#'     \item "temporal_coherence": Feature similarity within clusters
-#'     \item "overlap": Dice coefficient between methods (requires exactly 2 results)
+#'     \item `"summary"`: cluster-count and cluster-size summaries.
+#'     \item `"spatial_dispersion"`: root mean squared physical distance in
+#'       millimetres from voxels to their final cluster centroid (lower is more
+#'       compact).
+#'     \item `"temporal_coherence"`: mean Pearson correlation across all
+#'       unordered within-cluster voxel pairs, requiring `feature_mat`.
+#'     \item `"partition_agreement"`: adjusted Rand index, variation of
+#'       information in bits, and pairwise Dice for exactly two results.
 #'   }
+#' @param feature_mat A shared finite numeric matrix with voxels in rows and
+#'   at least two time/features in columns. Required only for
+#'   `"temporal_coherence"`. Rows must be non-constant.
 #'
-#' @return A comparison data frame
+#' @details Every result must carry canonical mask and affine provenance. The
+#'   exact included voxel indices and physical geometry are checked before any
+#'   cross-result comparison. Partition metrics use only observed contingency
+#'   cells and never construct an N-by-N co-membership matrix. Pairwise
+#'   agreement columns are repeated on the two result rows so the return value
+#'   remains a data frame.
+#'
+#' @return A data frame with one row per result and explicitly named metrics.
 #' @export
 compare_cluster4d <- function(..., 
-                             metrics = c("summary", "spatial_coherence", 
-                                       "temporal_coherence")) {
-  
+                             metrics = c("summary", "spatial_dispersion"),
+                             feature_mat = NULL) {
   results <- list(...)
+  if (length(results) == 1L && is.list(results[[1L]]) &&
+      !inherits(results[[1L]], "cluster_result") &&
+      length(results[[1L]]) > 0L &&
+      all(vapply(
+        results[[1L]],
+        function(x) inherits(x, "cluster_result") ||
+          inherits(x, "cluster4d_result"),
+        logical(1)
+      ))) {
+    results <- results[[1L]]
+  }
   n_results <- length(results)
-  
-  if (n_results < 1) {
-    stop("At least one cluster4d_result required")
+
+  if (n_results < 1L) {
+    stop("At least one cluster4d_result is required", call. = FALSE)
   }
-  
-  # Check all are cluster4d_results
-  if (!all(sapply(results, function(x) inherits(x, "cluster_result") || 
-                                       inherits(x, "cluster4d_result")))) {
-    stop("All arguments must be cluster4d_result or cluster_result objects")
+
+  if (!is.character(metrics) || anyNA(metrics) || !length(metrics)) {
+    stop("metrics must be a non-empty character vector", call. = FALSE)
   }
-  
-  # Extract names or create them
-  result_names <- names(results)
-  if (is.null(result_names)) {
-    result_names <- sapply(results, function(x) x$method)
-    if (any(is.null(result_names))) {
-      result_names <- paste0("Result", 1:n_results)
+  obsolete <- intersect(metrics, c("spatial_coherence", "overlap"))
+  if (length(obsolete)) {
+    stop(
+      paste(obsolete, collapse = ", "),
+      " is no longer supported; use spatial_dispersion and/or ",
+      "partition_agreement for explicitly defined estimands",
+      call. = FALSE
+    )
+  }
+  allowed <- c(
+    "summary", "spatial_dispersion", "temporal_coherence",
+    "partition_agreement"
+  )
+  unknown <- setdiff(metrics, allowed)
+  if (length(unknown)) {
+    stop("Unknown metrics: ", paste(unknown, collapse = ", "), call. = FALSE)
+  }
+  metrics <- unique(metrics)
+  if ("partition_agreement" %in% metrics && n_results != 2L) {
+    stop("partition_agreement requires exactly two results", call. = FALSE)
+  }
+  if ("temporal_coherence" %in% metrics && is.null(feature_mat)) {
+    stop("feature_mat is required for temporal_coherence", call. = FALSE)
+  }
+
+  supports <- lapply(seq_along(results), function(i) {
+    .cluster4d_result_support(results[[i]], paste0("result ", i))
+  })
+  if (n_results > 1L) {
+    reference <- supports[[1L]]
+    for (i in 2:n_results) {
+      if (!.cluster4d_geometry_equal(
+        reference$geometry, supports[[i]]$geometry
+      )) {
+        stop(
+          "All results must have compatible physical coordinate provenance",
+          call. = FALSE
+        )
+      }
+      if (!identical(reference$mask_idx, supports[[i]]$mask_idx)) {
+        stop(
+          "All results must use the same included mask voxels and ordering",
+          call. = FALSE
+        )
+      }
     }
   }
-  
-  # Initialize comparison data frame
+
+  result_names <- names(results)
+  if (is.null(result_names)) result_names <- rep("", n_results)
+  missing_names <- is.na(result_names) | !nzchar(result_names)
+  if (any(missing_names)) {
+    method_names <- vapply(seq_along(results), function(i) {
+      method <- results[[i]]$method
+      if (is.character(method) && length(method) == 1L && nzchar(method)) {
+        method
+      } else {
+        paste0("Result", i)
+      }
+    }, character(1))
+    result_names[missing_names] <- method_names[missing_names]
+    if (anyDuplicated(result_names)) {
+      result_names <- make.unique(result_names, sep = "_")
+    }
+  }
+
   comparison <- data.frame(
     Method = result_names,
     stringsAsFactors = FALSE
   )
-  
-  # Add basic summary metrics
+
   if ("summary" %in% metrics) {
-    comparison$N_Clusters <- sapply(results, function(x) {
-      if (!is.null(x$n_clusters)) x$n_clusters
-      else length(unique(x$cluster[!is.na(x$cluster)]))
+    sizes <- lapply(supports, function(x) {
+      tabulate(x$labels, nbins = max(x$labels))
     })
-    
-    comparison$Min_Size <- sapply(results, function(x) {
-      min(table(x$cluster))
-    })
-    
-    comparison$Max_Size <- sapply(results, function(x) {
-      max(table(x$cluster))
-    })
-    
-    comparison$Mean_Size <- sapply(results, function(x) {
-      round(mean(table(x$cluster)), 1)
-    })
-    
-    comparison$SD_Size <- sapply(results, function(x) {
-      round(sd(table(x$cluster)), 1)
-    })
+    comparison$N_Clusters <- vapply(sizes, length, integer(1))
+    comparison$Min_Size <- vapply(sizes, min, numeric(1))
+    comparison$Max_Size <- vapply(sizes, max, numeric(1))
+    comparison$Mean_Size <- vapply(sizes, mean, numeric(1))
+    comparison$SD_Size <- vapply(sizes, stats::sd, numeric(1))
   }
-  
-  # Spatial coherence
-  if ("spatial_coherence" %in% metrics) {
-    comparison$Spatial_Coherence <- sapply(results, function(x) {
-      if (!is.null(x$coord_centers)) {
-        # Calculate average within-cluster spatial variance
-        cluster_vars <- numeric()
-        for (i in unique(x$cluster)) {
-          if (!is.na(i) && i > 0) {
-            mask <- x$cluster == i
-            if (sum(mask) > 1) {
-              # Would need coordinates of all voxels, not just centers
-              # For now, return NA
-              cluster_vars <- c(cluster_vars, NA)
-            }
-          }
-        }
-        if (length(cluster_vars) > 0 && !all(is.na(cluster_vars))) {
-          round(mean(cluster_vars, na.rm = TRUE), 2)
-        } else {
-          NA
-        }
-      } else {
-        NA
-      }
-    })
+
+  if ("spatial_dispersion" %in% metrics) {
+    comparison$Spatial_RMS_Distance_mm <- vapply(
+      supports,
+      function(x) .spatial_rms_dispersion(x$labels, x$coords),
+      numeric(1)
+    )
   }
-  
-  # Temporal coherence
+
   if ("temporal_coherence" %in% metrics) {
-    comparison$Temporal_Coherence <- sapply(results, function(x) {
-      if (!is.null(x$centers) && ncol(x$centers) > 1) {
-        # Calculate mean within-cluster correlation
-        # This is approximate using centers
-        center_cors <- cor(t(x$centers))
-        diag(center_cors) <- NA
-        round(mean(center_cors, na.rm = TRUE), 3)
-      } else {
-        NA
-      }
-    })
+    comparison$Temporal_Pairwise_Correlation <- vapply(
+      supports,
+      function(x) .temporal_pairwise_correlation(x$labels, feature_mat),
+      numeric(1)
+    )
   }
-  
-  # Overlap metrics (only for exactly 2 results)
-  if ("overlap" %in% metrics && n_results == 2) {
-    # Calculate Dice coefficient
-    clus1 <- results[[1]]$cluster
-    clus2 <- results[[2]]$cluster
-    
-    if (length(clus1) == length(clus2)) {
-      # Simple overlap: what fraction of voxel pairs are in same/different clusters
-      same1 <- outer(clus1, clus1, "==")
-      same2 <- outer(clus2, clus2, "==")
-      overlap <- sum(same1 == same2) / length(same1)
-      comparison$Overlap <- c(overlap, overlap)
-    }
+
+  if ("partition_agreement" %in% metrics) {
+    agreement <- .partition_metrics(
+      supports[[1L]]$labels, supports[[2L]]$labels
+    )
+    comparison$Adjusted_Rand_Index <- rep(agreement$ari, 2L)
+    comparison$Variation_of_Information_bits <- rep(
+      agreement$variation_of_information_bits, 2L
+    )
+    comparison$Pairwise_Dice <- rep(agreement$pairwise_dice, 2L)
   }
-  
+
   comparison
 }
 
@@ -389,92 +425,248 @@ compare_cluster4d <- function(...,
 #' Checks validity and quality of clustering results.
 #'
 #' @param result A cluster4d_result object
-#' @param vec Original NeuroVec data
-#' @param mask Original mask
+#' @param vec Original NeuroVec data, required to verify feature centers.
+#' @param mask Original mask, required to verify geometry, voxel order, and
+#'   physical coordinate centers.
+#' @param tolerance Relative numeric tolerance used when independently
+#'   recomputing centers and coordinate centers.
 #'
-#' @return A list with validation results
+#' @return A list with `valid`, `errors`, `warnings`, and a compact `summary`.
+#'   Any schema or consistency defect sets `valid = FALSE`.
 #' @export
-validate_cluster4d <- function(result, vec = NULL, mask = NULL) {
-  
+validate_cluster4d <- function(result, vec = NULL, mask = NULL,
+                               tolerance = 1e-8) {
   validation <- list(
     valid = TRUE,
     warnings = character(),
     errors = character()
   )
-  
-  # Check structure
+
+  add_error <- function(message) {
+    validation$valid <<- FALSE
+    validation$errors <<- unique(c(validation$errors, message))
+  }
+  add_warning <- function(message) {
+    validation$warnings <<- unique(c(validation$warnings, message))
+  }
+  scalar_integer <- function(x) {
+    is.numeric(x) && length(x) == 1L && is.finite(x) && x == floor(x)
+  }
+  matrix_equal <- function(x, y) {
+    if (!is.matrix(x) || !is.matrix(y) || !identical(dim(x), dim(y)) ||
+        any(!is.finite(x)) || any(!is.finite(y))) return(FALSE)
+    scale <- max(1, abs(y))
+    max(abs(x - y)) <= tolerance * scale
+  }
+  geometry_equal <- function(x, y) {
+    is.list(x) && is.list(y) &&
+      identical(as.integer(x$dimensions), as.integer(y$dimensions)) &&
+      .cluster4d_same_numeric(as.numeric(x$spacing), as.numeric(y$spacing)) &&
+      .cluster4d_same_numeric(as.matrix(x$affine), as.matrix(y$affine))
+  }
+
   if (!inherits(result, "cluster_result") && !inherits(result, "cluster4d_result")) {
-    validation$valid <- FALSE
-    validation$errors <- c(validation$errors, "Not a valid cluster result object")
+    add_error("Not a valid cluster4d_result object")
+  }
+  if (!is.list(result)) {
+    add_error("Result must be a list-like object")
+    validation$summary <- list(
+      n_clusters = NA_integer_, n_voxels = NA_integer_,
+      cluster_size_range = c(NA_integer_, NA_integer_),
+      has_centers = FALSE, has_spatial_centers = FALSE
+    )
     return(validation)
   }
-  
-  # Check required components
-  required <- c("clusvol", "cluster", "centers", "coord_centers")
-  missing <- setdiff(required, names(result))
-  if (length(missing) > 0) {
-    validation$warnings <- c(validation$warnings, 
-                           paste("Missing components:", paste(missing, collapse = ", ")))
-  }
-  
-  # Check cluster assignments
-  if (!is.null(result$cluster)) {
-    clusters <- result$cluster[!is.na(result$cluster)]
-    
-    # Check for empty clusters
-    unique_clusters <- sort(unique(clusters))
-    expected_clusters <- 1:max(unique_clusters)
-    missing_clusters <- setdiff(expected_clusters, unique_clusters)
-    
-    if (length(missing_clusters) > 0) {
-      validation$warnings <- c(validation$warnings,
-                             paste("Missing cluster IDs:", 
-                                   paste(missing_clusters, collapse = ", ")))
-    }
-    
-    # Check for very small clusters
-    cluster_sizes <- table(clusters)
-    tiny_clusters <- sum(cluster_sizes < 5)
-    if (tiny_clusters > 0) {
-      validation$warnings <- c(validation$warnings,
-                             paste(tiny_clusters, "clusters have fewer than 5 voxels"))
-    }
-  }
-  
-  # Check centers match cluster count
-  if (!is.null(result$centers) && !is.null(result$n_clusters)) {
-    if (nrow(result$centers) != result$n_clusters) {
-      validation$warnings <- c(validation$warnings,
-                             "Number of centers doesn't match n_clusters")
-    }
-  }
-  
-  # If original data provided, check consistency
-  if (!is.null(vec) && !is.null(mask)) {
-    mask_voxels <- sum(mask > 0)
-    if (length(result$cluster) != mask_voxels) {
-      validation$errors <- c(validation$errors,
-                           paste("Cluster assignments (", length(result$cluster), 
-                                 ") don't match mask voxels (", mask_voxels, ")", sep = ""))
-      validation$valid <- FALSE
-    }
-  }
-  
-  # Check for NA values
-  na_count <- sum(is.na(result$cluster))
-  if (na_count > 0) {
-    validation$warnings <- c(validation$warnings,
-                           paste(na_count, "voxels have NA cluster assignment"))
-  }
-  
-  # Summary
-  validation$summary <- list(
-    n_clusters = result$n_clusters,
-    n_voxels = length(result$cluster),
-    cluster_size_range = range(table(result$cluster)),
-    has_centers = !is.null(result$centers),
-    has_spatial_centers = !is.null(result$coord_centers)
+
+  required <- c(
+    "labels", "cluster", "clusvol", "centers", "coord_centers",
+    "actual_k", "n_clusters", "label_ids", "method", "parameters",
+    "provenance"
   )
-  
+  missing <- setdiff(required, names(result))
+  if (length(missing)) {
+    add_error(paste("Missing required fields:", paste(missing, collapse = ", ")))
+  }
+
+  labels <- result$labels
+  labels_valid <- is.numeric(labels) && length(labels) > 0L &&
+    all(is.finite(labels)) && all(labels == floor(labels)) && all(labels > 0)
+  if (!labels_valid) {
+    add_error("labels must be a non-empty vector of finite positive integers")
+    label_ids <- integer()
+  } else {
+    labels <- as.integer(labels)
+    label_ids <- sort(unique(labels))
+    if (!identical(label_ids, seq_len(length(label_ids)))) {
+      add_error("labels must use contiguous positive IDs starting at 1")
+    }
+    cluster_sizes <- table(labels)
+    tiny_clusters <- sum(cluster_sizes < 5)
+    if (tiny_clusters > 0) add_warning(
+      paste(tiny_clusters, "clusters have fewer than 5 voxels")
+    )
+  }
+
+  if (!identical(result$labels, result$cluster)) {
+    add_error("cluster must be identical to labels")
+  }
+
+  actual_k_valid <- scalar_integer(result$actual_k) && result$actual_k >= 1
+  if (!actual_k_valid) {
+    add_error("actual_k must be a positive integer scalar")
+    actual_k <- NA_integer_
+  } else {
+    actual_k <- as.integer(result$actual_k)
+    if (labels_valid && actual_k != length(label_ids)) {
+      add_error("actual_k does not match the final labels")
+    }
+  }
+
+  if (!scalar_integer(result$n_clusters) ||
+      !actual_k_valid || as.integer(result$n_clusters) != actual_k) {
+    add_error("n_clusters must be identical to actual_k")
+  }
+  if (!is.integer(result$label_ids) || !actual_k_valid ||
+      !identical(result$label_ids, seq_len(actual_k))) {
+    add_error("label_ids must map center rows to labels 1 through actual_k")
+  }
+  if (!is.character(result$method) || length(result$method) != 1L ||
+      is.na(result$method) || !nzchar(result$method)) {
+    add_error("method must be a non-empty character scalar")
+  }
+  if (!is.list(result$parameters)) add_error("parameters must be a list")
+
+  centers_valid <- is.matrix(result$centers) && is.numeric(result$centers) &&
+    all(is.finite(result$centers))
+  if (!centers_valid) add_error("centers must be a finite numeric matrix")
+  coord_centers_valid <- is.matrix(result$coord_centers) &&
+    is.numeric(result$coord_centers) && all(is.finite(result$coord_centers))
+  if (!coord_centers_valid) {
+    add_error("coord_centers must be a finite numeric matrix")
+  }
+  if (actual_k_valid && centers_valid && nrow(result$centers) != actual_k) {
+    add_error("centers must have actual_k rows")
+  }
+  if (actual_k_valid && coord_centers_valid &&
+      !identical(dim(result$coord_centers), c(actual_k, 3L))) {
+    add_error("coord_centers must have shape actual_k by 3")
+  }
+
+  provenance <- result$provenance
+  provenance_valid <- is.list(provenance) &&
+    is.list(provenance$label_space) &&
+    is.list(provenance$feature_space) &&
+    is.list(provenance$coordinate_space) &&
+    is.list(provenance$mask)
+  if (!provenance_valid) {
+    add_error(
+      "provenance must define label, feature, coordinate, and mask spaces"
+    )
+  } else {
+    if (!identical(provenance$label_space$row_to_label, result$label_ids)) {
+      add_error("provenance row_to_label does not match label_ids")
+    }
+    if (!identical(provenance$feature_space$representation, "original") ||
+        !identical(provenance$feature_space$summary, "mean")) {
+      add_error("provenance must type centers as means in original feature space")
+    }
+    if (!identical(provenance$coordinate_space$units, "mm") ||
+        !identical(provenance$coordinate_space$summary, "mean")) {
+      add_error("provenance must type coordinate centers as means in mm")
+    }
+  }
+
+  clusvol_valid <- inherits(result$clusvol, "ClusteredNeuroVol")
+  if (!clusvol_valid) {
+    add_error("clusvol must be a ClusteredNeuroVol")
+  } else {
+    volume_labels <- tryCatch(
+      as.integer(result$clusvol@clusters),
+      error = function(e) NULL
+    )
+    if (!labels_valid || !identical(volume_labels, labels)) {
+      add_error("clusvol labels do not round-trip to labels")
+    }
+  }
+
+  if (xor(is.null(vec), is.null(mask))) {
+    add_error("vec and mask must be supplied together for external validation")
+  }
+  if (!is.null(vec) && !is.null(mask)) {
+    data <- tryCatch(
+      .cluster4d_original_data(vec, mask, "validate_cluster4d"),
+      error = function(e) {
+        add_error(conditionMessage(e))
+        NULL
+      }
+    )
+    if (!is.null(data)) {
+      if (!labels_valid || length(labels) != nrow(data$features)) {
+        add_error("labels length does not match the declared mask voxel set")
+      }
+      if (centers_valid && ncol(result$centers) != ncol(data$features)) {
+        add_error("centers must have one column per original feature")
+      }
+      if (provenance_valid) {
+        if (!identical(
+          provenance$feature_space$n_features,
+          as.integer(ncol(data$features))
+        )) {
+          add_error("feature provenance has the wrong feature count")
+        }
+        if (!geometry_equal(
+          provenance$coordinate_space$geometry, data$geometry
+        )) {
+          add_error("coordinate provenance geometry does not match mask")
+        }
+      }
+      if (clusvol_valid) {
+        volume_geometry <- tryCatch(
+          .cluster4d_geometry(result$clusvol), error = function(e) NULL
+        )
+        if (is.null(volume_geometry) ||
+            !geometry_equal(volume_geometry, data$geometry)) {
+          add_error("clusvol geometry does not match mask")
+        }
+        volume_mask_idx <- tryCatch(
+          which(as.array(result$clusvol@mask) > 0), error = function(e) NULL
+        )
+        if (!identical(volume_mask_idx, data$mask_idx)) {
+          add_error("clusvol mask does not match the declared mask voxel set")
+        }
+      }
+      if (labels_valid && length(labels) == nrow(data$features)) {
+        oracle <- compute_cluster_centers(
+          labels, data$features, data$coords, method = "mean"
+        )
+        if (!matrix_equal(result$centers, unname(as.matrix(oracle$centers)))) {
+          add_error("centers are stale or do not summarize final labels")
+        }
+        if (!matrix_equal(
+          result$coord_centers, unname(as.matrix(oracle$coord_centers))
+        )) {
+          add_error(
+            "coord_centers are stale or do not summarize final labels in mm"
+          )
+        }
+      }
+    }
+  } else {
+    add_error(
+      "Original vec and mask are required to validate centers and geometry"
+    )
+  }
+
+  cluster_size_range <- if (labels_valid) {
+    as.integer(range(table(labels)))
+  } else c(NA_integer_, NA_integer_)
+  validation$summary <- list(
+    n_clusters = if (actual_k_valid) actual_k else NA_integer_,
+    n_voxels = if (is.atomic(result$labels)) length(result$labels) else NA_integer_,
+    cluster_size_range = cluster_size_range,
+    has_centers = centers_valid,
+    has_spatial_centers = coord_centers_valid
+  )
+
   validation
 }

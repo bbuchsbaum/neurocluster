@@ -63,8 +63,10 @@ test_that("supervoxels works with small data and various K values", {
   
   for (k in k_values) {
     if (k < data$nvoxels) {
-      res <- supervoxels(data$bvec, data$mask, K = k, 
-                        iterations = 10, verbose = FALSE)
+      res <- suppressWarnings(supervoxels(
+        data$bvec, data$mask, K = k,
+        iterations = 10, verbose = FALSE
+      ))
       expect_s3_class(res, "cluster_result")
       expect_true(length(unique(res$cluster)) <= k)
       expect_equal(nrow(res$centers), length(unique(res$cluster)))
@@ -135,25 +137,23 @@ test_that("supervoxels handles different sigma and alpha parameters", {
 })
 
 test_that("supervoxels parallel and sequential produce similar results", {
-  data <- create_test_data(c(25,25,15), n_time = 30, seed = 129)
-  
-  # Ensure we have enough voxels for parallel to activate
-  if (data$nvoxels > 1000) {
-    set.seed(456)
-    res_par <- supervoxels(data$bvec, data$mask, K = 50,
-                          iterations = 10, parallel = TRUE,
-                          verbose = FALSE)
-    
-    set.seed(456)
-    res_seq <- supervoxels(data$bvec, data$mask, K = 50,
-                          iterations = 10, parallel = FALSE,
-                          verbose = FALSE)
-    
-    # Check that both produce valid results (exact match not guaranteed due to numerical differences)
-    expect_s3_class(res_par, "cluster_result")
-    expect_s3_class(res_seq, "cluster_result")
-    expect_equal(length(unique(res_par$cluster)), length(unique(res_seq$cluster)), tolerance = 5)
-  }
+  data <- create_test_data(c(30, 30, 30), n_time = 30, seed = 129)
+  expect_gt(data$nvoxels, 1000)
+
+  set.seed(456)
+  res_par <- supervoxels(data$bvec, data$mask, K = 50,
+                        iterations = 10, parallel = TRUE,
+                        verbose = FALSE)
+
+  set.seed(456)
+  res_seq <- supervoxels(data$bvec, data$mask, K = 50,
+                        iterations = 10, parallel = FALSE,
+                        verbose = FALSE)
+
+  expect_s3_class(res_par, "cluster_result")
+  expect_s3_class(res_seq, "cluster_result")
+  expect_equal(length(unique(res_par$cluster)),
+               length(unique(res_seq$cluster)), tolerance = 5)
 })
 
 test_that("supervoxels handles edge cases gracefully", {
@@ -166,7 +166,10 @@ test_that("supervoxels handles edge cases gracefully", {
   bvec <- do.call(concat, vol_list)
   
   # Should work even with single time point
-  res <- supervoxels(bvec, mask, K = 10, iterations = 5, verbose = FALSE)
+  expect_warning(
+    res <- supervoxels(bvec, mask, K = 10, iterations = 5, verbose = FALSE),
+    "NA values in feature matrix"
+  )
   expect_s3_class(res, "cluster_result")
   
   # Test with very sparse mask
@@ -174,7 +177,12 @@ test_that("supervoxels handles edge cases gracefully", {
   sparse_mask_array[5,5,1:5] <- TRUE  # Only 5 voxels
   sparse_mask <- NeuroVol(sparse_mask_array, NeuroSpace(c(10,10,10), c(1,1,1)))
   
-  res <- supervoxels(bvec, sparse_mask, K = 2, iterations = 5, verbose = FALSE)
+  expect_warning(
+    res <- supervoxels(
+      bvec, sparse_mask, K = 2, iterations = 5, verbose = FALSE
+    ),
+    "Connectivity reduced|NA values in feature matrix"
+  )
   expect_true(length(unique(res$cluster)) <= 2)
 })
 
@@ -245,7 +253,10 @@ test_that("supervoxels accepts 3D NeuroVol input", {
   mask <- NeuroVol(array(1, dims), NeuroSpace(dims, c(2, 2, 2)))
 
   # Should work with 3D NeuroVol input (automatically converted internally)
-  res <- supervoxels(vol, mask, K = 8, iterations = 5, verbose = FALSE)
+  expect_warning(
+    res <- supervoxels(vol, mask, K = 8, iterations = 5, verbose = FALSE),
+    "NA values in feature matrix"
+  )
 
   expect_s3_class(res, "cluster_result")
   expect_true(length(unique(res$cluster)) <= 8)

@@ -44,6 +44,17 @@ METHOD_OVERRIDES <- list(
   )
 )
 
+SPHERICAL_ARI_FLOORS <- c(
+  flash3d = 0.50, slice_msf = -0.01, g3s = 0.80, rena = 0.80,
+  rena_plus = 0.85, acsc = 0.90, slic = 0.90, corr_slic = 0.75,
+  supervoxels = 0.70, snic = 0.25, commute = 0.60
+)
+GRADIENT_ARI_FLOORS <- c(
+  flash3d = 0.10, slice_msf = -0.01, g3s = 0.40, rena = 0.10,
+  rena_plus = 0.50, acsc = 0.60, slic = 0.55, corr_slic = 0.35,
+  supervoxels = 0.30, snic = 0.25, commute = 0.40
+)
+
 run_cluster4d <- function(method, ...) {
   extra <- METHOD_OVERRIDES[[method]]
   if (is.null(extra)) extra <- list()
@@ -466,13 +477,13 @@ test_that("spherical clusters test evaluates irregular boundaries", {
         stringsAsFactors = FALSE
       ))
 
-      # Methods should achieve reasonable ARI on this harder test
-      # Note: 'supervoxels' method prioritizes spatial compactness over signal,
-      # so it may underperform on signal-based accuracy metrics
-      min_ari <- if (method %in% c("supervoxels", "corr_slic")) 0.0 else 0.3
+      min_ari <- SPHERICAL_ARI_FLOORS[[method]]
       expect_true(
         metrics$ari >= min_ari,
-        info = sprintf("%s should achieve ARI >= %.1f on spherical clusters", method, min_ari)
+        info = sprintf(
+          "%s ARI %.4f fell below its spherical floor %.2f",
+          method, metrics$ari, min_ari
+        )
       )
 
     } else {
@@ -572,14 +583,13 @@ test_that("gradient clusters test evaluates soft boundary handling", {
         stringsAsFactors = FALSE
       ))
 
-      # With soft boundaries, perfect recovery is impossible
-      # Methods should still find coherent structure
-      # Note: Some methods (supervoxels, slice_msf) prioritize spatial structure
-      # and may struggle with signal-based soft boundaries
-      min_ari <- if (method %in% c("supervoxels", "slice_msf", "corr_slic")) 0.0 else 0.2
+      min_ari <- GRADIENT_ARI_FLOORS[[method]]
       expect_true(
         metrics$ari >= min_ari,
-        info = sprintf("%s should achieve ARI >= %.1f on gradient clusters", method, min_ari)
+        info = sprintf(
+          "%s ARI %.4f fell below its gradient floor %.2f",
+          method, metrics$ari, min_ari
+        )
       )
 
     } else {

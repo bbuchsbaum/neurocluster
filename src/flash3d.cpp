@@ -37,6 +37,13 @@ static inline uint32_t popcount64(uint64_t x) {
 // ----- fixed comparator table (deterministic) -------------------------------
 static void make_comparators(int M, int B, std::vector<uint8_t> &ci, std::vector<uint8_t> &cj) {
   ci.resize(B); cj.resize(B);
+  // A one-frame structural image has only the DC coefficient. Its temporal
+  // hash is therefore identically zero; avoid the impossible i != j loop.
+  if (M <= 1) {
+    std::fill(ci.begin(), ci.end(), 0);
+    std::fill(cj.begin(), cj.end(), 0);
+    return;
+  }
   // simple LCG seeded constant for determinism
   uint64_t s = 1469598103934665603ull ^ (uint64_t)M << 32 ^ (uint64_t)B;
   auto rnd = [&](){
@@ -67,6 +74,8 @@ static void build_dct_table(int T, int M, std::vector<double> &ctab) {
 }
 
 // ----- hashing worker --------------------------------------------------------
+namespace {
+
 struct HashWorker : public Worker {
   const RMatrix<double> X; // T x Nmask
   const int T;
@@ -229,15 +238,26 @@ static void seed_blue_noise(const std::vector<int> &mask_lin, // Nmask, 0-based 
       acc += step;
     }
   } else {
-    chosen = reps;
-    // pad with evenly spaced additional mask voxels
-    double step = (double)mask_lin.size() / (double)std::max(1, K - (int)reps.size());
-    double acc = 0.0;
-    while ((int)chosen.size() < K) {
-      int pick = (int)std::floor(acc);
-      chosen.push_back(pick % (int)mask_lin.size());
-      acc += step;
+    std::vector<uint8_t> selected((size_t)Nmask, 0);
+    for (size_t i = 0; i < reps.size(); ++i) {
+      int pick = reps[i];
+      if (!selected[(size_t)pick]) {
+        chosen.push_back(pick);
+        selected[(size_t)pick] = 1;
+      }
     }
+    // Deterministic top-up with distinct valid mask voxels. K <= Nmask is
+    // validated at the native boundary, so this must reach exactly K.
+    for (int pick = 0; pick < Nmask && (int)chosen.size() < K; ++pick) {
+      if (!selected[(size_t)pick]) {
+        chosen.push_back(pick);
+        selected[(size_t)pick] = 1;
+      }
+    }
+  }
+
+  if ((int)chosen.size() != K) {
+    stop("FLASH-3D internal error: could not create K distinct seeds");
   }
 
   seeds.clear();
@@ -423,6 +443,91 @@ struct ExactFeatureWorker : public Worker {
   }
 };
 
+// Reassign one distinct high-error voxel to every empty cluster. Donors must
+// retain at least one voxel, so the returned labels contain exactly K groups.
+static std::vector<int> reseed_empty_clusters(
+    std::vector<int> &labels,
+    std::vector<int> &carry,
+    std::vector<float> &best,
+    const std::vector<int> &mask_lin,
+    int K) {
+  std::vector<int64_t> counts(K, 0);
+  for (size_t pos = 0; pos < mask_lin.size(); ++pos) {
+    int label = labels[(size_t)mask_lin[pos]];
+    if (label >= 0 && label < K) counts[(size_t)label]++;
+  }
+
+  std::vector<int> candidates = mask_lin;
+  std::stable_sort(candidates.begin(), candidates.end(), [&](int lhs, int rhs) {
+    float lhs_score = best[(size_t)lhs];
+    float rhs_score = best[(size_t)rhs];
+    if (lhs_score != rhs_score) return lhs_score > rhs_score;
+    return lhs < rhs;
+  });
+
+  std::vector<uint8_t> used(best.size(), 0);
+  std::vector<int> reseed_idx(K, -1);
+  for (int k = 0; k < K; ++k) {
+    if (counts[(size_t)k] != 0) continue;
+    for (size_t candidate_pos = 0; candidate_pos < candidates.size(); ++candidate_pos) {
+      int candidate = candidates[candidate_pos];
+      int donor = labels[(size_t)candidate];
+      if (!used[(size_t)candidate] && donor >= 0 && donor < K &&
+          counts[(size_t)donor] > 1) {
+        counts[(size_t)donor]--;
+        counts[(size_t)k] = 1;
+        labels[(size_t)candidate] = k;
+        carry[(size_t)candidate] = k;
+        best[(size_t)candidate] = 0.0f;
+        used[(size_t)candidate] = 1;
+        reseed_idx[(size_t)k] = candidate;
+        break;
+      }
+    }
+    if (reseed_idx[(size_t)k] < 0) {
+      stop("FLASH-3D could not find a distinct valid donor for an empty cluster");
+    }
+  }
+  return reseed_idx;
+}
+
+} // namespace
+
+// Testable boundary for the same distinct-reseed operation used by the core.
+// Labels are one-based in R and every vector position is treated as masked.
+// [[Rcpp::export]]
+List flash3d_reseed_empty_cpp(IntegerVector labels, NumericVector best, int K) {
+  if (labels.size() != best.size() || labels.size() < K || K < 1) {
+    stop("labels and best must have equal length with K between 1 and N");
+  }
+  const int n = labels.size();
+  std::vector<int> native_labels(n), carry(n), mask_lin(n);
+  std::vector<float> native_best(n);
+  for (int i = 0; i < n; ++i) {
+    if (IntegerVector::is_na(labels[i]) || labels[i] < 1 || labels[i] > K ||
+        !R_FINITE(best[i])) {
+      stop("labels must be in 1..K and best must be finite");
+    }
+    native_labels[(size_t)i] = labels[i] - 1;
+    carry[(size_t)i] = native_labels[(size_t)i];
+    native_best[(size_t)i] = (float)best[i];
+    mask_lin[(size_t)i] = i;
+  }
+  std::vector<int> reseeds = reseed_empty_clusters(
+    native_labels, carry, native_best, mask_lin, K
+  );
+  IntegerVector output_labels(n);
+  IntegerVector output_reseeds;
+  for (int i = 0; i < n; ++i) output_labels[i] = native_labels[(size_t)i] + 1;
+  for (int k = 0; k < K; ++k) {
+    if (reseeds[(size_t)k] >= 0) output_reseeds.push_back(reseeds[(size_t)k] + 1);
+  }
+  return List::create(
+    Named("labels") = output_labels,
+    Named("reseed_indices") = output_reseeds
+  );
+}
+
 // ----- FLASH-3D clustering core ---------------------------------------------
 
 // [[Rcpp::export]]
@@ -436,26 +541,58 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
                                       int dctM = 12,
                                       NumericVector vox_scale = NumericVector::create(1.0,1.0,1.0),
                                       Nullable<NumericVector> barrier_opt = R_NilValue,
-                                      bool verbose = false) {
+                                      bool verbose = false,
+                                      bool diagnostics = false) {
 
+  if (dims.size() != 3) stop("dims must contain three finite integers");
+  for (int axis = 0; axis < 3; ++axis) {
+    if (IntegerVector::is_na(dims[axis])) stop("dims must contain three finite integers");
+  }
+  if (dims[0] <= 0 || dims[1] <= 0 || dims[2] <= 0) stop("dims must be positive");
   if (bits != 64 && bits != 128) stop("bits must be 64 or 128");
   if (dctM < 4 || dctM > 32) stop("dctM must be in [4,32]");
+  if (rounds < 1) stop("rounds must be positive");
   if (lambda.size() < 2) stop("lambda must be at least length 2: c(lambda_s, lambda_t, [lambda_g])");
   const double lambda_s0 = lambda[0];
   const double lambda_t  = lambda[1];
   const double lambda_g  = (lambda.size() >= 3) ? lambda[2] : 0.0;
+  if (!R_FINITE(lambda_s0) || !R_FINITE(lambda_t) || !R_FINITE(lambda_g) ||
+      lambda_s0 < 0.0 || lambda_t < 0.0 || lambda_g < 0.0) {
+    stop("lambda weights must be finite and non-negative");
+  }
 
   const int nx = dims[0], ny = dims[1], nz = dims[2];
   const size_t Ngrid = (size_t)nx * ny * nz;
   const int Nmask = ts.ncol();
   const int T = ts.nrow();
   const int dctM_eff = std::min(std::min(dctM, T), 32);
+  if (Nmask < 1 || T < 1) stop("ts must have at least one row and one column");
+  if (K < 1 || K > Nmask) stop("K must be between 1 and the number of masked voxels");
   if (Nmask != mask_lin0.size()) stop("ts ncol must equal length(mask_lin)");
   if ((int)vox_scale.size() != 3) stop("vox_scale must be length 3");
+  for (int axis = 0; axis < 3; ++axis) {
+    if (!R_FINITE(vox_scale[axis]) || vox_scale[axis] <= 0.0) {
+      stop("vox_scale values must be finite and positive");
+    }
+  }
+  for (int col = 0; col < Nmask; ++col) {
+    for (int row = 0; row < T; ++row) {
+      if (!R_FINITE(ts(row, col))) stop("ts values must be finite");
+    }
+  }
 
   // Convert 1-based to 0-based linear indices
   std::vector<int> mask_lin(Nmask);
-  for (int i = 0; i < Nmask; ++i) mask_lin[i] = mask_lin0[i] - 1;
+  std::vector<uint8_t> seen_mask(Ngrid, 0);
+  for (int i = 0; i < Nmask; ++i) {
+    if (IntegerVector::is_na(mask_lin0[i])) stop("mask_lin contains NA");
+    mask_lin[i] = mask_lin0[i] - 1;
+    if (mask_lin[i] < 0 || (size_t)mask_lin[i] >= Ngrid) {
+      stop("mask_lin index is out of bounds");
+    }
+    if (seen_mask[(size_t)mask_lin[i]]) stop("mask_lin indices must be distinct");
+    seen_mask[(size_t)mask_lin[i]] = 1;
+  }
 
   // Optional barrier
   std::vector<float> barrier;
@@ -464,8 +601,15 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
     NumericVector b(barrier_opt);
     if ((int)b.size() != (int)Ngrid) stop("barrier must be length nx*ny*nz (full grid)");
     barrier.resize(Ngrid);
-    for (size_t i = 0; i < Ngrid; ++i) barrier[i] = (float)b[i];
+    for (size_t i = 0; i < Ngrid; ++i) {
+      if (!R_FINITE(b[i]) || b[i] < 0.0) {
+        stop("barrier values must be finite and non-negative");
+      }
+      barrier[i] = (float)b[i];
+    }
     use_barrier = (lambda_g > 0.0);
+  } else if (lambda_g > 0.0) {
+    stop("positive lambda_g requires a barrier");
   }
 
   // Build mask bitmap
@@ -607,8 +751,18 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
 
       uint32_t hd = hamming_dist((size_t)vIdx, s);
 
-      double sc = lambda_s_cur * (sd2 / S2) + lambda_t * ((double)hd / (double)(has_hashB ? 128 : 64));
-      if (use_bar) sc += lambda_g * barrier[(size_t)vIdx];
+      double sc = lambda_s_cur * (sd2 / S2) +
+        lambda_t * ((double)hd / (double)(has_hashB ? 128 : 64));
+      if (use_bar) {
+        // Candidate-dependent boundary-field penalty. The previous additive
+        // barrier[vIdx] term was constant across sites and could never change
+        // an assignment. A site now pays for crossing to a different barrier
+        // level, symmetrically in either direction.
+        sc += lambda_g * std::fabs(
+          (double)barrier[(size_t)vIdx] -
+          (double)barrier[(size_t)s.seed_idx]
+        );
+      }
       return (float)sc;
     }
 
@@ -682,6 +836,9 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
   std::vector<int>   carry(Ngrid, -1), carry_next(Ngrid, -1); // site id carried by cell
 
   double lambda_s_current = lambda_s0;
+  IntegerVector round_reseed_counts(rounds);
+  std::vector<int> reseed_history;
+  std::vector<Site> final_assignment_sites;
 
   // Helper lambda for power-of-2 ceiling
   auto ceil_pow2 = [](int v)->int {
@@ -694,6 +851,7 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
 
     // Anneal spatial weight slightly upward per round (encourages compactness to finish)
     lambda_s_current = lambda_s0 * (1.0 + 0.5 * (double)r);
+    if (r == rounds - 1) final_assignment_sites = sites;
 
     // reset grids and seed from current medoids
     std::fill(best.begin(),  best.end(),  inf);
@@ -757,16 +915,6 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
     );
     parallelReduce(0, Ngrid, centroid_worker);
 
-    // update sites (handle empties via hardest voxel of largest cluster)
-    // find biggest cluster
-    int big_k = 0; int64_t big_c = 0;
-    for (int k=0;k<K;k++) {
-      if (centroid_worker.acc[(size_t)k].count > big_c) {
-        big_c = centroid_worker.acc[(size_t)k].count;
-        big_k = k;
-      }
-    }
-
     // compute medoids (closest voxel to centroid per cluster)
     std::vector<int> medoid_idx(K, -1);
     std::vector<double> medoid_best(K, std::numeric_limits<double>::infinity());
@@ -793,20 +941,29 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
       }
     }
 
+    // Reseed every empty cluster from a different high-error voxel. Donors are
+    // required to retain at least one voxel, so the reassignment preserves K
+    // immediately, including after the final round.
+    std::vector<int> reseed_idx = reseed_empty_clusters(
+      label, carry, best, mask_lin, K
+    );
+    int reseeded = 0;
+    for (int k = 0; k < K; ++k) {
+      if (reseed_idx[(size_t)k] >= 0) {
+        reseed_history.push_back(reseed_idx[(size_t)k] + 1);
+        reseeded++;
+      }
+    }
+    round_reseed_counts[r] = reseeded;
+
     for (int k = 0; k < K; ++k) {
       uint64_t ha = 0ull, hb = 0ull;
-      if (centroid_worker.acc[(size_t)k].count == 0) {
-        int steal_idx = -1;
-        if (big_c > 0 && centroid_worker.acc[(size_t)big_k].max_idx >= 0) {
-          steal_idx = centroid_worker.acc[(size_t)big_k].max_idx;
-        } else if (!mask_lin.empty()) {
-          steal_idx = mask_lin[0];
-        }
-        if (steal_idx < 0) continue;
-        float x,y,z; idx_to_xyz(steal_idx, x,y,z);
-        ha = gridHashA[(size_t)steal_idx];
-        if (bits==128) hb = gridHashB[(size_t)steal_idx];
-        sites[(size_t)k] = Site{ x, y, z, ha, hb, steal_idx };
+      if (reseed_idx[(size_t)k] >= 0) {
+        int replacement = reseed_idx[(size_t)k];
+        float x,y,z; idx_to_xyz(replacement, x,y,z);
+        ha = gridHashA[(size_t)replacement];
+        if (bits==128) hb = gridHashB[(size_t)replacement];
+        sites[(size_t)k] = Site{ x, y, z, ha, hb, replacement };
         continue;
       }
 
@@ -832,10 +989,21 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
 
   // Pull labels for mask voxels (1-based cluster ids to be friendly in R)
   IntegerVector lab_mask(Nmask);
+  std::vector<double> coord_sum_x(K, 0.0), coord_sum_y(K, 0.0), coord_sum_z(K, 0.0);
+  std::vector<int> final_counts(K, 0);
   for (int i = 0; i < Nmask; ++i) {
     int idx = mask_lin[i];
     int lab = label[(size_t)idx];
-    lab_mask[i] = (lab >= 0) ? (lab + 1) : NA_INTEGER;
+    if (lab < 0 || lab >= K) stop("FLASH-3D left a masked voxel unassigned");
+    lab_mask[i] = lab + 1;
+    int zc = idx / (nx * ny);
+    int rem = idx - zc * (nx * ny);
+    int yc = rem / nx;
+    int xc = rem - yc * nx;
+    coord_sum_x[(size_t)lab] += xc;
+    coord_sum_y[(size_t)lab] += yc;
+    coord_sum_z[(size_t)lab] += zc;
+    final_counts[(size_t)lab]++;
   }
 
   // ----- OPTIMIZED: Compute exact feature centers in C++ (Phase 3) -----
@@ -850,29 +1018,60 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
 
   for (int k = 0; k < K; ++k) {
     double c = (double)feature_worker.local_counts[k];
-    if (c > 0) {
+    if (c > 0 && final_counts[(size_t)k] > 0) {
       // Feature space centers (average time series)
       for (int t = 0; t < T; ++t) {
         centers(k, t) = feature_worker.local_sums[(size_t)k * T + t] / c;
       }
     } else {
-      // Empty cluster - fill with zeros or NAs
-      for (int t = 0; t < T; ++t) {
-        centers(k, t) = NA_REAL;
-      }
+      stop("FLASH-3D internal error: final cluster is empty after reseeding");
     }
 
-    // Spatial coordinates (already computed in sites)
-    coords(k, 0) = sites[(size_t)k].x;
-    coords(k, 1) = sites[(size_t)k].y;
-    coords(k, 2) = sites[(size_t)k].z;
+    // Exact zero-based voxel-coordinate mean of the final assignments. The R
+    // boundary independently converts final labels to physical millimeters.
+    coords(k, 0) = coord_sum_x[(size_t)k] / final_counts[(size_t)k];
+    coords(k, 1) = coord_sum_y[(size_t)k] / final_counts[(size_t)k];
+    coords(k, 2) = coord_sum_z[(size_t)k] / final_counts[(size_t)k];
   }
 
-  // Return List with labels, centers, and coords
-  return List::create(
+  List result = List::create(
     Named("labels") = lab_mask,
     Named("centers") = centers,
     Named("coords") = coords,
-    Named("K") = K
+    Named("K") = K,
+    Named("reseed_count") = reseed_history.size(),
+    Named("round_reseed_counts") = round_reseed_counts,
+    Named("reseed_indices_grid") = wrap(reseed_history)
   );
+
+  if (diagnostics) {
+    NumericMatrix assignment_site_coords(K, 3);
+    IntegerVector assignment_site_seed_grid(K);
+    IntegerMatrix assignment_site_hash_bits(K, bits);
+    IntegerMatrix voxel_hash_bits(Nmask, bits);
+    for (int k = 0; k < K; ++k) {
+      const Site &site = final_assignment_sites[(size_t)k];
+      assignment_site_coords(k, 0) = site.x;
+      assignment_site_coords(k, 1) = site.y;
+      assignment_site_coords(k, 2) = site.z;
+      assignment_site_seed_grid[k] = site.seed_idx + 1;
+      for (int bit = 0; bit < bits; ++bit) {
+        uint64_t word = bit < 64 ? site.ha : site.hb;
+        assignment_site_hash_bits(k, bit) = (word >> (bit % 64)) & 1ull;
+      }
+    }
+    for (int voxel = 0; voxel < Nmask; ++voxel) {
+      for (int bit = 0; bit < bits; ++bit) {
+        uint64_t word = bit < 64 ? hashA[(size_t)voxel] : hashB[(size_t)voxel];
+        voxel_hash_bits(voxel, bit) = (word >> (bit % 64)) & 1ull;
+      }
+    }
+    result["assignment_site_coords"] = assignment_site_coords;
+    result["assignment_site_seed_grid"] = assignment_site_seed_grid;
+    result["assignment_site_hash_bits"] = assignment_site_hash_bits;
+    result["voxel_hash_bits"] = voxel_hash_bits;
+    result["S2"] = S2;
+    result["lambda_s_final"] = lambda_s_current;
+  }
+  return result;
 }

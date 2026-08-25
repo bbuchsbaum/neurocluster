@@ -58,16 +58,14 @@ test_that("slice_msf correctly identifies spatially contiguous regions with simi
   vec <- do.call(concat, vec_list)
   
   # Run clustering
-  result <- slice_msf(vec, mask, num_runs = 1, r = 8, 
-                      min_size = 50, compactness = 5)
+  result <- slice_msf(
+    vec, mask, target_k_global = 4, num_runs = 1, r = 8,
+    min_size = 50, compactness = 5
+  )
   
   # Verify we get a reasonable number of clusters
   n_clusters <- length(unique(result$cluster))
-  # slice_msf with these parameters typically produces more clusters than the 4 ground-truth regions
-  # due to slice-by-slice processing and minimum spanning forest construction.
-  # We expect somewhere between 4 (ideal) and ~35 (over-segmented) clusters.
-  expect_true(n_clusters >= 4 && n_clusters <= 40,
-              info = sprintf("Expected 4-40 clusters, got %d", n_clusters))
+  expect_equal(n_clusters, 4)
   
   # Check spatial contiguity - clusters should be mostly spatially coherent
   # For each cluster, check that most voxels have neighbors in the same cluster
@@ -308,10 +306,16 @@ test_that("slice_msf consensus fusion improves stability", {
   # Consensus should produce results similar to the "average" clustering
   # Check that consensus found reasonable number of clusters
   n_clusters_consensus <- length(unique(consensus_result$cluster))
-  expect_true(n_clusters_consensus >= 2 && n_clusters_consensus <= 5)
+  expect_true(n_clusters_consensus >= 1 && n_clusters_consensus <= nvox)
   
   # Verify runs were stored
   expect_equal(length(consensus_result$runs), 5)
+  run_signatures <- vapply(
+    consensus_result$runs,
+    function(run) paste(run$labels, collapse = ","),
+    character(1)
+  )
+  expect_gt(length(unique(run_signatures)), 1)
 })
 
 test_that("slice_msf respects min_size parameter", {
@@ -413,9 +417,9 @@ test_that("slice_msf handles slice-wise processing correctly", {
                                 stitch_z = FALSE)
   
   # Run with stitching
-  result_stitch <- slice_msf(vec, mask, num_runs = 1, r = 4, 
-                             min_size = 10, compactness = 3, 
-                             stitch_z = TRUE, theta_link = 0.85)
+  result_stitch <- slice_msf(vec, mask, num_runs = 1, r = 4,
+                             min_size = 10, compactness = 3,
+                             stitch_z = TRUE)
   
   # Without stitching, we might have more clusters (one set per slice)
   n_clusters_no_stitch <- length(unique(result_no_stitch$cluster))

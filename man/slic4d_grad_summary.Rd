@@ -13,7 +13,7 @@ slic4d_grad_summary(
 \arguments{
 \item{bvec}{A \code{NeuroVec} with dims (X, Y, Z, T).}
 
-\item{mask}{A 3D \code{NeuroVol} (or logical array) indicating voxels to include.}
+\item{mask}{A 3D \code{NeuroVol} indicating voxels to include.}
 
 \item{method}{One of "correlation", "intensity", "spatial".}
 }

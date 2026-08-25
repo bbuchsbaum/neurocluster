@@ -104,9 +104,10 @@ test_that("algorithm performance scales appropriately with data size", {
         vec,
         mask,
         r = min(12, ntime - 1),
-        min_size = max(10, nvox / 20),
+        min_size = as.integer(max(10, floor(nvox / 20))),
         compactness = 3,
-        num_runs = 1
+        num_runs = 1,
+        target_k_global = 3
       )
     )
     result <- bench$value
@@ -508,19 +509,25 @@ test_that("performance regression detection", {
   
   # Warm-up run for JIT compilation and caching
   gc()
-  warm_up_result <- slice_msf(vec, mask, r = 6, min_size = 8, compactness = 3, num_runs = 1)
+  warm_up_result <- slice_msf(
+    vec, mask, r = 6, min_size = 8, compactness = 3, num_runs = 1,
+    target_k_global = 4
+  )
   expect_true(!is.null(warm_up_result))
   
   # Baseline performance measurement
   times <- numeric(5)  # Multiple runs for stability
   
   for (run in 1:5) {
-    bench <- bench_expr(slice_msf(vec, mask, r = 6, min_size = 8, compactness = 3, num_runs = 1))
+    bench <- bench_expr(slice_msf(
+      vec, mask, r = 6, min_size = 8, compactness = 3, num_runs = 1,
+      target_k_global = 4
+    ))
     result <- bench$value
     times[run] <- bench$elapsed_sec
     
     expect_true(!is.null(result))
-    expect_true(length(unique(result$cluster)) > 1)
+    expect_equal(length(unique(result$cluster)), 4)
   }
   
   mean_time <- mean(times)

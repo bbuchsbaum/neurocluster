@@ -128,6 +128,8 @@ IntegerVector fused_assignment(IntegerMatrix nn_index,
 }
 
 // Parallel version of fused assignment
+namespace {
+
 struct FusedAssignmentWorker : public Worker {
   // Inputs
   const RMatrix<int> nn_index;
@@ -236,6 +238,8 @@ struct FusedAssignmentWorker : public Worker {
   }
 };
 
+} // namespace
+
 // [[Rcpp::export]]
 IntegerVector fused_assignment_parallel(IntegerMatrix nn_index,
                                        NumericMatrix nn_dist,
@@ -285,6 +289,8 @@ IntegerVector fused_assignment_parallel(IntegerMatrix nn_index,
 }
 
 // Parallel centroid computation
+namespace {
+
 struct CentroidWorker : public Worker {
   // Inputs
   const RVector<int> cluster_ids;
@@ -352,6 +358,8 @@ struct CentroidWorker : public Worker {
     }
   }
 };
+
+} // namespace
 
 // [[Rcpp::export]]
 List compute_centroids_parallel(IntegerVector cluster_ids,

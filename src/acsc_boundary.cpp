@@ -47,6 +47,8 @@ inline void normalize_vector(double* vec, int n) {
   }
 }
 
+namespace {
+
 // Dense centroid table for labels in [0, max_label].
 struct CentroidTable {
   int max_label;
@@ -198,6 +200,8 @@ struct BoundaryRefinementWorker : public Worker {
   }
 };
 
+} // namespace
+
 // =============================================================================
 // Exported Functions
 // =============================================================================
@@ -231,6 +235,30 @@ List refine_boundaries_cpp(
   if (neighbor_indices.nrow() != n_voxels) {
     stop("Number of rows in neighbor_indices must match number of voxels");
   }
+  if (n_time < 1) stop("feature_mat_normalized must have at least one column");
+  if (max_iter < 0) stop("max_iter must be >= 0");
+  for (R_xlen_t i = 0; i < feature_mat_normalized.size(); ++i) {
+    if (!R_FINITE(feature_mat_normalized[i])) {
+      stop("feature_mat_normalized must contain only finite values");
+    }
+  }
+  for (int i = 0; i < n_voxels; ++i) {
+    if (IntegerVector::is_na(voxel_labels[i]) || voxel_labels[i] < 1) {
+      stop("voxel_labels must contain positive non-missing integers");
+    }
+    for (int j = 0; j < neighbor_indices.ncol(); ++j) {
+      const int neighbor = neighbor_indices(i, j);
+      if (IntegerVector::is_na(neighbor) || neighbor < 0 || neighbor > n_voxels) {
+        stop("neighbor_indices must contain 0 or one-based voxel indices");
+      }
+    }
+  }
+  for (int i = 0; i < boundary_voxels.size(); ++i) {
+    if (IntegerVector::is_na(boundary_voxels[i]) ||
+        boundary_voxels[i] < 1 || boundary_voxels[i] > n_voxels) {
+      stop("boundary_voxels must contain valid one-based voxel indices");
+    }
+  }
 
   // Working copy of labels
   IntegerVector current_labels = clone(voxel_labels);
@@ -238,6 +266,25 @@ List refine_boundaries_cpp(
 
   // Iterative refinement
   for (int iter = 0; iter < max_iter; iter++) {
+    // Recompute the boundary after every synchronous label update. Reusing the
+    // initial boundary can miss voxels that become exposed in later passes.
+    std::vector<int> dynamic_boundary;
+    dynamic_boundary.reserve(static_cast<size_t>(n_voxels));
+    for (int i = 0; i < n_voxels; ++i) {
+      const int current_label = current_labels[i];
+      bool is_boundary = false;
+      for (int j = 0; j < neighbor_indices.ncol(); ++j) {
+        const int neighbor = neighbor_indices(i, j) - 1;
+        if (neighbor >= 0 && neighbor < n_voxels &&
+            current_labels[neighbor] != current_label) {
+          is_boundary = true;
+          break;
+        }
+      }
+      if (is_boundary) dynamic_boundary.push_back(i + 1);
+    }
+    if (dynamic_boundary.empty()) break;
+    IntegerVector active_boundary = wrap(dynamic_boundary);
     total_iterations++;
 
     // Compute centroids for current labeling (dense + stride-correct)
@@ -259,15 +306,16 @@ List refine_boundaries_cpp(
       feature_mat_normalized,
       current_labels,
       neighbor_indices,
-      boundary_voxels,
+      active_boundary,
       centroids,
       output_labels,
       changes_counter
     );
 
     // Parallelize over boundary voxels with grain size control
-    int grain_size = std::max(1, (int)boundary_voxels.length() / 100);
-    parallelFor(0, boundary_voxels.length(), worker, grain_size);
+    int grain_size = std::max(1, (int)active_boundary.length() / 100);
+    parallelFor(0, active_boundary.length(), worker, grain_size);
+    Rcpp::checkUserInterrupt();
 
     // Check convergence
     int n_changes = changes_counter.load();

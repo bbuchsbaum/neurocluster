@@ -8,6 +8,11 @@
 
 .mcl_col_normalize <- function(mat) {
   mat <- as(mat, "dgCMatrix")
+  if (nrow(mat) != ncol(mat) || any(!is.finite(mat@x)) ||
+      any(mat@x < 0)) {
+    stop(".mcl_col_normalize: mat must be square, finite, and non-negative",
+         call. = FALSE)
+  }
   cs <- Matrix::colSums(mat)
   nz <- cs > 0
   if (!all(nz)) {
@@ -28,6 +33,12 @@
   if (length(mat@x) > 0L) {
     mat@x <- mat@x * rep.int(inv, nnz_per_col)
   }
+  normalized_sums <- Matrix::colSums(mat)
+  if (any(!is.finite(mat@x)) || any(mat@x < 0) ||
+      any(abs(normalized_sums - 1) > 1e-12)) {
+    stop(".mcl_col_normalize: failed to produce stochastic columns",
+         call. = FALSE)
+  }
   mat
 }
 
@@ -39,19 +50,14 @@
     stop(".mcl_prune_sparse: max_per_col must be >= 1")
   }
 
-  min_keep <- if (is.finite(min_value) && min_value > 0) as.numeric(min_value) else -Inf
+  if (!is.numeric(min_value) || length(min_value) != 1L ||
+      !is.finite(min_value) || min_value < 0) {
+    stop(".mcl_prune_sparse: min_value must be finite and non-negative")
+  }
+  min_keep <- if (min_value > 0) as.numeric(min_value) else -Inf
 
   if (!exists("mcl_prune_sparse_cpp", mode = "function")) {
     # Conservative fallback if C++ symbol is unavailable.
-    if (is.finite(min_value) && min_value > 0) {
-      mat <- Matrix::drop0(mat, tol = min_value)
-      if (length(mat@x) == 0L) return(mat)
-    }
-    nnz_per_col <- diff(mat@p)
-    if (all(nnz_per_col <= max_per_col)) {
-      return(mat)
-    }
-
     n <- ncol(mat)
     p <- mat@p
     i <- mat@i
@@ -65,7 +71,16 @@
       if (start > end) next
 
       idx <- start:end
-      if ((end - start + 1L) > max_per_col) {
+      above <- x[idx] >= min_keep
+      if (any(above)) {
+        idx <- idx[above]
+      } else {
+        # Preserve the strongest entry so pruning never creates an empty flow
+        # column that would have to be replaced by an invented self-loop.
+        vals <- x[idx]
+        idx <- idx[order(-vals, i[idx], method = "radix")[1L]]
+      }
+      if (length(idx) > max_per_col) {
         vals <- x[idx]
         top <- order(vals, decreasing = TRUE, method = "radix")[seq_len(max_per_col)]
         idx <- idx[top]
@@ -111,32 +126,71 @@
   )
 }
 
-.mcl_labels_from_flow <- function(flow) {
+.mcl_attractors_from_flow <- function(flow) {
   flow <- as(flow, "dgCMatrix")
+  if (nrow(flow) != ncol(flow) || any(!is.finite(flow@x)) ||
+      any(flow@x < 0)) {
+    stop(".mcl_attractors_from_flow: flow must be square, finite, and non-negative",
+         call. = FALSE)
+  }
   n <- ncol(flow)
 
   p <- flow@p
   rows <- flow@i
   vals <- flow@x
 
-  attractor <- integer(n)
+  next_node <- integer(n)
 
   for (col in seq_len(n)) {
     start <- p[col] + 1L
     end <- p[col + 1L]
     if (start > end) {
-      attractor[col] <- col
+      next_node[col] <- col
       next
     }
 
     idx <- start:end
     best <- which.max(vals[idx])
-    attractor[col] <- rows[idx][best] + 1L
+    next_node[col] <- rows[idx][best] + 1L
   }
 
-  uniq <- sort(unique(attractor))
-  labels <- match(attractor, uniq)
-  as.integer(labels)
+  # Resolve the functional graph to canonical cycle representatives.  This
+  # makes the returned map idempotent even when raw column argmaxes form chains
+  # such as 1 -> 2 -> 3.
+  attractor <- integer(n)
+  for (start_node in seq_len(n)) {
+    if (attractor[start_node] != 0L) next
+    path <- integer()
+    position <- integer(n)
+    node <- start_node
+    while (attractor[node] == 0L && position[node] == 0L) {
+      position[node] <- length(path) + 1L
+      path <- c(path, node)
+      node <- next_node[node]
+    }
+
+    if (attractor[node] != 0L) {
+      root <- attractor[node]
+    } else {
+      cycle <- path[position[node]:length(path)]
+      diagonal <- flow[cbind(cycle, cycle)]
+      root <- cycle[order(-diagonal, cycle)[1L]]
+      attractor[cycle] <- root
+      attractor[root] <- root
+    }
+    attractor[path] <- root
+  }
+
+  if (!identical(attractor[attractor], attractor)) {
+    stop(".mcl_attractors_from_flow: canonical map is not idempotent",
+         call. = FALSE)
+  }
+  as.integer(attractor)
+}
+
+.mcl_labels_from_flow <- function(flow) {
+  attractor <- .mcl_attractors_from_flow(flow)
+  as.integer(match(attractor, sort(unique(attractor))))
 }
 
 .mcl_row_zscore <- function(x) {
@@ -215,8 +269,8 @@
                                       verbose = FALSE) {
   feature_metric <- match.arg(feature_metric)
 
-  if (!connectivity %in% c(6L, 18L, 26L, 27L)) {
-    stop("cluster4d_mcl: connectivity must be one of 6, 18, 26, or 27")
+  if (!connectivity %in% c(6L, 18L, 26L)) {
+    stop("cluster4d_mcl: connectivity must be one of 6, 18, or 26")
   }
 
   adj <- build_grid_adjacency(mask, mask_idx, connectivity)
@@ -225,10 +279,6 @@
   keep <- adj_sum$i < adj_sum$j
   edge_i <- adj_sum$i[keep]
   edge_j <- adj_sum$j[keep]
-
-  if (length(edge_i) == 0L) {
-    stop("cluster4d_mcl: no edges found in the masked grid graph")
-  }
 
   if (verbose) {
     message("cluster4d_mcl: computing edge similarities for ", length(edge_i), " edges")
@@ -267,6 +317,46 @@
   )
 }
 
+.mcl_validate_stochastic <- function(flow, context = ".mcl_sparse") {
+  flow <- as(flow, "dgCMatrix")
+  if (nrow(flow) != ncol(flow) || any(!is.finite(flow@x)) ||
+      any(flow@x < 0)) {
+    stop(context, ": flow must be square, finite, and non-negative",
+         call. = FALSE)
+  }
+  sums <- Matrix::colSums(flow)
+  error <- max(abs(sums - 1), 0)
+  if (!is.finite(error) || error > 1e-10) {
+    stop(context, ": flow columns are not normalized", call. = FALSE)
+  }
+  invisible(error)
+}
+
+
+.mcl_step <- function(flow, inflation, expansion, prune_k,
+                      prune_threshold) {
+  .mcl_validate_stochastic(flow, ".mcl_step input")
+  expanded <- flow
+  for (power in seq_len(expansion - 1L)) {
+    expanded <- expanded %*% flow
+  }
+  expanded <- as(expanded, "dgCMatrix")
+  if (any(!is.finite(expanded@x)) || any(expanded@x < 0)) {
+    stop(".mcl_step: expansion produced invalid flow", call. = FALSE)
+  }
+  if (length(expanded@x) > 0L) {
+    expanded@x <- expanded@x ^ inflation
+  }
+  next_flow <- .mcl_col_normalize(expanded)
+  next_flow <- .mcl_prune_sparse(
+    next_flow, max_per_col = prune_k, min_value = prune_threshold
+  )
+  next_flow <- .mcl_col_normalize(next_flow)
+  .mcl_validate_stochastic(next_flow, ".mcl_step output")
+  next_flow
+}
+
+
 .mcl_sparse <- function(graph,
                         inflation = 2.0,
                         expansion = 2L,
@@ -275,64 +365,126 @@
                         prune_k = 128L,
                         prune_threshold = 1e-6,
                         loop_weight = 1,
-                        verbose = FALSE) {
+                        verbose = FALSE,
+                        trace = FALSE) {
+  graph <- as(graph, "dgCMatrix")
+  if (nrow(graph) < 1L || nrow(graph) != ncol(graph) ||
+      any(!is.finite(graph@x)) || any(graph@x < 0)) {
+    stop("cluster4d_mcl: graph must be non-empty, square, finite, and non-negative",
+         call. = FALSE)
+  }
+  inflation <- .cluster4d_scalar_number(
+    inflation, "inflation", "cluster4d_mcl"
+  )
   if (inflation <= 1) {
-    stop("cluster4d_mcl: inflation must be > 1")
+    stop("cluster4d_mcl: inflation must be greater than 1", call. = FALSE)
   }
-
-  if (expansion < 2L) {
-    expansion <- 2L
+  expansion <- .cluster4d_scalar_number(
+    expansion, "expansion", "cluster4d_mcl", lower = 2, integer = TRUE
+  )
+  max_iter <- .cluster4d_scalar_number(
+    max_iter, "max_iter", "cluster4d_mcl", lower = 1, integer = TRUE
+  )
+  tol <- .cluster4d_scalar_number(
+    tol, "tol", "cluster4d_mcl", lower = 0
+  )
+  if (tol <= 0) stop("cluster4d_mcl: tol must be positive", call. = FALSE)
+  prune_k <- .cluster4d_scalar_number(
+    prune_k, "prune_k", "cluster4d_mcl", lower = 1, integer = TRUE
+  )
+  prune_threshold <- .cluster4d_scalar_number(
+    prune_threshold, "prune_threshold", "cluster4d_mcl", lower = 0,
+    upper = 1
+  )
+  if (prune_threshold >= 1) {
+    stop("cluster4d_mcl: prune_threshold must be less than 1", call. = FALSE)
   }
+  loop_weight <- .cluster4d_scalar_number(
+    loop_weight, "loop_weight", "cluster4d_mcl", lower = 0
+  )
+  verbose <- .cluster4d_scalar_logical(verbose, "verbose", "cluster4d_mcl")
+  trace <- .cluster4d_scalar_logical(trace, "trace", "cluster4d_mcl")
 
   n <- nrow(graph)
   flow <- graph + Matrix::Diagonal(n = n, x = rep(loop_weight, n))
   flow <- .mcl_col_normalize(flow)
+  .mcl_validate_stochastic(flow, "cluster4d_mcl initial flow")
 
   converged <- FALSE
   iter <- 0L
+  max_delta <- Inf
+  nnz_history <- as.integer(length(flow@x))
+  flow_trace <- if (trace) list(flow) else list()
 
   for (it in seq_len(max_iter)) {
     iter <- it
     prev <- flow
-
-    expanded <- flow
-    if (expansion > 1L) {
-      for (k in seq_len(expansion - 1L)) {
-        expanded <- expanded %*% flow
-      }
-    }
-
-    expanded <- Matrix::drop0(as(expanded, "dgCMatrix"), tol = prune_threshold)
-
-    if (length(expanded@x) > 0L) {
-      expanded@x <- expanded@x ^ inflation
-    }
-
-    flow <- .mcl_col_normalize(expanded)
-    flow <- .mcl_prune_sparse(flow, max_per_col = prune_k, min_value = prune_threshold)
-    flow <- .mcl_col_normalize(flow)
-
+    flow <- .mcl_step(
+      prev, inflation, expansion, prune_k, prune_threshold
+    )
     delta <- flow - prev
     max_delta <- if (length(delta@x) == 0L) 0 else max(abs(delta@x))
+    nnz_history <- c(nnz_history, as.integer(length(flow@x)))
+    if (trace) flow_trace[[length(flow_trace) + 1L]] <- flow
 
     if (verbose) {
-      message(sprintf("cluster4d_mcl: iter=%d max_delta=%.3e nnz=%d", it, max_delta, length(flow@x)))
+      message(sprintf(
+        "cluster4d_mcl: iter=%d max_delta=%.3e nnz=%d",
+        it, max_delta, length(flow@x)
+      ))
     }
-
     if (max_delta < tol) {
       converged <- TRUE
       break
     }
   }
 
-  labels <- .mcl_labels_from_flow(flow)
+  attractors <- .mcl_attractors_from_flow(flow)
+  labels <- as.integer(match(attractors, sort(unique(attractors))))
 
   list(
     labels = labels,
+    attractors = attractors,
     flow = flow,
     converged = converged,
-    iterations = iter
+    iterations = iter,
+    max_delta = max_delta,
+    nnz_history = nnz_history,
+    trace = flow_trace
   )
+}
+
+
+.mcl_inflation_candidates <- function(inflation) {
+  candidates <- inflation * c(0.75, 0.9, 1, 1.25, 1.6)
+  candidates <- pmax(candidates, 1 + 1e-6)
+  sort(unique(as.numeric(candidates)))
+}
+
+
+.mcl_targeted_sparse <- function(graph, target_k, inflation, ...) {
+  candidates <- .mcl_inflation_candidates(inflation)
+  fits <- lapply(candidates, function(value) {
+    .mcl_sparse(graph, inflation = value, ...)
+  })
+  achieved <- vapply(fits, function(fit) max(fit$labels), integer(1))
+  converged <- vapply(fits, `[[`, logical(1), "converged")
+  selected <- order(
+    abs(achieved - target_k),
+    !converged,
+    abs(log(candidates / inflation)),
+    candidates
+  )[1L]
+  fit <- fits[[selected]]
+  fit$target_search <- data.frame(
+    inflation = candidates,
+    achieved_k = achieved,
+    converged = converged,
+    iterations = vapply(fits, `[[`, integer(1), "iterations"),
+    nnz_final = vapply(fits, function(x) length(x$flow@x), integer(1))
+  )
+  fit$selected_inflation <- candidates[selected]
+  fit
 }
 
 #' Cluster4d using sparse Markov Clustering (MCL)
@@ -340,27 +492,43 @@
 #' Builds a sparse voxel graph, runs an MCL flow process, and maps attractors to
 #' cluster labels. The implementation is optimized for sparse neuroimaging graphs.
 #'
-#' @inheritParams cluster4d
-#' @param inflation MCL inflation parameter (>1). Higher values produce finer clusters.
+#' @param vec A NeuroVec, SparseNeuroVec, or NeuroVol containing the features.
+#' @param mask A NeuroVol mask; finite values strictly greater than zero are included.
+#' @param n_clusters Requested cluster count. With `exact_k = FALSE`, this is
+#'   the target used to select the closest natural MCL partition across a fixed,
+#'   deterministic inflation search. With `exact_k = TRUE`, it is an exact
+#'   adjacency-preserving postcondition.
+#' @param spatial_weight Convex weight from zero through one for physical edge similarity.
+#' @param max_iterations Positive MCL iteration limit for each inflation candidate.
+#' @param connectivity Exact masked grid connectivity: 6, 18, or 26.
+#' @param verbose Logical; report iteration diagnostics.
+#' @param inflation Nominal MCL inflation parameter (>1). In natural target mode,
+#'   the deterministic search evaluates this value and fixed multipliers around it.
 #' @param expansion MCL expansion power (integer >= 2). Default 2.
-#' @param loop_weight Self-loop weight added before normalization.
+#' @param loop_weight Finite non-negative self-loop weight added before normalization.
 #' @param prune_k Maximum nonzero entries kept per column during MCL iterations.
-#'   Smaller values increase speed and reduce memory.
-#' @param prune_threshold Minimum value retained during pruning.
-#' @param tol Convergence tolerance on max absolute matrix delta.
+#'   Must be a positive integer; the default is 64 and is independent of the target K.
+#' @param prune_threshold Finite threshold in [0, 1). The strongest entry in
+#'   every column is retained even when all entries fall below the threshold.
+#' @param tol Positive convergence tolerance on maximum absolute matrix delta.
 #' @param feature_metric Feature similarity metric: `"correlation"` or `"euclidean"`.
 #' @param feature_sigma Optional bandwidth for euclidean heat-kernel feature similarity.
 #' @param spatial_sigma Optional bandwidth for spatial heat-kernel similarity.
-#' @param exact_k If TRUE, force exactly `n_clusters` using `force_exact_k()` post-processing.
-#' @param ... Reserved for future options.
+#' @param exact_k If TRUE, use the shared adjacency-preserving exact-K engine.
 #'
-#' @return A `cluster4d_result` object.
+#' @return A `cluster4d_result`. Metadata records natural and final K,
+#'   convergence, selected inflation, candidate search results, flow sparsity,
+#'   final normalization error, and exact-K policy.
+#' @details Every expansion, inflation, and pruning step is checked to remain
+#'   finite, non-negative, and column stochastic. The `parallel` argument was
+#'   removed because this sparse Matrix implementation has no parallel backend.
+#'   Supplying it is therefore an ordinary unused-argument error rather than a
+#'   silently sequential execution.
 #' @export
 cluster4d_mcl <- function(vec, mask, n_clusters = 100,
                           spatial_weight = 0.2,
                           max_iterations = 8,
                           connectivity = 6,
-                          parallel = TRUE,
                           verbose = FALSE,
                           inflation = 1.6,
                           expansion = 2L,
@@ -371,8 +539,7 @@ cluster4d_mcl <- function(vec, mask, n_clusters = 100,
                           feature_metric = c("correlation", "euclidean"),
                           feature_sigma = NULL,
                           spatial_sigma = NULL,
-                          exact_k = FALSE,
-                          ...) {
+                          exact_k = FALSE) {
 
   validate_cluster4d_inputs(vec, mask, n_clusters, "cluster4d_mcl")
 
@@ -382,6 +549,50 @@ cluster4d_mcl <- function(vec, mask, n_clusters = 100,
   }
 
   feature_metric <- match.arg(feature_metric)
+  exact_k <- .cluster4d_scalar_logical(
+    exact_k, "exact_k", "cluster4d_mcl"
+  )
+  inflation <- .cluster4d_scalar_number(
+    inflation, "inflation", "cluster4d_mcl"
+  )
+  if (inflation <= 1) {
+    stop("cluster4d_mcl: inflation must be greater than 1", call. = FALSE)
+  }
+  expansion <- .cluster4d_scalar_number(
+    expansion, "expansion", "cluster4d_mcl", lower = 2, integer = TRUE
+  )
+  loop_weight <- .cluster4d_scalar_number(
+    loop_weight, "loop_weight", "cluster4d_mcl", lower = 0
+  )
+  prune_threshold <- .cluster4d_scalar_number(
+    prune_threshold, "prune_threshold", "cluster4d_mcl",
+    lower = 0, upper = 1
+  )
+  if (prune_threshold >= 1) {
+    stop("cluster4d_mcl: prune_threshold must be less than 1", call. = FALSE)
+  }
+  tol <- .cluster4d_scalar_number(
+    tol, "tol", "cluster4d_mcl", lower = 0
+  )
+  if (tol <= 0) stop("cluster4d_mcl: tol must be positive", call. = FALSE)
+  max_iterations <- .cluster4d_scalar_number(
+    max_iterations, "max_iterations", "cluster4d_mcl",
+    lower = 1, integer = TRUE
+  )
+  connectivity <- .cluster4d_scalar_number(
+    connectivity, "connectivity", "cluster4d_mcl", integer = TRUE
+  )
+  if (!connectivity %in% c(6L, 18L, 26L)) {
+    stop("cluster4d_mcl: connectivity must be 6, 18, or 26", call. = FALSE)
+  }
+  for (entry in c("feature_sigma", "spatial_sigma")) {
+    value <- get(entry)
+    if (!is.null(value) && (!is.numeric(value) || length(value) != 1L ||
+        !is.finite(value) || value <= 0)) {
+      stop("cluster4d_mcl: ", entry,
+           " must be NULL or a positive finite scalar", call. = FALSE)
+    }
+  }
 
   data_prep <- prepare_cluster4d_data(
     vec = vec,
@@ -391,15 +602,11 @@ cluster4d_mcl <- function(vec, mask, n_clusters = 100,
   )
 
   if (is.null(prune_k)) {
-    # Keep a conservative cap per column for speed; larger values rarely help
-    # in these sparse voxel graphs and can significantly increase runtime.
-    prune_k <- as.integer(max(16, min(64, n_clusters)))
+    prune_k <- 64L
   } else {
-    prune_k <- as.integer(prune_k)
-  }
-
-  if (prune_k < 8L) {
-    prune_k <- 8L
+    prune_k <- .cluster4d_scalar_number(
+      prune_k, "prune_k", "cluster4d_mcl", lower = 1, integer = TRUE
+    )
   }
 
   graph <- .mcl_build_weighted_graph(
@@ -416,22 +623,33 @@ cluster4d_mcl <- function(vec, mask, n_clusters = 100,
     verbose = verbose
   )
 
-  mcl_fit <- .mcl_sparse(
+  fit_args <- list(
     graph = graph,
-    inflation = inflation,
-    expansion = as.integer(expansion),
-    max_iter = as.integer(max_iterations),
+    expansion = expansion,
+    max_iter = max_iterations,
     tol = tol,
     prune_k = prune_k,
     prune_threshold = prune_threshold,
     loop_weight = loop_weight,
     verbose = verbose
   )
+  mcl_fit <- if (exact_k) {
+    do.call(.mcl_sparse, c(fit_args, list(inflation = inflation)))
+  } else {
+    do.call(.mcl_targeted_sparse, c(
+      fit_args,
+      list(target_k = as.integer(n_clusters), inflation = inflation)
+    ))
+  }
 
   labels <- mcl_fit$labels
+  natural_k <- as.integer(max(labels))
 
   if (exact_k) {
-    labels <- force_exact_k(labels, data_prep$features, n_clusters)
+    labels <- force_exact_k(
+      labels, data_prep$features, n_clusters,
+      mask = mask, connectivity = connectivity
+    )
   }
 
   result <- create_cluster4d_result(
@@ -444,7 +662,6 @@ cluster4d_mcl <- function(vec, mask, n_clusters = 100,
       spatial_weight = spatial_weight,
       max_iterations = as.integer(max_iterations),
       connectivity = as.integer(connectivity),
-      parallel = isTRUE(parallel),
       inflation = inflation,
       expansion = as.integer(expansion),
       loop_weight = loop_weight,
@@ -454,16 +671,31 @@ cluster4d_mcl <- function(vec, mask, n_clusters = 100,
       feature_metric = feature_metric,
       feature_sigma = feature_sigma,
       spatial_sigma = spatial_sigma,
-      exact_k = isTRUE(exact_k)
+      exact_k = exact_k
     ),
     metadata = list(
       converged = mcl_fit$converged,
       iterations = mcl_fit$iterations,
-      nnz_final = length(mcl_fit$flow@x)
+      max_delta = mcl_fit$max_delta,
+      nnz_history = mcl_fit$nnz_history,
+      nnz_final = length(mcl_fit$flow@x),
+      flow_column_error = max(
+        abs(Matrix::colSums(mcl_fit$flow) - 1), 0
+      ),
+      natural_k = natural_k,
+      achieved_k = as.integer(max(labels)),
+      selected_inflation = if (exact_k) inflation else mcl_fit$selected_inflation,
+      target_search = if (exact_k) NULL else mcl_fit$target_search,
+      target_policy = if (exact_k) {
+        "adjacency_preserving_exact_k"
+      } else {
+        "closest_natural_k_over_deterministic_inflation_grid"
+      },
+      exact_k_applied = exact_k
     ),
     compute_centers = TRUE,
     center_method = "mean"
   )
 
-  result
+  finalize_cluster4d_result(result, vec, mask, "mcl", result$parameters)
 }

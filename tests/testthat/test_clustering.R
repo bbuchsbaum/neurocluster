@@ -2,7 +2,6 @@
 library(testthat)
 library(neurocluster)
 library(neuroim2)
-library(purrr)
 library(assertthat)
 
 # Create simulated data instead of reading files
@@ -70,4 +69,3 @@ test_that("can run commute_cluster", {
   expect_s3_class(cres, "cluster_result")
   expect_s4_class(cres$clusvol, "ClusteredNeuroVol")
 })
-

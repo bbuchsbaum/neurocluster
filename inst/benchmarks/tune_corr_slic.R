@@ -4,7 +4,6 @@
 #   Rscript inst/benchmarks/tune_corr_slic.R
 #
 # Optional env vars:
-#   NEUROCLUSTER_BENCH_THREADS=4
 #   NEUROCLUSTER_TUNE_REPS=1
 #   NEUROCLUSTER_TUNE_FAST=1
 
@@ -18,16 +17,23 @@ suppressPackageStartupMessages({
 
 set.seed(123)
 
-bench_threads <- suppressWarnings(as.integer(Sys.getenv("NEUROCLUSTER_BENCH_THREADS", "4")))
-if (is.na(bench_threads) || bench_threads < 1L) bench_threads <- 4L
 bench_reps <- suppressWarnings(as.integer(Sys.getenv("NEUROCLUSTER_TUNE_REPS", "1")))
 if (is.na(bench_reps) || bench_reps < 1L) bench_reps <- 1L
 tune_fast <- identical(Sys.getenv("NEUROCLUSTER_TUNE_FAST", "1"), "1")
 score_lambda <- suppressWarnings(as.numeric(Sys.getenv("NEUROCLUSTER_TUNE_LAMBDA", "0.15")))
 if (!is.finite(score_lambda) || score_lambda < 0) score_lambda <- 0.15
 
-Sys.setenv(OMP_NUM_THREADS = as.character(bench_threads))
-Sys.setenv(RCPP_PARALLEL_NUM_THREADS = as.character(bench_threads))
+score_observed_truth <- function(predicted, truth) {
+  if (length(predicted) != length(truth)) {
+    stop("predicted and truth labels must have the same length")
+  }
+  observed <- !is.na(truth)
+  if (!any(observed)) stop("truth contains no observed labels")
+  if (anyNA(predicted[observed])) {
+    stop("predicted labels are missing where truth is observed")
+  }
+  clustering_accuracy(predicted[observed], truth[observed])
+}
 
 dataset_specs <- list(
   blobs_small = function() {
@@ -154,12 +160,11 @@ run_one <- function(syn, p) {
     refine_exact_iters = as.integer(p$refine_exact_iters),
     refine_boundary_only = isTRUE(p$refine_boundary_only),
     refine_stride = as.integer(p$refine_stride),
-    parallel = (bench_threads != 1L),
     verbose = FALSE,
     seed = 7L
   )
   elapsed <- proc.time()[["elapsed"]] - t0
-  acc <- clustering_accuracy(res$cluster, syn$truth)
+  acc <- score_observed_truth(res$cluster, syn$truth)
   list(
     elapsed_sec = elapsed,
     ari = acc$ari,

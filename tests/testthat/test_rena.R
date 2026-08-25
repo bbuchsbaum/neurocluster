@@ -166,7 +166,7 @@ test_that("rena validates inputs properly", {
   empty_mask <- NeuroVol(array(0, c(5,5,5)), NeuroSpace(c(5,5,5)))
   expect_error(
     rena(vec, empty_mask, K=10),
-    "No nonzero voxels in mask"
+    "mask contains no finite positive voxels"
   )
 })
 
@@ -224,11 +224,15 @@ test_that("rena centers are computed correctly", {
   expect_equal(nrow(result$centers), result$n_clusters)
   expect_equal(ncol(result$centers), 10)  # 10 timepoints
 
-  # Coordinate centers should be in valid range
-  dims <- dim(mask)
-  expect_true(all(result$coord_centers[,1] >= 1 & result$coord_centers[,1] <= dims[1]))
-  expect_true(all(result$coord_centers[,2] >= 1 & result$coord_centers[,2] <= dims[2]))
-  expect_true(all(result$coord_centers[,3] >= 1 & result$coord_centers[,3] <= dims[3]))
+  # Coordinate centers should be in the physical-coordinate bounds.
+  coords <- index_to_coord(mask, which(mask > 0))
+  bounds <- apply(coords, 2, range)
+  expect_true(all(result$coord_centers[, 1] >= bounds[1, 1] &
+                  result$coord_centers[, 1] <= bounds[2, 1]))
+  expect_true(all(result$coord_centers[, 2] >= bounds[1, 2] &
+                  result$coord_centers[, 2] <= bounds[2, 2]))
+  expect_true(all(result$coord_centers[, 3] >= bounds[1, 3] &
+                  result$coord_centers[, 3] <= bounds[2, 3]))
 
   # No NA values
   expect_true(all(!is.na(result$centers)))

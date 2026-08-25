@@ -11,7 +11,7 @@ cluster4d_corrslic(
   spatial_weight = 0.5,
   max_iterations = 6,
   connectivity = 6,
-  parallel = TRUE,
+  parallel = FALSE,
   verbose = FALSE,
   embedding_dim = 64L,
   adaptive_embedding = FALSE,
@@ -34,31 +34,43 @@ cluster4d_corrslic(
 \item{vec}{A \code{NeuroVec} instance supplying the 4D data (x, y, z, time) to cluster}
 
 \item{mask}{A \code{NeuroVol} mask defining the voxels to include in clustering.
-If numeric, nonzero values define included voxels. If logical, TRUE values
-define included voxels.}
+Values must be finite. Voxels are included exactly when the mask value is
+strictly greater than zero; zero and negative values are excluded.}
 
-\item{n_clusters}{Target number of clusters (default 100). Note that some methods
+\item{n_clusters}{Finite integer target number of clusters (default 100), from
+one through the number of included mask voxels. Note that some methods
 may produce slightly different numbers of clusters due to algorithmic constraints.}
 
 \item{spatial_weight}{Balance between spatial and feature similarity (0-1).
-Higher values emphasize spatial compactness. Default 0.5.
+Both endpoints are supported: 0 disables the spatial term and 1 disables
+the feature term. Higher values emphasize spatial compactness. Default 0.5.
+This parameter is inactive for \code{"rena"} and \code{"rena_plus"};
+supplying it explicitly for either method is an error.
 Maps to method-specific parameters:
 \itemize{
 \item supervoxels: \code{alpha = 1 - spatial_weight} (0 = all spatial, 1 = all feature)
-\item snic/slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
+\item snic: \code{compactness = spatial_weight * 10} (range 0-10)
+\item slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
+\item corr_slic/brs_slic: direct convex blend between correlation and
+scaled spatial distance
 \item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
 \item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
 \item mcl: direct blend between feature and spatial edge similarities
 }}
 
-\item{max_iterations}{Maximum iterations for iterative methods. Default 10.
-Maps to: \code{iterations} (supervoxels), \code{max_iter} (snic/slic),
-\code{rounds} (flash3d).}
+\item{max_iterations}{Positive finite integer iteration limit for iterative
+methods. It is inactive for \code{"snic"}, \code{"slice_msf"}, and
+\code{"commute"}; supplying it explicitly for those methods is an error.}
 
-\item{connectivity}{Neighborhood connectivity (6 or 26). Default 26.
-6 = face neighbors only, 26 = face + edge + corner neighbors.}
+\item{connectivity}{Integer neighborhood connectivity. Supported values are
+method-specific: supervoxels accepts 6, 18, 26, or 27; slic, corr_slic,
+brs_slic, and slice_msf accept 6 or 26; G3S, ReNA variants, and MCL accept
+6, 18, or 26. It is inactive for snic, flash3d, acsc, and commute.}
 
-\item{parallel}{Enable parallel processing where supported. Default TRUE.}
+\item{parallel}{Enable parallel processing for supervoxels and slic. For all
+other methods, an explicit \code{TRUE} is rejected; omitted or
+\code{FALSE} selects the serial implementation. Default TRUE for supported
+methods.}
 
 \item{verbose}{Print progress messages. Default FALSE.}
 
@@ -75,7 +87,8 @@ data size and time length.}
 
 \item{sketch_repeats}{Number of independent hash sketches combined per voxel.}
 
-\item{alpha}{Compactness weight in the SLIC distance.}
+\item{alpha}{Optional backward-compatible alias for the spatial blend weight.
+It must be in \verb{[0, 1]}: 0 is correlation-only and 1 is spatial-only.}
 
 \item{assign_stride}{Assignment subsampling stride for coarse updates.
 1 disables subsampling; values > 1 process one z-slice phase per iteration
@@ -94,8 +107,8 @@ to boundary voxels each pass.}
 Values > 1 speed up refinement by computing correlations on every
 \code{refine_stride}-th time point (approximate).}
 
-\item{refine_alpha}{Optional compactness for exact refinement. If \code{NULL},
-uses \code{alpha}.}
+\item{refine_alpha}{Optional spatial blend weight for exact refinement. If
+\code{NULL}, uses \code{alpha}; both endpoints are supported.}
 
 \item{seed}{Random seed for embedding hash and seed initialization.}
 
@@ -109,4 +122,14 @@ A cluster4d_result object
 \description{
 Wrapper for a correlation-first SLIC variant that builds a compact random
 projection embedding of voxel time series, then runs local 3D SLIC updates.
+}
+\details{
+\code{spatial_weight} (or its alias \code{alpha}) is a convex blend:
+\code{(1 - w) * correlation_distance + w * scaled_spatial_distance}.
+Coarse correlation is approximated by a hash or DCT sketch. Assignment may
+additionally use int8 quantization or z-plane subsampling; exact refinement
+may use a temporal stride. These choices and their stage are recorded under
+\code{metadata$approximation}. The public \code{centers} are always recomputed from the
+final labels in the original time-series space; sketch centers are separately
+typed metadata and are never substituted for them.
 }

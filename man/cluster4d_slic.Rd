@@ -22,35 +22,50 @@ cluster4d_slic(
 \item{vec}{A \code{NeuroVec} instance supplying the 4D data (x, y, z, time) to cluster}
 
 \item{mask}{A \code{NeuroVol} mask defining the voxels to include in clustering.
-If numeric, nonzero values define included voxels. If logical, TRUE values
-define included voxels.}
+Values must be finite. Voxels are included exactly when the mask value is
+strictly greater than zero; zero and negative values are excluded.}
 
-\item{n_clusters}{Target number of clusters (default 100). Note that some methods
+\item{n_clusters}{Finite integer target number of clusters (default 100), from
+one through the number of included mask voxels. Note that some methods
 may produce slightly different numbers of clusters due to algorithmic constraints.}
 
 \item{spatial_weight}{Balance between spatial and feature similarity (0-1).
-Higher values emphasize spatial compactness. Default 0.5.
+Both endpoints are supported: 0 disables the spatial term and 1 disables
+the feature term. Higher values emphasize spatial compactness. Default 0.5.
+This parameter is inactive for \code{"rena"} and \code{"rena_plus"};
+supplying it explicitly for either method is an error.
 Maps to method-specific parameters:
 \itemize{
 \item supervoxels: \code{alpha = 1 - spatial_weight} (0 = all spatial, 1 = all feature)
-\item snic/slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
+\item snic: \code{compactness = spatial_weight * 10} (range 0-10)
+\item slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
+\item corr_slic/brs_slic: direct convex blend between correlation and
+scaled spatial distance
 \item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
 \item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
 \item mcl: direct blend between feature and spatial edge similarities
 }}
 
-\item{max_iterations}{Maximum iterations for iterative methods. Default 10.
-Maps to: \code{iterations} (supervoxels), \code{max_iter} (snic/slic),
-\code{rounds} (flash3d).}
+\item{max_iterations}{Positive finite integer iteration limit for iterative
+methods. It is inactive for \code{"snic"}, \code{"slice_msf"}, and
+\code{"commute"}; supplying it explicitly for those methods is an error.}
 
-\item{connectivity}{Neighborhood connectivity (6 or 26). Default 26.
-6 = face neighbors only, 26 = face + edge + corner neighbors.}
+\item{connectivity}{Integer neighborhood connectivity. Supported values are
+method-specific: supervoxels accepts 6, 18, 26, or 27; slic, corr_slic,
+brs_slic, and slice_msf accept 6 or 26; G3S, ReNA variants, and MCL accept
+6, 18, or 26. It is inactive for snic, flash3d, acsc, and commute.}
 
-\item{parallel}{Enable parallel processing where supported. Default TRUE.}
+\item{parallel}{Enable parallel processing for supervoxels and slic. For all
+other methods, an explicit \code{TRUE} is rejected; omitted or
+\code{FALSE} selects the serial implementation. Default TRUE for supported
+methods.}
 
 \item{verbose}{Print progress messages. Default FALSE.}
 
-\item{preserve_k}{Ensure exactly K clusters}
+\item{preserve_k}{Request exactly K connected clusters. Exact K is feasible
+only when K is at least the number of connected mask components; below
+that topological minimum, connectivity takes precedence and the minimum
+feasible cluster count is returned with a warning.}
 
 \item{seed_relocate}{Seed relocation method}
 

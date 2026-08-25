@@ -6,6 +6,7 @@
   #include <omp.h>
 #endif
 #include <queue>
+#include <set>
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
@@ -178,6 +179,8 @@ arma::sp_mat build_grid_adjacency_cpp(const IntegerVector &mask_idx,
   return G;
 }
 
+namespace {
+
 struct UnionFind {
   std::vector<int> parent;
   std::vector<int> rank;
@@ -203,6 +206,8 @@ struct UnionFind {
     if (rank[x] == rank[y]) rank[x]++;
   }
 };
+
+} // namespace
 
 // ---------- single RNN step (internal) -------------------------------------
 
@@ -303,6 +308,29 @@ List rena_rnn_coarse_cpp(const arma::mat &X,
   int p_orig = X.n_rows;
   int n = X.n_cols;
 
+  if (p_orig < 1 || n < 1 || !X.is_finite()) {
+    stop("X must be a non-empty finite matrix");
+  }
+  if ((int)G.n_rows != p_orig || (int)G.n_cols != p_orig) {
+    stop("G must be square with one row per observation");
+  }
+  for (sp_mat::const_iterator it = G.begin(); it != G.end(); ++it) {
+    if (!std::isfinite(*it) || *it < 0.0) {
+      stop("G values must be finite and non-negative");
+    }
+  }
+  if (stop_at < 1 || stop_at > p_orig) stop("stop_at out of range");
+  if (max_iter < 1) stop("max_iter must be positive");
+  if (!std::isfinite(lambda) || lambda < 0.0) {
+    stop("lambda must be finite and non-negative");
+  }
+  if (grad_img.size() != 0 && grad_img.size() != p_orig) {
+    stop("grad_img must be empty or have one value per observation");
+  }
+  for (R_xlen_t i = 0; i < grad_img.size(); ++i) {
+    if (!std::isfinite(grad_img[i])) stop("grad_img values must be finite");
+  }
+
   mat X_curr = X;
   sp_mat G_curr = G;
   vec grad_curr;
@@ -320,6 +348,7 @@ List rena_rnn_coarse_cpp(const arma::mat &X,
   vec weights_curr(X_curr.n_rows, fill::ones);
 
   int iter = 0;
+  bool stopped_before_overshoot = false;
 
   while ((int)X_curr.n_rows > stop_at && iter < max_iter) {
     ++iter;
@@ -337,6 +366,13 @@ List rena_rnn_coarse_cpp(const arma::mat &X,
     int q = 0;
     for (int i = 0; i < p_curr; ++i) if (labels_step[i] + 1 > q) q = labels_step[i] + 1;
     if (q == p_curr) break; // no merges
+    // Applying an entire reciprocal-neighbor level can jump below stop_at.
+    // Preserve the current (finer) level instead so the exact Ward stage can
+    // perform the remaining one-at-a-time adjacent merges without splitting.
+    if (q < stop_at) {
+      stopped_before_overshoot = true;
+      break;
+    }
 
     for (int i = 0; i < p_orig; ++i) {
       int old_cluster = labels_global[i];
@@ -427,23 +463,33 @@ List rena_rnn_coarse_cpp(const arma::mat &X,
     Named("X_coarse")      = X_curr,
     Named("G_coarse")      = G_curr,
     Named("labels_coarse") = labels_out,
-    Named("sizes_coarse")  = sizes
+    Named("sizes_coarse")  = sizes,
+    Named("iterations") = iter,
+    Named("stopped_before_overshoot") = stopped_before_overshoot
   );
 }
 
 // ---------- Stage 2: adjacency-constrained Ward ----------------------------
 
+namespace {
+
 struct Edge {
   double cost;
   int a;
   int b;
+  int version_a;
+  int version_b;
 };
 
 struct EdgeCompare {
   bool operator()(Edge const& e1, Edge const& e2) const {
-    return e1.cost > e2.cost; // min-heap
+    if (e1.cost != e2.cost) return e1.cost > e2.cost;
+    if (e1.a != e2.a) return e1.a > e2.a;
+    return e1.b > e2.b;
   }
 };
+
+} // namespace
 
 // [[Rcpp::export]]
 List ward_on_supervoxels_cpp(const arma::mat &X_coarse,
@@ -453,37 +499,70 @@ List ward_on_supervoxels_cpp(const arma::mat &X_coarse,
   int N = X_coarse.n_rows;
   int n = X_coarse.n_cols;
 
+  if (N < 1 || n < 1) stop("X_coarse must be a non-empty finite matrix");
   if (sizes.size() != N) stop("sizes length must match rows of X_coarse");
   if (n_clusters <= 0 || n_clusters > N) stop("n_clusters out of range");
+  if ((int)G_coarse.n_rows != N || (int)G_coarse.n_cols != N) {
+    stop("G_coarse must be square with one row per supervoxel");
+  }
+  for (int i = 0; i < N; ++i) {
+    if (IntegerVector::is_na(sizes[i]) || sizes[i] <= 0) {
+      stop("sizes must contain positive finite integers");
+    }
+    for (int j = 0; j < n; ++j) {
+      if (!std::isfinite(X_coarse(i, j))) stop("X_coarse values must be finite");
+    }
+  }
 
   mat means = X_coarse;
   std::vector<double> sz(N);
-  for (int i = 0; i < N; ++i) sz[i] = std::max(1, sizes[i]);
+  for (int i = 0; i < N; ++i) sz[i] = sizes[i];
 
   std::vector<bool> active(N, true);
+  std::vector<int> version(N, 0);
   int active_count = N;
 
-  std::vector<std::vector<int>> neighbors(N);
+  std::vector<std::set<int>> neighbors(N);
   for (sp_mat::const_iterator it = G_coarse.begin(); it != G_coarse.end(); ++it) {
     int i = it.row();
     int j = it.col();
     if (i == j) continue;
-    neighbors[i].push_back(j);
-    neighbors[j].push_back(i);
+    double weight = *it;
+    if (!std::isfinite(weight) || weight < 0.0) {
+      stop("G_coarse values must be finite and non-negative");
+    }
+    if (weight == 0.0) continue;
+    neighbors[i].insert(j);
+    neighbors[j].insert(i);
   }
 
   UnionFind uf(N);
   std::priority_queue<Edge, std::vector<Edge>, EdgeCompare> pq;
+  double queue_pushes = 0.0;
+  double queue_pops = 0.0;
+  double stale_version_rejections = 0.0;
+  double inactive_rejections = 0.0;
+  double adjacency_rejections = 0.0;
+  double recomputed_rejections = 0.0;
+  double max_queue_size = 0.0;
+  std::vector<int> merge_a;
+  std::vector<int> merge_b;
+  std::vector<double> merge_cost;
+  std::vector<int> active_counts;
 
   auto push_edge = [&](int a, int b) {
     if (a == b || !active[a] || !active[b]) return;
+    if (a > b) std::swap(a, b);
+    if (neighbors[(size_t)a].find(b) == neighbors[(size_t)a].end()) return;
     double s_a = sz[a], s_b = sz[b];
     double denom = s_a + s_b;
     if (denom <= 0) return;
     double factor = (s_a * s_b) / denom;
     double d2 = squared_l2_rows(means, a, b);
     double cost = factor * d2;
-    pq.push(Edge{cost, a, b});
+    pq.push(Edge{cost, a, b, version[a], version[b]});
+    queue_pushes += 1.0;
+    max_queue_size = std::max(max_queue_size, (double)pq.size());
   };
 
   for (int i = 0; i < N; ++i) {
@@ -495,9 +574,22 @@ List ward_on_supervoxels_cpp(const arma::mat &X_coarse,
   while (active_count > n_clusters && !pq.empty()) {
     Edge e = pq.top();
     pq.pop();
+    queue_pops += 1.0;
     int a = e.a, b = e.b;
     if (a < 0 || a >= N || b < 0 || b >= N) continue;
-    if (!active[a] || !active[b]) continue;
+    if (!active[a] || !active[b]) {
+      inactive_rejections += 1.0;
+      continue;
+    }
+    if (e.version_a != version[a] || e.version_b != version[b]) {
+      stale_version_rejections += 1.0;
+      continue;
+    }
+    if (neighbors[(size_t)a].find(b) == neighbors[(size_t)a].end() ||
+        neighbors[(size_t)b].find(a) == neighbors[(size_t)b].end()) {
+      adjacency_rejections += 1.0;
+      continue;
+    }
 
     int ra = uf.find(a), rb = uf.find(b);
     if (ra == rb) continue;
@@ -506,30 +598,50 @@ List ward_on_supervoxels_cpp(const arma::mat &X_coarse,
     double s_new = s_a + s_b;
     if (s_new <= 0) continue;
 
+    double current_cost = (s_a * s_b / s_new) * squared_l2_rows(means, a, b);
+    double cost_scale = std::max(1.0, std::max(std::fabs(e.cost), std::fabs(current_cost)));
+    if (std::fabs(e.cost - current_cost) > 1e-12 * cost_scale) {
+      recomputed_rejections += 1.0;
+      push_edge(a, b);
+      continue;
+    }
+
+    merge_a.push_back(a + 1);
+    merge_b.push_back(b + 1);
+    merge_cost.push_back(current_cost);
+
     means.row(a) = (s_a * means.row(a) + s_b * means.row(b)) / s_new;
     sz[a] = s_new;
 
     active[b] = false;
     sz[b] = 0.0;
+    version[a]++;
+    version[b]++;
     active_count--;
+    active_counts.push_back(active_count);
     uf.unite(a, b);
 
-    // Merge neighbor lists with deduplication to avoid growth
-    std::vector<int> merged;
-    merged.reserve(neighbors[a].size() + neighbors[b].size());
-    for (int d : neighbors[a]) if (active[d] && d != a) merged.push_back(d);
-    for (int d : neighbors[b]) if (active[d] && d != a) merged.push_back(d);
-    std::sort(merged.begin(), merged.end());
-    merged.erase(std::unique(merged.begin(), merged.end()), merged.end());
-
-    neighbors[a].swap(merged);
+    // Remove obsolete endpoints from every affected neighbor, then install the
+    // symmetric deduplicated union on the surviving cluster.
+    std::set<int> merged;
+    for (int d : neighbors[a]) if (active[d] && d != b) merged.insert(d);
+    for (int d : neighbors[b]) if (active[d] && d != a) merged.insert(d);
+    for (int d : neighbors[a]) neighbors[(size_t)d].erase(a);
+    for (int d : neighbors[b]) neighbors[(size_t)d].erase(b);
+    neighbors[a].clear();
     neighbors[b].clear();
+    for (int d : merged) {
+      neighbors[a].insert(d);
+      neighbors[(size_t)d].insert(a);
+    }
 
-    // Keep adjacency symmetric and push updated edges
     for (int d : neighbors[a]) {
-      neighbors[d].push_back(a);
       push_edge(a, d);
     }
+  }
+
+  if (active_count != n_clusters) {
+    stop("adjacency graph cannot reach requested cluster count");
   }
 
   IntegerVector labels_super(N);
@@ -552,6 +664,17 @@ List ward_on_supervoxels_cpp(const arma::mat &X_coarse,
 
   return List::create(
     Named("labels_super") = labels_super,
-    Named("n_clusters") = next_id
+    Named("n_clusters") = next_id,
+    Named("merge_a") = wrap(merge_a),
+    Named("merge_b") = wrap(merge_b),
+    Named("merge_cost") = wrap(merge_cost),
+    Named("active_counts") = wrap(active_counts),
+    Named("queue_pushes") = queue_pushes,
+    Named("queue_pops") = queue_pops,
+    Named("max_queue_size") = max_queue_size,
+    Named("stale_version_rejections") = stale_version_rejections,
+    Named("inactive_rejections") = inactive_rejections,
+    Named("adjacency_rejections") = adjacency_rejections,
+    Named("recomputed_rejections") = recomputed_rejections
   );
 }

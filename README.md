@@ -67,25 +67,28 @@ result_msf <- cluster4d(vec, mask, n_clusters = 100, method = "slice_msf")
 - **Single-volume note**: Feature normalization defaults to per-timepoint z-scoring; with one timepoint this just mean-centers intensities, keeping Euclidean distances intact.
 
 ### 4. Slice-MSF (`method = "slice_msf"`)
-- **Best for**: Large datasets, parallel processing
+- **Best for**: Large datasets, fast slice-wise processing
 - **Characteristics**: Slice-wise processing with consensus
 - **Key parameters**: `num_runs`, `consensus`, `stitch_z`
-- **Parallelized**: Yes (across slices)
+- **Parallelized**: No in the unified interface
 
 ### 5. FLASH-3D (`method = "flash3d"`)
 - **Best for**: Fast processing, temporal coherence
 - **Characteristics**: DCT-based compression
 - **Key parameters**: `lambda_t`, `bits`, `dctM`
-- **Parallelized**: Yes
+- **Parallelized**: No in the unified interface
 
 ## Common Parameters
 
-All methods accept these standardized parameters:
+The unified interface exposes these standardized parameters, but each method
+accepts only the parameters that affect its algorithm; inactive parameters are
+rejected rather than silently ignored:
 
 - `n_clusters`: Target number of clusters
 - `spatial_weight`: Balance between spatial and feature similarity (0-1)
-- `max_iterations`: Maximum iterations for convergence
-- `connectivity`: Neighborhood structure (6, 26, or 27)
+- `max_iterations`: Iteration limit for iterative methods; unsupported by SNIC,
+  Slice-MSF, and commute-time clustering
+- `connectivity`: Method-specific neighborhood structure
 - `parallel`: Enable parallel processing (where supported)
 - `verbose`: Print progress information
 
@@ -180,7 +183,7 @@ print(comparison)
 - `flash3d` for balanced speed/quality
 
 ### Large Datasets (> 100,000 voxels)
-- `slice_msf` with parallel processing
+- `slice_msf` with `num_runs = 1` for fast slice-wise processing
 - `flash3d` for fastest results
 - Consider reducing `n_clusters` for tractability
 

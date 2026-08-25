@@ -50,7 +50,10 @@ if (file.exists("albers.css")) {
 cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
 cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
 ```
-Fields: `clusvol`, `cluster`, `centers`, `coord_centers`, `n_clusters`, `method`, `parameters`, `metadata`.
+Canonical fields: `labels` (with identical backward-compatible alias
+`cluster`), `clusvol`, `centers`, `coord_centers`, `actual_k` (with alias
+`n_clusters`), `label_ids`, `method`, `parameters`, typed `provenance`, and
+method-specific `metadata`.
 
 # Print/plot/summary {#plot-print-summary}
 - `print(x)`: method, counts, cluster size stats

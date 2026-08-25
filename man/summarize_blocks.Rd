@@ -4,7 +4,7 @@
 \alias{summarize_blocks}
 \title{Summarize voxel blocks}
 \usage{
-summarize_blocks(feature_mat, coords, block_id)
+summarize_blocks(feature_mat, coords, block_id, block_size = 1)
 }
 \description{
 Summarize voxel blocks

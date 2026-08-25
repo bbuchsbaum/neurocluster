@@ -29,9 +29,12 @@ acsc(
 
 \item{ann_k}{Number of approximate (or exact) nearest neighbors per block. Must be >= 1.}
 
-\item{alpha}{Weighting for correlation vs. spatial proximity (0 <= alpha <= 1).}
+\item{alpha}{Feature-similarity weight in \verb{[0, 1]}. Zero is spatial-only and
+one is feature-only; both endpoints are supported.}
 
-\item{correlation_metric}{Correlation metric ("pearson", "spearman", "robust").}
+\item{correlation_metric}{Similarity definition: Pearson correlation,
+Spearman correlation of average ranks, or robust biweight midcorrelation
+with tuning constant 9.}
 
 \item{spatial_weighting}{Spatial adjacency weighting ("gaussian", "binary").}
 
@@ -52,7 +55,9 @@ long time-series).}
 state is restored after graph construction).}
 }
 \value{
-A list with elements:
+A standardized \code{cluster4d_result} (also classed \code{acsc_result}) with
+final contiguous labels, original-space centers, physical coordinate
+centers, provenance, and these ACSC-specific elements:
 \describe{
 \item{cluster_map}{3D array with cluster labels per voxel.}
 \item{graph}{An \code{igraph} object used for clustering.}
@@ -65,96 +70,21 @@ and spatial proximity. Includes optional refinement for boundary corrections.
 The algorithm supports parallel processing via the future package for improved performance.
 }
 \details{
-\subsection{C++ Acceleration}{
+ACSC builds feature-neighbor edges from the declared correlation metric and
+unions them with six-neighbor block-grid edges. Edge correlations are mapped
+to non-negative Louvain similarities as \code{(correlation + 1) / 2}. At
+\code{alpha = 0}, feature-neighbor selection is bypassed entirely, so the graph
+topology and weights depend only on spatial adjacency. Optional DCT or random
+projection changes feature-neighbor candidate selection, but edge weights are
+always recomputed using the declared metric.
 
-ACSC now includes \strong{C++ acceleration for boundary refinement} using RcppParallel,
-providing 3-6x speedup for typical datasets. The C++ implementation:
-\itemize{
-\item Uses optimized correlation via normalized dot products (10-15x faster than R's \code{cor()})
-\item Processes boundary voxels in parallel using multiple CPU cores
-\item Automatically falls back to R implementation if C++ fails
-}
-\subsection{Performance Gains:}{
-\itemize{
-\item \strong{Small datasets} (<1,000 voxels): 1.5-2x overall speedup
-\item \strong{Medium datasets} (1,000-5,000 voxels): 2-4x overall speedup
-\item \strong{Large datasets} (>5,000 voxels): 3-6x overall speedup
-\item \strong{Boundary refinement phase}: 6-8x faster than pure R implementation
-}
-}
+Boundary refinement uses the same metric representation as graph building.
+Pearson uses centered unit vectors, Spearman uses centered average ranks, and
+robust mode uses median-centered Tukey-bisquare residuals. The C++ path
+accelerates centroid dot products and recomputes the active boundary after
+every synchronous pass; failures fall back to the equivalent R path.
 
-\subsection{C++ Implementation Details:}{
-
-The C++ acceleration normalizes feature vectors to unit length, enabling fast
-correlation computation via dot products. This is mathematically equivalent to
-Pearson correlation for centered data and provides significant performance benefits.
-}
-
-}
-
-\subsection{Parallelization Strategy}{
-
-ACSC uses \strong{dual-layer parallelization}:
-\enumerate{
-\item \strong{R-level parallelization} (via future package):
-\itemize{
-\item Data preprocessing (detrending)
-\item Block summary computation
-\item Graph edge construction
-\item User-configurable across platforms
-}
-\item \strong{C++ thread parallelization} (via RcppParallel):
-\itemize{
-\item Boundary voxel refinement
-\item Automatic multi-core utilization
-\item No configuration needed
-}
-}
-\subsection{Configuring R-level Parallelization:}{
-
-\if{html}{\out{<div class="sourceCode r">}}\preformatted{library(future)
-
-# Sequential (default)
-plan(sequential)
-result <- acsc(bvec, mask, K = 100)
-
-# Parallel on local machine (uses all cores)
-plan(multisession)
-result <- acsc(bvec, mask, K = 100)
-
-# Parallel with specific number of workers
-plan(multisession, workers = 4)
-result <- acsc(bvec, mask, K = 100)
-
-# On a cluster
-plan(cluster, workers = c("node1", "node2", "node3"))
-result <- acsc(bvec, mask, K = 100)
-
-# Reset to sequential
-plan(sequential)
-}\if{html}{\out{</div>}}
-}
-
-\subsection{Performance Characteristics:}{
-\itemize{
-\item \strong{Best speedup}: Boundary refinement (6-8x) and graph construction (2-3x)
-\item \strong{Overhead}: Small for C++ calls, moderate for future parallelization
-\item \strong{Memory}: Each future worker needs data copy; C++ threads share memory
-\item \strong{Optimal workers}: Usually matches physical cores (not threads)
-\item \strong{Break-even point}: C++ benefits all dataset sizes; future benefits >5,000 voxels
-}
-}
-
-\subsection{Performance Tips:}{
-\itemize{
-\item C++ acceleration is enabled by default and recommended for all use cases
-\item For small datasets (<1,000 voxels), sequential future plan may be faster
-\item Use \code{plan(multisession)} on Windows/macOS for stability
-\item Use \code{plan(multicore)} on Linux for lower memory overhead
-\item C++ and future parallelization work together without conflicts
-\item Monitor memory usage with many workers on large datasets
-}
-}
-
-}
+After refinement, labels are flood-filled into connected components. If \code{K}
+is supplied, the shared adjacency-preserving exact-K engine merges or splits
+those components and fails closed when the target is topologically infeasible.
 }

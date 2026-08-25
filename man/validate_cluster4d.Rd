@@ -4,17 +4,22 @@
 \alias{validate_cluster4d}
 \title{Validate cluster4d result}
 \usage{
-validate_cluster4d(result, vec = NULL, mask = NULL)
+validate_cluster4d(result, vec = NULL, mask = NULL, tolerance = 1e-08)
 }
 \arguments{
 \item{result}{A cluster4d_result object}
 
-\item{vec}{Original NeuroVec data}
+\item{vec}{Original NeuroVec data, required to verify feature centers.}
 
-\item{mask}{Original mask}
+\item{mask}{Original mask, required to verify geometry, voxel order, and
+physical coordinate centers.}
+
+\item{tolerance}{Relative numeric tolerance used when independently
+recomputing centers and coordinate centers.}
 }
 \value{
-A list with validation results
+A list with \code{valid}, \code{errors}, \code{warnings}, and a compact \code{summary}.
+Any schema or consistency defect sets \code{valid = FALSE}.
 }
 \description{
 Checks validity and quality of clustering results.

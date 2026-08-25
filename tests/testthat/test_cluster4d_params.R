@@ -103,18 +103,19 @@ test_that("method-specific parameters are properly passed through", {
   result_msf <- with_time_limit(cluster4d(vec, mask, n_clusters = 5,
                                         method = "slice_msf",
                                         num_runs = 2,  # slice_msf-specific
-                                        consensus = FALSE,  # slice_msf-specific
-                                        stitch_z = FALSE,  # slice_msf-specific
-                                        theta_link = 0.9,  # slice_msf-specific
-                                        min_contact = 2,  # slice_msf-specific
+                                        consensus = TRUE,  # slice_msf-specific
+                                        stitch_z = TRUE,  # required for exact global K
                                         r = 6,  # slice_msf-specific
                                         gamma = 2.0,  # slice_msf-specific
+                                        z_mult = 0.4,
+                                        ensemble_fraction = 0.75,
                                         verbose = FALSE))
   
   expect_s3_class(result_msf, "cluster4d_result")
   expect_equal(result_msf$parameters$num_runs, 2)
-  expect_equal(result_msf$parameters$stitch_z, FALSE)
-  expect_equal(result_msf$parameters$theta_link, 0.9)
+  expect_equal(result_msf$parameters$stitch_z, TRUE)
+  expect_equal(result_msf$parameters$z_mult, 0.4)
+  expect_equal(result_msf$parameters$ensemble_fraction, 0.75)
   
   # Test FLASH-3D-specific parameters
   if (exists("flash3d_supervoxels_cpp")) {
@@ -122,6 +123,7 @@ test_that("method-specific parameters are properly passed through", {
                              method = "flash3d",
                              lambda_t = 1.5,  # FLASH-specific
                              lambda_g = 0.2,  # FLASH-specific
+                             barrier = array(0, dim(mask)),
                              bits = 128,  # FLASH-specific
                              dctM = 16,  # FLASH-specific
                              max_iterations = 1,
@@ -156,7 +158,7 @@ test_that("spatial_weight parameter maps correctly to method-specific values", {
   expect_equal(lambda_s_expected, 0.7)
 })
 
-test_that("common parameters work consistently across all methods", {
+test_that("supported common parameters work consistently across methods", {
   mask <- NeuroVol(array(1, c(8, 8, 4)), NeuroSpace(c(8, 8, 4)))
   vec <- replicate(10, NeuroVol(array(runif(8*8*4), c(8, 8, 4)),
                                 NeuroSpace(c(8, 8, 4))), simplify=FALSE)
@@ -178,13 +180,19 @@ test_that("common parameters work consistently across all methods", {
       skip("Skipping brs_slic in parameter pass-through test - C++ core not available")
     }
 
-    result <- cluster4d(vec, mask, 
-                       n_clusters = n_clusters,
-                       spatial_weight = spatial_weight,
-                       max_iterations = max_iterations,
-                       connectivity = connectivity,
-                       method = method,
-                       verbose = FALSE)
+    args <- list(
+      vec = vec,
+      mask = mask,
+      n_clusters = n_clusters,
+      spatial_weight = spatial_weight,
+      method = method,
+      verbose = FALSE
+    )
+    if (!method %in% c("snic", "slice_msf")) {
+      args$max_iterations <- max_iterations
+    }
+    if (method != "snic") args$connectivity <- connectivity
+    result <- do.call(cluster4d, args)
     
     # Check that common parameters are handled
     expect_s3_class(result, "cluster4d_result")
@@ -253,8 +261,10 @@ test_that("legacy parameter names still work with warnings", {
   expect_equal(params$max_iterations, 25)
   
   # Test that max_iter gets mapped
-  params <- neurocluster:::map_cluster4d_params("snic", max_iter = 15)
-  expect_equal(params$max_iterations, 15)
+  expect_error(
+    neurocluster:::map_cluster4d_params("snic", max_iter = 15),
+    "not supported"
+  )
 
   # Test corr_slic mapping parity with slic/snic path
   params <- neurocluster:::map_cluster4d_params("corr_slic", compactness = 6, max_iter = 12)
@@ -278,10 +288,16 @@ test_that("method wrappers handle parameters correctly", {
   vec <- do.call(concat, vec)
   
   # Test cluster4d_snic wrapper
+  expect_error(
+    cluster4d_snic(
+      vec, mask, n_clusters = 5, spatial_weight = 0.5,
+      max_iterations = 2, verbose = FALSE
+    ),
+    "max_iterations is not supported"
+  )
   result_snic <- cluster4d_snic(vec, mask, 
                                n_clusters = 5,
                                spatial_weight = 0.5,
-                               max_iterations = 2,
                                verbose = FALSE)
   
   expect_s3_class(result_snic, "cluster4d_result")

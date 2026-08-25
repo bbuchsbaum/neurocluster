@@ -64,7 +64,7 @@ cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
 
 # Checks {#checks}
 ```r
-val <- validate_cluster4d(res1)
+val <- validate_cluster4d(res1, vec, mask)
 val
 ```
 

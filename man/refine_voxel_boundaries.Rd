@@ -10,7 +10,8 @@ refine_voxel_boundaries(
   coords,
   max_iter,
   use_cpp = TRUE,
-  dims = NULL
+  dims = NULL,
+  correlation_metric = c("pearson", "spearman", "robust")
 )
 }
 \arguments{

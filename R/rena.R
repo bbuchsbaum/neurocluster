@@ -10,16 +10,15 @@
 #'
 #' @param bvec A \code{NeuroVec} instance supplying the 4D data to cluster.
 #' @param mask A \code{NeuroVol} mask defining the voxels to include in clustering.
-#'   If numeric, nonzero values define included voxels. If logical, TRUE values
-#'   define included voxels.
+#'   Exactly finite values greater than zero are included.
 #' @param K The number of clusters to find (default 100).
-#' @param connectivity Neighborhood connectivity (6 or 26). Default 26.
-#'   6 = face neighbors only, 26 = face + edge + corner neighbors.
+#' @param connectivity Exact masked-grid connectivity (6, 18, or 26).
 #' @param max_iterations Maximum number of recursion iterations (default 50).
 #'   Algorithm stops when K clusters are reached or max_iterations is hit.
 #' @param verbose Logical; whether to print progress messages. Default FALSE.
-#' @param exact_k Logical; whether to use edge pruning to ensure exactly K clusters.
-#'   Default TRUE. If FALSE, may produce slightly more or fewer than K clusters.
+#' @param exact_k Logical; whether to use the shared adjacency-preserving merge
+#'   and split engine to ensure exactly K clusters. A target below the number of
+#'   disconnected mask components is infeasible.
 #'
 #' @return A \code{list} of class \code{rena_cluster_result} (inheriting from
 #'   \code{cluster_result}) with the following elements:
@@ -103,7 +102,9 @@
 #' - **Reduce connectivity**: Use connectivity=6 instead of 26 for larger graphs
 #' - **Use smaller K**: Fewer target clusters means fewer iterations
 #' - **Pre-smooth data**: Reduces noise, improves cluster coherence
-#' - **Alternative for parallelism**: Consider \code{slice_msf()} or \code{flash3d()}
+#' - **Parallel alternatives**: In the unified API, `supervoxels` and `slic`
+#'   support `parallel = TRUE`. The other methods do not advertise a parallel
+#'   clustering contract.
 #'
 #' @examples
 #' \dontrun{
@@ -134,7 +135,7 @@
 #' \code{\link{supervoxels}} for iterative heat kernel clustering,
 #' \code{\link{snic}} for non-iterative priority queue clustering
 #'
-#' @importFrom neuroim2 NeuroVec NeuroVol ClusteredNeuroVol series index_to_coord index_to_grid spacing
+#' @importFrom neuroim2 NeuroVec NeuroVol ClusteredNeuroVol series index_to_coord spacing
 #' @importFrom Matrix sparseMatrix
 #' @export
 rena <- function(bvec, mask,
@@ -145,15 +146,28 @@ rena <- function(bvec, mask,
                  exact_k = TRUE) {
 
   # Use common validation
-  validate_cluster4d_inputs(bvec, mask, K, "rena")
+  input_contract <- validate_cluster4d_inputs(bvec, mask, K, "rena")
+  K <- input_contract$n_clusters
+  connectivity <- .cluster4d_scalar_number(
+    connectivity, "connectivity", "rena", integer = TRUE
+  )
+  if (!connectivity %in% c(6L, 18L, 26L)) {
+    stop("rena: connectivity must be 6, 18, or 26", call. = FALSE)
+  }
+  max_iterations <- .cluster4d_scalar_number(
+    max_iterations, "max_iterations", "rena", lower = 1, integer = TRUE
+  )
+  verbose <- .cluster4d_scalar_logical(verbose, "verbose", "rena")
+  exact_k <- .cluster4d_scalar_logical(exact_k, "exact_k", "rena")
 
   # Get mask indices
-  mask.idx <- which(mask > 0)
+  mask.idx <- input_contract$mask_idx
   n_voxels <- length(mask.idx)
 
-   # Trivial cases: single cluster or single voxel
-  if (K <= 1 || n_voxels <= 1) {
-    coords <- index_to_grid(mask, mask.idx)
+  # A single voxel is the only topology-independent trivial case. A requested
+  # K of one must still respect disconnected mask components.
+  if (n_voxels <= 1) {
+    coords <- .cluster4d_index_to_coord(mask, mask.idx)
     feature_mat <- neuroim2::series(bvec, mask.idx)
     feature_mat <- t(as.matrix(feature_mat))
     feature_mat <- base::scale(feature_mat, center = TRUE, scale = TRUE)
@@ -183,7 +197,13 @@ rena <- function(bvec, mask,
       ),
       metadata = list(
         iterations = 0,
-        final_n_clusters = 1
+        final_n_clusters = 1,
+        graph = list(
+          contract = "exact_masked_grid",
+          connectivity = connectivity,
+          n_edges = 0L,
+          n_components = 1L
+        )
       ),
       compute_centers = TRUE,
       center_method = "mean"
@@ -197,7 +217,7 @@ rena <- function(bvec, mask,
   }
 
   # Get coordinates
-  coords <- index_to_grid(mask, mask.idx)
+  coords <- .cluster4d_index_to_coord(mask, mask.idx)
 
   # Extract and scale features (voxels x time)
   feature_mat <- neuroim2::series(bvec, mask.idx)
@@ -208,9 +228,13 @@ rena <- function(bvec, mask,
   # Transpose for C++ (features x voxels)
   feature_mat <- t(feature_mat)
 
-  # Initialize connectivity graph using neighborweights
-  # This gives us a sparse adjacency matrix based on spatial proximity
-  adj_matrix <- rena_build_connectivity(coords, mask, connectivity)
+  # Exact masked-grid adjacency; excluded gaps can never become graph edges.
+  adj_matrix <- rena_build_connectivity(mask, mask.idx, connectivity)
+  initial_graph <- igraph::graph_from_adjacency_matrix(
+    adj_matrix, mode = "undirected", weighted = NULL, diag = FALSE
+  )
+  initial_components <- igraph::components(initial_graph)$no
+  initial_edges <- igraph::ecount(initial_graph)
 
   # Track voxel-to-component mapping
   voxel_to_component <- seq_len(n_voxels) - 1  # 0-based for C++
@@ -376,28 +400,14 @@ rena <- function(bvec, mask,
   # Create final cluster assignments (1-based for R)
   final_labels <- voxel_to_component + 1
 
-  # Final fallback: if still above K and exact_k requested, reduce components via kmeans on current features
+  # Final topology-preserving repair for either over- or under-target output.
   actual_k <- length(unique(final_labels))
-  if (exact_k && actual_k > K) {
-    # Deterministic kmeans on cluster feature centroids
-    # Safely save and restore .Random.seed
-    if (exists(".Random.seed", envir = .GlobalEnv)) {
-      old_seed <- .Random.seed
-      on.exit({.Random.seed <<- old_seed}, add = TRUE)
-    } else {
-      on.exit({
-        if (exists(".Random.seed", envir = .GlobalEnv)) {
-          rm(.Random.seed, envir = .GlobalEnv)
-        }
-      }, add = TRUE)
-    }
-
-    set.seed(0)
-    km <- stats::kmeans(t(current_features), centers = K, iter.max = 50, nstart = 1)
-
-    voxel_to_component <- km$cluster[voxel_to_component + 1] - 1
-    current_n_clusters <- length(unique(voxel_to_component))
-    final_labels <- voxel_to_component + 1
+  if (exact_k) {
+    final_labels <- force_exact_k(
+      final_labels, t(feature_mat), K,
+      mask = mask, connectivity = connectivity
+    )
+    current_n_clusters <- length(unique(final_labels))
   }
 
   # Prepare data for standardized result
@@ -425,7 +435,13 @@ rena <- function(bvec, mask,
     ),
     metadata = list(
       iterations = iteration,
-      final_n_clusters = current_n_clusters
+      final_n_clusters = current_n_clusters,
+      graph = list(
+        contract = "exact_masked_grid",
+        connectivity = connectivity,
+        n_edges = as.integer(initial_edges),
+        n_components = as.integer(initial_components)
+      )
     ),
     compute_centers = TRUE,
     center_method = "mean"
@@ -439,53 +455,24 @@ rena <- function(bvec, mask,
 
 #' Build connectivity graph for ReNA
 #'
-#' Creates sparse adjacency matrix based on spatial connectivity.
+#' Creates exact sparse masked-grid adjacency.
 #'
+#' @param mask A three-dimensional `NeuroVol` mask.
+#' @param mask_idx Included linear indices in canonical mask order.
+#' @param connectivity Grid connectivity: 6, 18, or 26.
+#' @return A symmetric sparse adjacency matrix in masked-voxel order.
 #' @keywords internal
-rena_build_connectivity <- function(coords, mask, connectivity) {
-
-  # Use FNN to find k-nearest neighbors based on connectivity
-  k <- min(connectivity, nrow(coords) - 1)
-
-  if (k < 1) {
-    # Trivial case: single voxel
-    return(Matrix::sparseMatrix(i = 1, j = 1, x = 1, dims = c(1, 1)))
-  }
-
-  nn_result <- FNN::get.knn(coords, k = k)
-
-  # Build edge list (undirected). Collect all neighbor pairs, then deduplicate.
-  all_i <- rep(seq_len(nrow(coords)), each = k)
-  all_j <- as.integer(as.vector(t(nn_result$nn.index)))
-
-  # Drop self-edges if any slipped through and canonicalize ordering
-  keep <- all_i != all_j
-  if (!any(keep)) {
-    n <- nrow(coords)
-    return(Matrix::sparseMatrix(i = integer(0), j = integer(0), dims = c(n, n)))
-  }
-
-  edge_matrix <- cbind(
-    pmin(all_i[keep], all_j[keep]),
-    pmax(all_i[keep], all_j[keep])
+rena_build_connectivity <- function(mask, mask_idx, connectivity) {
+  connectivity <- .cluster4d_scalar_number(
+    connectivity, "connectivity", "rena_build_connectivity", integer = TRUE
   )
-
-  edge_matrix <- unique(edge_matrix)
-
-  if (nrow(edge_matrix) == 0) {
-    n <- nrow(coords)
-    return(Matrix::sparseMatrix(i = integer(0), j = integer(0), dims = c(n, n)))
+  if (!connectivity %in% c(6L, 18L, 26L)) {
+    stop(
+      "rena_build_connectivity: connectivity must be 6, 18, or 26",
+      call. = FALSE
+    )
   }
-
-  # Create sparse adjacency matrix
-  adj <- Matrix::sparseMatrix(
-    i = c(edge_matrix[, 1], edge_matrix[, 2]),
-    j = c(edge_matrix[, 2], edge_matrix[, 1]),
-    x = 1,
-    dims = c(nrow(coords), nrow(coords))
-  )
-
-  adj
+  build_grid_adjacency(mask, as.integer(mask_idx), connectivity)
 }
 
 #' Cluster4d using ReNA method
@@ -506,9 +493,10 @@ cluster4d_rena <- function(vec, mask, n_clusters = 100,
                            exact_k = TRUE,
                            ...) {
 
-  # ReNA doesn't use spatial_weight in the same way as other methods,
-  # but we accept it for interface consistency
-  # Could potentially use it to weight spatial vs feature distances in future
+  if (!missing(spatial_weight)) {
+    stop("cluster4d_rena: spatial_weight is not supported", call. = FALSE)
+  }
+  validate_cluster4d_inputs(vec, mask, n_clusters, "cluster4d_rena")
 
   # Call original rena
   result <- rena(
@@ -530,31 +518,16 @@ cluster4d_rena <- function(vec, mask, n_clusters = 100,
   result$method <- "rena"
   result$n_clusters <- length(unique(result$cluster[!is.na(result$cluster)]))
 
-   # If exact_k requested but we under-shot the target, force exact K by splitting
-   # components using the voxel features. This stabilizes small-K scenarios like
-   # the gradient test where ReNA can over-merge.
-   if (exact_k && result$n_clusters < n_clusters) {
-     prep <- prepare_cluster4d_data(vec, mask, scale_features = FALSE, scale_coords = FALSE)
-     forced <- force_exact_k(result$cluster, prep$features, n_clusters)
-     result$cluster <- forced
-     result$n_clusters <- length(unique(forced[forced > 0]))
-     center_info <- compute_cluster_centers(forced, prep$features, prep$coords)
-     result$centers <- center_info$centers
-     result$coord_centers <- center_info$coord_centers
-     result$clusvol <- suppressWarnings(ClusteredNeuroVol(mask > 0, clusters = forced))
-   }
-
   # Store all parameters
   result$parameters <- modifyList(
     result$parameters,
     list(
       n_clusters_requested = n_clusters,
-      spatial_weight = spatial_weight,
       max_iterations = max_iterations,
       connectivity = connectivity,
       exact_k = exact_k
     )
   )
 
-  result
+  finalize_cluster4d_result(result, vec, mask, "rena", result$parameters)
 }

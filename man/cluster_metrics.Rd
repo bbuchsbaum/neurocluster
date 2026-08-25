@@ -2,31 +2,37 @@
 % Please edit documentation in R/meta_clust.R
 \name{cluster_metrics}
 \alias{cluster_metrics}
-\title{Lightweight cluster-quality metrics}
+\title{Explicit cluster-quality estimands}
 \usage{
 cluster_metrics(result, feature_mat = NULL, coords = NULL, truth = NULL)
 }
 \arguments{
-\item{result}{A \code{cluster_result} (or compatible list with \code{cluster} and optionally \code{centers}, \code{coord_centers}).}
+\item{result}{A \code{cluster_result} with one final label per voxel.}
 
-\item{feature_mat}{Optional matrix of features (voxels x time/features). If NULL, tries \code{result$metadata$features} or \code{result$data_prep$features}.}
+\item{feature_mat}{Optional finite numeric matrix with voxels in rows and at
+least two time/features in columns. A transposed matrix is accepted when
+only its columns match the number of labels. Every row must be
+non-constant for Pearson correlation.}
 
-\item{coords}{Optional matrix of coordinates (voxels x 3). If NULL, tries \code{result$metadata$coords} or \code{result$data_prep$coords}.}
+\item{coords}{Optional finite numeric matrix with voxels in rows and spatial
+dimensions in columns. When omitted for a canonical \code{cluster4d_result},
+physical millimetre coordinates are reconstructed from its mask and
+affine provenance.}
 
-\item{truth}{Optional integer vector of ground-truth labels for ARI.}
+\item{truth}{Optional partition labels over exactly the same voxels.}
 }
 \value{
-Named list with fields (when available):
-\describe{
-\item{n_clusters}{Number of clusters.}
-\item{size_summary}{Min/median/max cluster size.}
-\item{ari_truth}{Adjusted Rand Index vs. \code{truth} (if provided).}
-\item{within_data_corr}{Mean Fisher-z of voxel-to-centroid correlations (data space).}
-\item{between_data_corr}{Mean Fisher-z of centroid-to-centroid correlations (data space).}
-\item{within_spatial_dist}{Mean Euclidean distance voxel-to-centroid (spatial).}
-}
+A named list. Always contains \code{n_clusters} and \code{size_summary}.
+With \code{truth}, it adds adjusted Rand, variation of information in bits, and
+pairwise Dice. With \code{feature_mat}, it adds
+\code{temporal_pairwise_correlation}. With coordinates, it adds
+\code{spatial_rms_distance_mm} (or \code{spatial_rms_distance} when explicit
+coordinates are not declared to be millimetres by a canonical result).
 }
 \description{
-Computes quick diagnostic metrics for a clustering result, supporting both
-data-driven and spatial assessments.
+Computes partition, within-cluster temporal, and physical spatial estimands
+from final voxel labels. Temporal coherence is the mean Pearson correlation
+over all unordered within-cluster voxel pairs. Spatial dispersion is the
+root mean squared Euclidean distance from each voxel coordinate to its final
+cluster centroid; lower values are more compact.
 }

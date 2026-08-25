@@ -259,11 +259,13 @@ test_that("C++ refinement converges efficiently", {
 
   for (max_iter in max_iters) {
     time_result <- system.time({
-      result <- acsc(test_data$vec, test_data$mask,
-                     block_size = 2,
-                     K = 15,
-                     refine = TRUE,
-                     max_refine_iter = max_iter)
+      result <- suppressWarnings(
+        acsc(test_data$vec, test_data$mask,
+             block_size = 2,
+             K = 15,
+             refine = TRUE,
+             max_refine_iter = max_iter)
+      )
     })
 
     cat(sprintf("  Max %d iterations: %.3f seconds\n", max_iter, time_result["elapsed"]))
@@ -281,7 +283,9 @@ test_that("C++ refinement converges efficiently", {
 test_that("C++ uses parallelization effectively", {
   skip_on_cran()
   skip_if_not(interactive(), "Performance tests only in interactive mode")
-  skip_if(parallel::detectCores() < 2, "Need multiple cores for parallel test")
+  available_cores <- suppressWarnings(parallel::detectCores())
+  skip_if(is.na(available_cores) || available_cores < 2,
+          "Need a known multi-core configuration for parallel test")
 
   # Larger dataset to benefit from parallelization
   test_data <- generate_fmri_test_data(nvox = 5000, ntime = 80, nclusters = 25)
@@ -302,7 +306,7 @@ test_that("C++ uses parallelization effectively", {
   cat(sprintf("  Sequential: %.3f seconds\n", time_seq["elapsed"]))
 
   # Parallel (if available)
-  if (parallel::detectCores() >= 2) {
+  if (available_cores >= 2) {
     future::plan(future::multisession, workers = 2)
     time_par <- system.time({
       result_par <- acsc(test_data$vec, test_data$mask,

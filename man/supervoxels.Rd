@@ -66,8 +66,10 @@ clusters. Algorithm stops when switch ratio falls below this value. Default is 0
 A \code{list} (of class \code{cluster_result}) with elements:
 \item{clusvol}{\code{ClusteredNeuroVol} containing the final clustering.}
 \item{cluster}{Integer vector of cluster assignments for each voxel.}
-\item{centers}{Matrix of cluster centers in feature space.}
-\item{coord_centers}{Matrix of cluster spatial centroids.}
+\item{centers}{K-by-T matrix of final cluster means in the original feature space.}
+\item{coord_centers}{K-by-3 matrix of final spatial means in physical units.}
+\item{metadata}{Algorithm diagnostics, including whether parallel assignment
+was requested and used and any deterministic empty-label reseeds.}
 }
 \description{
 Cluster a \code{NeuroVec} instance into a set of spatially constrained clusters.
@@ -83,67 +85,22 @@ weighted by \code{alpha}.
 \item Return the final clusters, plus the feature-space and coordinate-space centers.
 }
 
-\subsection{Parallelization Status}{
+\subsection{Exact-K and parallel contracts}{
 
-\strong{NOW PARALLELIZED with RcppParallel!} The supervoxels algorithm can now run
-cluster assignment updates in parallel across multiple CPU cores.
-\subsection{Parallel Operations:}{
-\enumerate{
-\item \strong{Heat Kernel Computation}: Parallel across voxels using RcppParallel
-\itemize{
-\item Each voxel's best cluster assignment computed independently
-\item Automatic load balancing with configurable grain size
-\item Scales linearly with number of CPU cores
-}
-\item \strong{Sequential Operations} (still):
-\itemize{
-\item Initialization (K-means or gradient-based seed selection)
-\item Centroid updates after each iteration
-\item Convergence checking between iterations
-}
-}
-}
+Every assignment center must have a positive membership count. If an update
+empties one or more labels, distinct voxels are deterministically moved from
+non-singleton clusters in descending combined feature/spatial loss order.
+Empty all-zero centers are therefore never passed to an assignment kernel.
+Since \code{K <= N} is required, this reseed policy is feasible and the returned
+labels, center rows, and requested K agree on every convergence path.
 
-\subsection{Performance Characteristics:}{
-\itemize{
-\item \strong{Speedup}: Typically 2-8x faster on multicore systems
-\item \strong{Automatic optimization}: Disabled for small datasets (<1000 voxels)
-\item \strong{Memory overhead}: Minimal - uses shared memory via RcppParallel
-\item \strong{Computational complexity}: Still O(N x K x iterations) but parallelized over N
-}
-}
-
-\subsection{Parallel Configuration:}{
-\itemize{
-\item \strong{parallel}: Set to FALSE to force sequential execution
-\item \strong{grain_size}: Controls work distribution (default 100)
-\itemize{
-\item Smaller values = better load balancing but more overhead
-\item Larger values = less overhead but potential imbalance
-}
-\item \strong{Thread control}: Set threads via \code{RcppParallel::setThreadOptions()}
-}
-}
-
-\subsection{When Parallelization Helps Most:}{
-\itemize{
-\item Large numbers of voxels (N > 10,000)
-\item Many clusters (K > 100)
-\item Multiple iterations needed for convergence
-\item Systems with 4+ CPU cores
-}
-}
-
-\subsection{Performance Tips:}{
-\itemize{
-\item \strong{Set threads}: \code{RcppParallel::setThreadOptions(numThreads = 4)}
-\item \strong{Tune grain_size}: Start with nvoxels/nthreads/10
-\item \strong{Monitor CPU usage}: Should see near 100\% on all cores during updates
-\item \strong{Memory considerations}: Parallel version uses slightly more RAM
-\item \strong{Disable for debugging}: Set \code{parallel = FALSE} for reproducible debugging
-}
-}
-
+With \code{parallel = TRUE}, voxel assignment uses RcppParallel when there are
+more than 1000 included voxels; smaller inputs use the same sequential
+scoring kernel. Parallel and sequential kernels implement the same scoring
+and deterministic tie rule. Centroid reduction may also run in parallel for
+sufficiently large K. \code{metadata$algorithm$parallel_used} reports whether the
+parallel assignment path actually ran. No architecture-specific fallback is
+applied.
 }
 }
 \note{

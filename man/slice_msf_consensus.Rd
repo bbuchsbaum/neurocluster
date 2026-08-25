@@ -2,7 +2,7 @@
 % Please edit documentation in R/slice_cluster.R
 \name{slice_msf_consensus}
 \alias{slice_msf_consensus}
-\title{Consensus Fusion for SLiCE-MSF}
+\title{Fuse Slice-MSF runs on a masked graph}
 \usage{
 slice_msf_consensus(
   run_results,
@@ -11,54 +11,31 @@ slice_msf_consensus(
   k_fuse = 0.3,
   min_size_fuse = 80,
   use_features = FALSE,
-  lambda = 0.7
+  lambda = 0.7,
+  stitch_z = TRUE
 )
 }
 \arguments{
-\item{run_results}{List of results from \code{slice_msf_single}, each containing
-labels, weights, and sketch matrices.}
+\item{run_results}{At least two results from \code{\link[=slice_msf_single]{slice_msf_single()}}.}
 
-\item{mask}{A \code{NeuroVol} mask used in the original segmentation.}
+\item{mask}{The original \code{NeuroVol} mask. Outside-mask labels are discarded.}
 
-\item{nbhd}{Neighborhood connectivity (4, 6, or 8). Should match the value used
-in the original segmentation. Default is 8.}
+\item{nbhd}{\code{4}, \code{6}, or \code{8}; see \code{\link[=slice_msf]{slice_msf()}}.}
 
-\item{k_fuse}{Scale parameter for consensus fusion graph (0-2). Lower values create
-more refined clusters during fusion. If too low, may fragment consensus clusters.
-Default is 0.30.}
+\item{k_fuse}{Positive FH scale for the consensus graph.}
 
-\item{min_size_fuse}{Minimum cluster size during fusion. Can be set lower than
-the original min_size to preserve small but consistent clusters. Default is 80.}
+\item{min_size_fuse}{Positive minimum consensus component size.}
 
-\item{use_features}{Include feature similarity in consensus fusion. When TRUE,
-uses both label co-occurrence and temporal similarity from DCT sketches. This
-can improve cross-slice consistency and is recommended when targeting exact K.
-Default is FALSE.}
+\item{use_features}{Whether DCT-sketch similarity contributes to edges.}
 
-\item{lambda}{Mixing parameter (0-1) controlling the balance between label agreement
-and feature similarity when use_features=TRUE. Higher values (0.7-0.9) emphasize
-label agreement, lower values (0.3-0.6) emphasize features. Default is 0.7.}
+\item{lambda}{Mixture in \verb{[0, 1]}; active when \code{use_features = TRUE}.}
+
+\item{stitch_z}{Whether consensus edges may cross axial slices.}
 }
 \value{
-A list with the following components:
-\describe{
-\item{labels}{Integer vector of consensus cluster labels}
-\item{params}{List of parameters used in consensus fusion}
-}
+A list with full-volume consensus \code{labels} and complete \code{params}.
 }
 \description{
-Combines multiple SLiCE-MSF segmentation runs using consensus clustering to improve
-stability and reduce variability. This function can help reduce z-plane artifacts
-by averaging cluster assignments across multiple independent runs.
-}
-\details{
-Consensus fusion works by building a co-association matrix that counts how often
-each pair of voxels is assigned to the same cluster across runs. This matrix is
-then used as edge weights in a new graph segmentation. When use_features=TRUE,
-the edge weights also incorporate the similarity of DCT sketches, providing
-additional stability.
-
-For reducing z-artifacts, using use_features=TRUE with lambda around 0.5-0.6 can
-help ensure that clusters are consistent both in terms of their boundaries and
-their temporal characteristics.
+Builds neighbor-edge co-association scores from at least two run results and
+optionally mixes those scores with DCT-sketch similarity.
 }

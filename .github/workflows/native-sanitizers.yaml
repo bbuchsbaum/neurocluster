@@ -1,0 +1,33 @@
+name: Native sanitizers
+
+on:
+  pull_request:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-sanitizer:
+    name: ${{ matrix.sanitizer }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [asan, ubsan]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::pkgload
+          needs: check
+      - name: Check translation-unit-local helper linkage
+        run: Rscript tools/check-native-helper-types.R .
+      - name: Build and run ${{ matrix.sanitizer }} native smoke matrix
+        run: bash tools/run-native-sanitizers.sh "${{ matrix.sanitizer }}"

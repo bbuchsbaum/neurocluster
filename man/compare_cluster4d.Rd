@@ -6,23 +6,41 @@
 \usage{
 compare_cluster4d(
   ...,
-  metrics = c("summary", "spatial_coherence", "temporal_coherence")
+  metrics = c("summary", "spatial_dispersion"),
+  feature_mat = NULL
 )
 }
 \arguments{
 \item{...}{cluster4d_result objects to compare}
 
-\item{metrics}{Comparison metrics to compute. Options:
+\item{metrics}{Character vector selecting explicit estimands:
 \itemize{
-\item "summary": Basic statistics
-\item "spatial_coherence": Spatial compactness measure
-\item "temporal_coherence": Feature similarity within clusters
-\item "overlap": Dice coefficient between methods (requires exactly 2 results)
+\item \code{"summary"}: cluster-count and cluster-size summaries.
+\item \code{"spatial_dispersion"}: root mean squared physical distance in
+millimetres from voxels to their final cluster centroid (lower is more
+compact).
+\item \code{"temporal_coherence"}: mean Pearson correlation across all
+unordered within-cluster voxel pairs, requiring \code{feature_mat}.
+\item \code{"partition_agreement"}: adjusted Rand index, variation of
+information in bits, and pairwise Dice for exactly two results.
 }}
+
+\item{feature_mat}{A shared finite numeric matrix with voxels in rows and
+at least two time/features in columns. Required only for
+\code{"temporal_coherence"}. Rows must be non-constant.}
 }
 \value{
-A comparison data frame
+A data frame with one row per result and explicitly named metrics.
 }
 \description{
-Compares clustering results from different methods or parameters.
+Compares clustering results over exactly the same included mask voxels and
+physical coordinate system. Ambiguous center-based scores are not used.
+}
+\details{
+Every result must carry canonical mask and affine provenance. The
+exact included voxel indices and physical geometry are checked before any
+cross-result comparison. Partition metrics use only observed contingency
+cells and never construct an N-by-N co-membership matrix. Pairwise
+agreement columns are repeated on the two result rows so the return value
+remains a data frame.
 }

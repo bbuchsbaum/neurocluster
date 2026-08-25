@@ -15,12 +15,12 @@ cluster4d_slice_msf(
   num_runs = 1,
   consensus = FALSE,
   stitch_z = TRUE,
-  theta_link = 0.85,
-  min_contact = 1,
   r = 12,
   gamma = 1,
   z_mult = 0.5,
   min_size = NULL,
+  seed = 1L,
+  ensemble_fraction = 0.8,
   ...
 )
 }
@@ -28,27 +28,39 @@ cluster4d_slice_msf(
 \item{vec}{A \code{NeuroVec} instance supplying the 4D data (x, y, z, time) to cluster}
 
 \item{mask}{A \code{NeuroVol} mask defining the voxels to include in clustering.
-If numeric, nonzero values define included voxels. If logical, TRUE values
-define included voxels.}
+Values must be finite. Voxels are included exactly when the mask value is
+strictly greater than zero; zero and negative values are excluded.}
 
-\item{n_clusters}{Target number of clusters (default 100). Note that some methods
+\item{n_clusters}{Finite integer target number of clusters (default 100), from
+one through the number of included mask voxels. Note that some methods
 may produce slightly different numbers of clusters due to algorithmic constraints.}
 
 \item{spatial_weight}{Balance between spatial and feature similarity (0-1).
-Higher values emphasize spatial compactness. Default 0.5.
+Both endpoints are supported: 0 disables the spatial term and 1 disables
+the feature term. Higher values emphasize spatial compactness. Default 0.5.
+This parameter is inactive for \code{"rena"} and \code{"rena_plus"};
+supplying it explicitly for either method is an error.
 Maps to method-specific parameters:
 \itemize{
 \item supervoxels: \code{alpha = 1 - spatial_weight} (0 = all spatial, 1 = all feature)
-\item snic/slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
+\item snic: \code{compactness = spatial_weight * 10} (range 0-10)
+\item slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
+\item corr_slic/brs_slic: direct convex blend between correlation and
+scaled spatial distance
 \item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
 \item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
 \item mcl: direct blend between feature and spatial edge similarities
 }}
 
-\item{connectivity}{Neighborhood connectivity (6 or 26). Default 26.
-6 = face neighbors only, 26 = face + edge + corner neighbors.}
+\item{connectivity}{Integer neighborhood connectivity. Supported values are
+method-specific: supervoxels accepts 6, 18, 26, or 27; slic, corr_slic,
+brs_slic, and slice_msf accept 6 or 26; G3S, ReNA variants, and MCL accept
+6, 18, or 26. It is inactive for snic, flash3d, acsc, and commute.}
 
-\item{parallel}{Enable parallel processing where supported. Default TRUE.}
+\item{parallel}{Enable parallel processing for supervoxels and slic. For all
+other methods, an explicit \code{TRUE} is rejected; omitted or
+\code{FALSE} selects the serial implementation. Default TRUE for supported
+methods.}
 
 \item{verbose}{Print progress messages. Default FALSE.}
 
@@ -56,19 +68,19 @@ Maps to method-specific parameters:
 
 \item{consensus}{Use consensus fusion}
 
-\item{stitch_z}{Stitch clusters across z-slices}
+\item{stitch_z}{Whether graph edges may cross axial slices.}
 
-\item{theta_link}{Minimum cosine similarity for stitching across z-slices.}
+\item{r}{Number of non-DC DCT modes.}
 
-\item{min_contact}{Minimum number of contacting voxels for z-stitch edges.}
+\item{gamma}{Reliability exponent used in feature edge distances.}
 
-\item{r}{Neighborhood radius for local feature extraction.}
-
-\item{gamma}{Gamma parameter for edge weighting.}
-
-\item{z_mult}{Optional z-axis edge multiplier passed to slice_msf (0-1).}
+\item{z_mult}{Optional axial sketch-smoothing fraction in \verb{[0, 1]}.}
 
 \item{min_size}{Minimum component size after connectivity enforcement. Default NULL (auto).}
+
+\item{seed}{Integer seed for multi-run DCT subspaces.}
+
+\item{ensemble_fraction}{Candidate-pool fraction for multi-run DCT subspaces.}
 
 \item{...}{Additional parameters passed to slice_msf}
 }

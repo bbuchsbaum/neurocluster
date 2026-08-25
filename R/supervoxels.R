@@ -92,6 +92,133 @@ init_cluster <- function(bvec, mask, coords, K, use_gradient = TRUE) {
 }
 
 
+# Maintain the exact-K invariant used by the iterative supervoxel fit. An
+# assignment step can empty a label even when K <= N. Empty labels are repaired
+# deterministically by moving a distinct voxel whose current assignment has the
+# largest combined feature/spatial loss. Donors are restricted to clusters with
+# at least two voxels, so repairing one label cannot empty another.
+.supervoxel_reseed_empty <- function(labels, feature_mat, coords, K,
+                                     alpha, sigma1, sigma2) {
+  labels <- as.integer(labels)
+  counts <- tabulate(labels, nbins = K)
+  empty_labels <- which(counts == 0L)
+  reseeded_voxels <- integer()
+
+  if (length(empty_labels) == 0L) {
+    return(list(
+      labels = labels,
+      counts = counts,
+      empty_labels = integer(),
+      reseeded_voxels = integer()
+    ))
+  }
+
+  for (empty_label in empty_labels) {
+    donor_voxels <- which(counts[labels] > 1L)
+    if (length(donor_voxels) == 0L) {
+      stop(
+        "supervoxels: exact-K reseeding is infeasible because no cluster has a spare voxel",
+        call. = FALSE
+      )
+    }
+
+    active_labels <- which(counts > 0L)
+    feature_centers <- matrix(0, nrow = nrow(feature_mat), ncol = K)
+    coord_centers <- matrix(0, nrow = ncol(coords), ncol = K)
+    for (cluster in active_labels) {
+      members <- which(labels == cluster)
+      feature_centers[, cluster] <- rowMeans(
+        feature_mat[, members, drop = FALSE]
+      )
+      coord_centers[, cluster] <- colMeans(
+        coords[members, , drop = FALSE]
+      )
+    }
+
+    donor_labels <- labels[donor_voxels]
+    feature_delta <- feature_mat[, donor_voxels, drop = FALSE] -
+      feature_centers[, donor_labels, drop = FALSE]
+    coord_delta <- t(coords[donor_voxels, , drop = FALSE]) -
+      coord_centers[, donor_labels, drop = FALSE]
+    feature_loss <- 1 - exp(
+      -colSums(feature_delta * feature_delta) / (2 * sigma1^2)
+    )
+    spatial_loss <- 1 - exp(
+      -colSums(coord_delta * coord_delta) / (2 * sigma2^2)
+    )
+    loss <- alpha * feature_loss + (1 - alpha) * spatial_loss
+
+    # which.max is deterministic and donor_voxels is sorted, so exact ties go
+    # to the lowest masked-voxel index.
+    chosen <- donor_voxels[which.max(loss)]
+    old_label <- labels[chosen]
+    labels[chosen] <- empty_label
+    counts[old_label] <- counts[old_label] - 1L
+    counts[empty_label] <- 1L
+    reseeded_voxels <- c(reseeded_voxels, chosen)
+  }
+
+  if (any(counts <= 0L) || length(unique(reseeded_voxels)) !=
+      length(reseeded_voxels)) {
+    stop("supervoxels: internal exact-K reseed invariant failed", call. = FALSE)
+  }
+
+  list(
+    labels = labels,
+    counts = counts,
+    empty_labels = as.integer(empty_labels),
+    reseeded_voxels = as.integer(reseeded_voxels)
+  )
+}
+
+
+.supervoxel_center_state <- function(labels, feature_mat, coords, K,
+                                     alpha, sigma1, sigma2,
+                                     use_medoid = FALSE,
+                                     parallel = FALSE) {
+  repair <- .supervoxel_reseed_empty(
+    labels, feature_mat, coords, K, alpha, sigma1, sigma2
+  )
+  labels <- repair$labels
+
+  if (parallel && !use_medoid) {
+    center_result <- compute_centroids_parallel_fast(
+      labels - 1L, feature_mat, t(coords), as.integer(K)
+    )
+    feature_centers <- center_result$centers
+    coord_centers <- center_result$coord_centers
+    counts <- as.integer(center_result$counts)
+  } else {
+    centers <- compute_centroids(
+      feature_mat, coords, labels, medoid = use_medoid
+    )
+    center_ids <- suppressWarnings(as.integer(names(centers$center)))
+    if (length(center_ids) != K || anyNA(center_ids) ||
+        !setequal(center_ids, seq_len(K))) {
+      stop("supervoxels: center labels do not cover 1:K", call. = FALSE)
+    }
+    order_idx <- match(seq_len(K), center_ids)
+    feature_centers <- t(do.call(rbind, centers$center[order_idx]))
+    coord_centers <- t(do.call(rbind, centers$centroid[order_idx]))
+    counts <- tabulate(labels, nbins = K)
+  }
+
+  if (any(counts <= 0L) || length(counts) != K ||
+      ncol(feature_centers) != K || ncol(coord_centers) != K ||
+      any(!is.finite(feature_centers)) || any(!is.finite(coord_centers))) {
+    stop(
+      "supervoxels: center update violated the non-empty exact-K contract",
+      call. = FALSE
+    )
+  }
+
+  repair$counts <- counts
+  repair$centers <- unname(feature_centers)
+  repair$coord_centers <- unname(coord_centers)
+  repair
+}
+
+
 #' Fit Supervoxel Clusters
 #'
 #' Internal function that performs an iterative, spatially-constrained clustering
@@ -115,12 +242,28 @@ supervoxel_cluster_fit <- function(feature_mat,
                                    parallel = TRUE,
                                    grain_size = 100,
                                    verbose = FALSE,
-                                   converge_thresh = 0.001) {
+                                   converge_thresh = 0.001,
+                                   trace = FALSE) {
 
   # Early parameter validation
   nvox <- nrow(coords)
   if (nvox == 0) {
     stop("No voxels to cluster (coords has 0 rows)")
+  }
+  if (!is.matrix(feature_mat) || ncol(feature_mat) != nvox ||
+      any(!is.finite(feature_mat))) {
+    stop("feature_mat must be a finite feature-by-voxel matrix")
+  }
+  if (!is.matrix(coords) || ncol(coords) < 1L || ncol(coords) > 3L ||
+      any(!is.finite(coords))) {
+    stop("coords must be a finite voxel-by-dimension matrix with 1 to 3 columns")
+  }
+  coord_dimensions <- ncol(coords)
+  if (coord_dimensions < 3L) {
+    coords <- cbind(
+      coords,
+      matrix(0, nrow = nvox, ncol = 3L - coord_dimensions)
+    )
   }
   
   if (K <= 0) {
@@ -136,7 +279,11 @@ supervoxel_cluster_fit <- function(feature_mat,
     return(list(
       clusters = seq_len(nvox),
       centers = t(feature_mat),
-      coord_centers = coords
+      coord_centers = coords[, seq_len(coord_dimensions), drop = FALSE],
+      counts = rep.int(1L, nvox),
+      parallel_used = FALSE,
+      reseed_events = list(),
+      iteration_trace = list()
     ))
   }
   
@@ -157,6 +304,9 @@ supervoxel_cluster_fit <- function(feature_mat,
   assert_that(alpha >= 0 && alpha <= 1)
   assert_that(iterations > 0)
   assert_that(converge_thresh > 0)
+  assert_that(is.flag(parallel))
+  assert_that(is.flag(trace))
+  assert_that(length(grain_size) == 1L, is.finite(grain_size), grain_size > 0)
 
   # Center and scale the feature matrix
   feature_mat <- base::scale(feature_mat, center = TRUE, scale = TRUE)
@@ -246,25 +396,6 @@ supervoxel_cluster_fit <- function(feature_mat,
     cluster_mapping <- setNames(1:length(clusid), clusid)
     curclus <- cluster_mapping[as.character(kres$cluster)]
 
-    # Reorder centers to match the remapped cluster IDs
-    # kres$centers rows correspond to original cluster IDs, need to reorder
-    centers_reordered <- kres$centers[clusid, , drop = FALSE]
-
-    # Seeds are the nearest grid points to the reordered cluster centers
-    # (Use k-means centers, which may have shifted from initial gradient seeds)
-    seeds <- FNN::get.knnx(coords, centers_reordered, k = 1)$nn.index[, 1]
-    sp_centroids <- coords[seeds, , drop = FALSE]  # K x 3 matrix
-
-    # Compute feature centroids as cluster AVERAGES, not seed voxels.
-    # Vectorized implementation is substantially faster than looping over K.
-    counts <- tabulate(curclus, nbins = K)
-    cluster_sums <- rowsum(t(feature_mat), factor(curclus, levels = seq_len(K)), reorder = TRUE)
-    num_centroids <- t(cluster_sums / pmax(counts, 1))
-
-    # Transpose both to match C++ expectations: (dims x K) for both
-    sp_centroids <- t(sp_centroids)  # Now 3 x K
-    # num_centroids is already features x K, no transpose needed
-
   } else {
     # Use user-supplied initclus
     assert_that(length(initclus) == nvox)
@@ -276,12 +407,19 @@ supervoxel_cluster_fit <- function(feature_mat,
     cluster_mapping <- setNames(1:length(clusid), clusid)
     curclus <- cluster_mapping[as.character(initclus)]
 
-    # compute_centroids is presumably your function returning
-    # the numeric/data centroid and spatial centroid for each cluster
-    centroids <- compute_centroids(feature_mat, coords, curclus, medoid = use_medoid)
-    sp_centroids <- t(do.call(rbind, centroids$centroid))  # Transpose to get 3 x K
-    num_centroids <- t(do.call(rbind, centroids$center))   # Transpose to get features x K
   }
+
+  use_parallel_assignment <- parallel && nvox > 1000L
+  use_parallel_centers <- parallel && nvox > 1000L && K > 50L
+  center_state <- .supervoxel_center_state(
+    curclus, feature_mat, coords, K, alpha, sigma1, sigma2,
+    use_medoid = use_medoid,
+    parallel = use_parallel_centers
+  )
+  curclus <- center_state$labels
+  cluster_counts <- center_state$counts
+  num_centroids <- center_state$centers
+  sp_centroids <- center_state$coord_centers
 
   # Find connectivity-based neighbors
   neib <- FNN::get.knn(coords, k = connectivity)
@@ -306,6 +444,8 @@ supervoxel_cluster_fit <- function(feature_mat,
   newclus <- curclus
   prev_switches <- Inf
   no_improvement_count <- 0
+  reseed_events <- list()
+  iteration_trace <- list()
   
   # FIX 1: Removed cheap_iters - use full alpha from iteration 1
 
@@ -322,8 +462,7 @@ supervoxel_cluster_fit <- function(feature_mat,
   }
   bin_expand <- if (K < 10 || nvox < 5000) 2L else 1L
 
-  use_parallel_assignment <- parallel && nvox > 1000
-  grain_size_eff <- max(1024L, as.integer(nvox / 32L))
+  grain_size_eff <- as.integer(grain_size)
 
   while (iter <= iter.max && switches > 0) {
     # FIX 1: Always use full alpha (no more cheap_iters strategy)
@@ -338,7 +477,7 @@ supervoxel_cluster_fit <- function(feature_mat,
     if (use_parallel_assignment) {
       newclus_0based <- fused_assignment_parallel_binned(
         nn_indices, nn_dist, curclus_0based,
-        coords_t, num_centroids, sp_centroids, feature_mat,
+        coords_t, num_centroids, sp_centroids, cluster_counts, feature_mat,
         dthresh, sigma1, sigma2, current_alpha,
         grain_size = grain_size_eff,
         window_factor = window_factor,
@@ -348,49 +487,45 @@ supervoxel_cluster_fit <- function(feature_mat,
       # Even sequential mode benefits from spatial binning
       newclus_0based <- fused_assignment_binned(
         nn_indices, nn_dist, curclus_0based,
-        coords_t, num_centroids, sp_centroids, feature_mat,
+        coords_t, num_centroids, sp_centroids, cluster_counts, feature_mat,
         dthresh, sigma1, sigma2, current_alpha,
         window_factor = window_factor,
         bin_expand = bin_expand
       )
     }
 
-    # Convert back to 1-based for R
-    newclus <- newclus_0based + 1L
-    
-    # Compute switches in R to avoid atomic contention in parallel C++ code
-    switches <- sum(newclus != curclus)
+    assigned <- newclus_0based + 1L
+    center_state <- .supervoxel_center_state(
+      assigned, feature_mat, coords, K, alpha, sigma1, sigma2,
+      use_medoid = use_medoid,
+      parallel = use_parallel_centers
+    )
+    newclus <- center_state$labels
+    cluster_counts <- center_state$counts
+    num_centroids <- center_state$centers
+    sp_centroids <- center_state$coord_centers
 
-    if (switches > 0) {
-      # Get actual number of unique clusters (may be less than K)
-      n_actual_clusters <- length(unique(newclus))
-      
-      # Use fast parallel centroid computation
-      if (parallel && nvox > 1000 && n_actual_clusters > 50) {
-        cent_result <- compute_centroids_parallel_fast(
-          as.integer(newclus - 1L), feature_mat, coords_t, as.integer(K)
-        )
-        num_centroids <- cent_result$centers
-        sp_centroids <- cent_result$coord_centers
-      } else {
-        # Fallback to sequential computation for small problems
-        centroids <- compute_centroids(feature_mat, coords, newclus, medoid = use_medoid)
-        center_ids <- suppressWarnings(as.integer(names(centroids$center)))
-        if (anyNA(center_ids)) {
-          center_ids <- seq_along(centroids$center)
-        }
-        temp_num <- matrix(0, nrow = nrow(feature_mat), ncol = K)
-        temp_sp  <- matrix(0, nrow = 3, ncol = K)
-        for (idx in seq_along(centroids$center)) {
-          cid <- center_ids[idx]
-          if (cid < 1 || cid > K) next
-          temp_num[, cid] <- centroids$center[[idx]]
-          temp_sp[, cid]  <- centroids$centroid[[idx]]
-        }
-        num_centroids <- temp_num
-        sp_centroids  <- temp_sp
-      }
-      curclus <- newclus
+    if (length(center_state$empty_labels) > 0L) {
+      reseed_events[[length(reseed_events) + 1L]] <- list(
+        iteration = as.integer(iter),
+        labels = center_state$empty_labels,
+        voxels = center_state$reseeded_voxels
+      )
+    }
+
+    # Reseeding is part of the assignment transition, so convergence cannot
+    # accept a state with absent labels.
+    switches <- sum(newclus != curclus)
+    curclus <- newclus
+    if (trace) {
+      iteration_trace[[length(iteration_trace) + 1L]] <- list(
+        iteration = as.integer(iter),
+        counts = cluster_counts,
+        n_feature_centers = as.integer(ncol(num_centroids)),
+        n_coord_centers = as.integer(ncol(sp_centroids)),
+        empty_labels = center_state$empty_labels,
+        reseeded_voxels = center_state$reseeded_voxels
+      )
     }
 
     # Check for convergence
@@ -436,7 +571,11 @@ supervoxel_cluster_fit <- function(feature_mat,
   list(
     clusters = curclus,
     centers = t(num_centroids),
-    coord_centers = t(sp_centroids)
+    coord_centers = t(sp_centroids)[, seq_len(coord_dimensions), drop = FALSE],
+    counts = cluster_counts,
+    parallel_used = use_parallel_assignment,
+    reseed_events = reseed_events,
+    iteration_trace = iteration_trace
   )
 }
 
@@ -520,8 +659,10 @@ knn_shrink <- function(bvec, mask, k = 5, connectivity = 27) {
 #' @return A \code{list} (of class \code{cluster_result}) with elements:
 #'   \item{clusvol}{\code{ClusteredNeuroVol} containing the final clustering.}
 #'   \item{cluster}{Integer vector of cluster assignments for each voxel.}
-#'   \item{centers}{Matrix of cluster centers in feature space.}
-#'   \item{coord_centers}{Matrix of cluster spatial centroids.}
+#'   \item{centers}{K-by-T matrix of final cluster means in the original feature space.}
+#'   \item{coord_centers}{K-by-3 matrix of final spatial means in physical units.}
+#'   \item{metadata}{Algorithm diagnostics, including whether parallel assignment
+#'     was requested and used and any deterministic empty-label reseeds.}
 #'
 #' @importFrom neuroim2 series
 #' @export
@@ -549,52 +690,22 @@ knn_shrink <- function(bvec, mask, k = 5, connectivity = 27) {
 #' }
 #'
 #' @details
-#' ## Parallelization Status
-#' 
-#' **NOW PARALLELIZED with RcppParallel!** The supervoxels algorithm can now run
-#' cluster assignment updates in parallel across multiple CPU cores.
-#' 
-#' ### Parallel Operations:
-#' 
-#' 1. **Heat Kernel Computation**: Parallel across voxels using RcppParallel
-#'    - Each voxel's best cluster assignment computed independently
-#'    - Automatic load balancing with configurable grain size
-#'    - Scales linearly with number of CPU cores
-#' 
-#' 2. **Sequential Operations** (still):
-#'    - Initialization (K-means or gradient-based seed selection)
-#'    - Centroid updates after each iteration
-#'    - Convergence checking between iterations
-#' 
-#' ### Performance Characteristics:
-#' 
-#' - **Speedup**: Typically 2-8x faster on multicore systems
-#' - **Automatic optimization**: Disabled for small datasets (<1000 voxels)
-#' - **Memory overhead**: Minimal - uses shared memory via RcppParallel
-#' - **Computational complexity**: Still O(N x K x iterations) but parallelized over N
-#' 
-#' ### Parallel Configuration:
-#' 
-#' - **parallel**: Set to FALSE to force sequential execution
-#' - **grain_size**: Controls work distribution (default 100)
-#'   - Smaller values = better load balancing but more overhead
-#'   - Larger values = less overhead but potential imbalance
-#' - **Thread control**: Set threads via `RcppParallel::setThreadOptions()`
-#' 
-#' ### When Parallelization Helps Most:
-#' 
-#' - Large numbers of voxels (N > 10,000)
-#' - Many clusters (K > 100)
-#' - Multiple iterations needed for convergence
-#' - Systems with 4+ CPU cores
-#' 
-#' ### Performance Tips:
-#' 
-#' - **Set threads**: `RcppParallel::setThreadOptions(numThreads = 4)`
-#' - **Tune grain_size**: Start with nvoxels/nthreads/10
-#' - **Monitor CPU usage**: Should see near 100% on all cores during updates
-#' - **Memory considerations**: Parallel version uses slightly more RAM
-#' - **Disable for debugging**: Set `parallel = FALSE` for reproducible debugging
+#' ## Exact-K and parallel contracts
+#'
+#' Every assignment center must have a positive membership count. If an update
+#' empties one or more labels, distinct voxels are deterministically moved from
+#' non-singleton clusters in descending combined feature/spatial loss order.
+#' Empty all-zero centers are therefore never passed to an assignment kernel.
+#' Since `K <= N` is required, this reseed policy is feasible and the returned
+#' labels, center rows, and requested K agree on every convergence path.
+#'
+#' With `parallel = TRUE`, voxel assignment uses RcppParallel when there are
+#' more than 1000 included voxels; smaller inputs use the same sequential
+#' scoring kernel. Parallel and sequential kernels implement the same scoring
+#' and deterministic tie rule. Centroid reduction may also run in parallel for
+#' sufficiently large K. `metadata$algorithm$parallel_used` reports whether the
+#' parallel assignment path actually ran. No architecture-specific fallback is
+#' applied.
 #'
 #' @param num_threads Optional integer to override the number of threads used by
 #'   RcppParallel (defaults to package/global setting). Ignored if `parallel = FALSE`.
@@ -625,14 +736,6 @@ supervoxels <- function(bvec, mask,
   mask.idx <- which(mask > 0)
   if (length(mask.idx) == 0) {
     stop("No nonzero voxels in mask.")
-  }
-
-  # Safety fallback: on Apple Silicon, fused_assignment_parallel_binned has
-  # occasionally crashed (bus error) with parallel=TRUE. Disable parallel on
-  # that platform unless user explicitly forces it.
-  if (parallel && grepl("aarch64.*darwin", R.version$platform)) {
-    if (verbose) message("supervoxels: disabling parallel on aarch64-darwin for stability")
-    parallel <- FALSE
   }
 
   # Thread control for RcppParallel
@@ -706,17 +809,6 @@ supervoxels <- function(bvec, mask,
     spacing = spacing(mask)
   )
   
-  # If centers from fit don't match actual clusters, recompute to ensure consistency
-  actual_k <- length(unique(ret$clusters))
-  centers_meta <- ret$centers
-  coord_meta <- ret$coord_centers
-  if (is.null(centers_meta) || nrow(centers_meta) != actual_k ||
-      is.null(coord_meta)   || nrow(coord_meta)   != actual_k) {
-    recomputed <- compute_cluster_centers(ret$clusters, feature_mat_vox, coords, method = "mean")
-    centers_meta <- recomputed$centers
-    coord_meta   <- recomputed$coord_centers
-  }
-
   # Create standardized result
   result <- create_cluster4d_result(
     labels = ret$clusters,
@@ -737,10 +829,16 @@ supervoxels <- function(bvec, mask,
       converge_thresh = converge_thresh
     ),
     metadata = list(
-      centers = centers_meta,
-      coord_centers = coord_meta
+      algorithm = list(
+        exact_k_policy = "deterministic_distinct_farthest_loss_reseed",
+        parallel_requested = parallel,
+        parallel_used = ret$parallel_used,
+        reseed_events = ret$reseed_events
+      )
     ),
-    compute_centers = FALSE  # we supply centers via metadata
+    # Public centers are means in the original input space, recomputed from the
+    # final repaired labels rather than exposing scaled working centers.
+    compute_centers = TRUE
   )
   
   # Ensure backward compatibility with old class

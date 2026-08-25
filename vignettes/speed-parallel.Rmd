@@ -86,13 +86,15 @@ run_and_time <- function(tag, fn) {
 }
 
 elapsed <- c(
-  snic = run_and_time("snic", function() snic(toy$vec, toy$mask, K = 3, compactness = 3, max_iter = 3)),
+  snic = run_and_time("snic", function() snic(
+    toy$vec, toy$mask, K = 3, compactness = 3
+  )),
   slice_msf = run_and_time("slice_msf", function() slice_msf(toy$vec, toy$mask,
                                                             target_k_global = 3,
                                                             r = 8, min_size = 6,
                                                             compactness = 3,
                                                             num_runs = 1,
-                                                            stitch_z = FALSE)),
+                                                            stitch_z = TRUE)),
   supervoxels = run_and_time("supervoxels", function() supervoxels(toy$vec, toy$mask,
                                                                   K = 3,
                                                                   alpha = 0.6,

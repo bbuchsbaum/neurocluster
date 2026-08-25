@@ -59,7 +59,7 @@ create_benchmark_data <- function(dims, n_time, seed = 123) {
   vec_list <- lapply(1:n_time, function(t) {
     vol_data <- array(0, dims)
     vol_data[mask_array] <- ts_data[, t]
-    NeuroVol(vol_data, NeuroSpace(dims))
+    NeuroVol(vol_data, NeuroSpace(dims, c(3, 3, 3)))
   })
   vec <- do.call(concat, vec_list)
   

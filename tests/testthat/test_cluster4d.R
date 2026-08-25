@@ -80,8 +80,12 @@ test_that("cluster4d works with all methods", {
       skip(paste("Skipping", method, "- C++ implementation not available"))
     }
     
-    result <- cluster4d(vec, mask, n_clusters = 10, method = method,
-                       max_iterations = 2, verbose = FALSE)
+    args <- list(
+      vec = vec, mask = mask, n_clusters = 10, method = method,
+      verbose = FALSE
+    )
+    if (!method %in% c("snic", "slice_msf")) args$max_iterations <- 2
+    result <- do.call(cluster4d, args)
     
     # Check result structure
     expect_s3_class(result, "cluster4d_result")
@@ -116,10 +120,13 @@ test_that("parameter mapping works correctly", {
   expect_null(params_supervoxels$K)
   
   params_snic <- neurocluster:::map_cluster4d_params("snic", 
-                                      K = 50, compactness = 5, max_iter = 10)
+                                      K = 50, compactness = 5)
   expect_equal(params_snic$n_clusters, 50)
   expect_equal(params_snic$spatial_weight, 0.5)  # compactness/10
-  expect_equal(params_snic$max_iterations, 10)
+  expect_error(
+    neurocluster:::map_cluster4d_params("snic", max_iter = 10),
+    "not supported"
+  )
   
   params_flash <- neurocluster:::map_cluster4d_params("flash3d",
                                        K = 75, lambda_s = 0.8, rounds = 3)
@@ -155,8 +162,9 @@ test_that("cluster4d S3 methods work", {
                                 NeuroSpace(c(8, 8, 4))), simplify=FALSE)
   vec <- do.call(concat, vec)
   
-  result <- cluster4d(vec, mask, n_clusters = 5, method = "snic",
-                     max_iterations = 1, verbose = FALSE)
+  result <- cluster4d(
+    vec, mask, n_clusters = 5, method = "snic", verbose = FALSE
+  )
   
   # Test print method
   output <- capture.output(print(result))
@@ -184,21 +192,28 @@ test_that("compare_cluster4d works with multiple results", {
   vec <- do.call(concat, vec)
   
   # Create two results with different methods
-  result1 <- cluster4d(vec, mask, n_clusters = 5, method = "snic",
-                      max_iterations = 1, verbose = FALSE)
+  result1 <- cluster4d(
+    vec, mask, n_clusters = 5, method = "snic", verbose = FALSE
+  )
   
   # Use a different method or parameters for result2
-  result2 <- cluster4d(vec, mask, n_clusters = 8, method = "snic",
-                      spatial_weight = 0.8, max_iterations = 1, verbose = FALSE)
+  result2 <- cluster4d(
+    vec, mask, n_clusters = 8, method = "snic",
+    spatial_weight = 0.8, verbose = FALSE
+  )
   
   # Compare results
   comparison <- compare_cluster4d(result1, result2, 
-                                 metrics = c("summary", "temporal_coherence"))
+                                 metrics = c("summary", "temporal_coherence"),
+                                 feature_mat = neurocluster:::.cluster4d_original_data(
+                                   vec, mask, "test_compare_cluster4d"
+                                 )$features)
   
   expect_s3_class(comparison, "data.frame")
   expect_equal(nrow(comparison), 2)
   expect_true("N_Clusters" %in% names(comparison))
   expect_true("Mean_Size" %in% names(comparison))
+  expect_true("Temporal_Pairwise_Correlation" %in% names(comparison))
 })
 
 test_that("initialization methods work correctly", {
@@ -259,7 +274,11 @@ test_that("backward compatibility is maintained", {
   
   # Test that old function names still work (skip if not available)
   if (exists("snic")) {
-    result_old <- snic(vec, mask, K = 5, compactness = 5, max_iter = 1)
+    expect_error(
+      snic(vec, mask, K = 5, compactness = 5, max_iter = 1),
+      "not supported"
+    )
+    result_old <- snic(vec, mask, K = 5, compactness = 5)
   } else {
     skip("Original snic function not available")
   }
@@ -271,8 +290,9 @@ test_that("backward compatibility is maintained", {
   expect_true("cluster" %in% names(result_old))
   
   # New unified interface should produce compatible results
-  result_new <- cluster4d(vec, mask, n_clusters = 5, method = "snic",
-                         spatial_weight = 0.5, max_iterations = 1)
+  result_new <- cluster4d(
+    vec, mask, n_clusters = 5, method = "snic", spatial_weight = 0.5
+  )
   
   # Both should have the same essential components
   expect_equal(length(result_old$cluster), length(result_new$cluster))

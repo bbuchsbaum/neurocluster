@@ -81,13 +81,12 @@ run_one <- function(m) {
   args <- list(vec = toy$vec, mask = toy$mask, n_clusters = 3, method = m)
   if (m == "snic") {
     args$compactness <- 3
-    args$max_iterations <- 5
   } else if (m == "slice_msf") {
     args$r <- 8
     args$min_size <- 5
     args$compactness <- 3
     args$num_runs <- 1
-    args$stitch_z <- FALSE
+    args$stitch_z <- TRUE
   } else if (m == "supervoxels") {
     args$alpha <- 0.6
     args$connectivity <- 6
@@ -105,11 +104,16 @@ results_ok <- Filter(Negate(is.null), results)
 if (!exists("results_ok", inherits = TRUE)) {
   methods <- c("snic", "slice_msf", "supervoxels")
   run_one <- function(m) {
-    # Simple fallback with default parameters
-    out <- try(cluster4d(toy$vec, toy$mask,
-                         n_clusters = 3, method = m,
-                         max_iterations = 5),
-               silent = TRUE)
+    args <- list(
+      vec = toy$vec, mask = toy$mask, n_clusters = 3, method = m
+    )
+    if (m == "slice_msf") {
+      args$num_runs <- 1
+      args$stitch_z <- TRUE
+    } else if (m == "supervoxels") {
+      args$max_iterations <- 5
+    }
+    out <- try(do.call(cluster4d, args), silent = TRUE)
     if (inherits(out, "try-error")) NULL else out
   }
   results <- setNames(lapply(methods, run_one), methods)

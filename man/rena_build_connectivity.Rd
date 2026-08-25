@@ -4,9 +4,19 @@
 \alias{rena_build_connectivity}
 \title{Build connectivity graph for ReNA}
 \usage{
-rena_build_connectivity(coords, mask, connectivity)
+rena_build_connectivity(mask, mask_idx, connectivity)
+}
+\arguments{
+\item{mask}{A three-dimensional \code{NeuroVol} mask.}
+
+\item{mask_idx}{Included linear indices in canonical mask order.}
+
+\item{connectivity}{Grid connectivity: 6, 18, or 26.}
+}
+\value{
+A symmetric sparse adjacency matrix in masked-voxel order.
 }
 \description{
-Creates sparse adjacency matrix based on spatial connectivity.
+Creates exact sparse masked-grid adjacency.
 }
 \keyword{internal}

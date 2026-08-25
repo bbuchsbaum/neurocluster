@@ -9,7 +9,7 @@ er_ml_rena(bvec, mask, ...)
 \arguments{
 \item{bvec}{A \code{NeuroVec} providing voxel time-series.}
 
-\item{mask}{A \code{NeuroVol} mask; non-zero voxels are included.}
+\item{mask}{A \code{NeuroVol} mask; finite positive voxels are included.}
 
 \item{...}{Reserved for future options.}
 }

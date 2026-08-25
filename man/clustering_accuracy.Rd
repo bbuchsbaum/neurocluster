@@ -12,34 +12,43 @@ clustering_accuracy(predicted, truth)
 \item{truth}{Integer vector of ground truth cluster assignments}
 }
 \value{
-A list with:
-\item{ari}{Adjusted Rand Index (-1 to 1, 1 = perfect)}
-\item{nmi}{Normalized Mutual Information (0 to 1, 1 = perfect)}
-\item{accuracy}{Best accuracy after optimal label matching (0 to 1)}
-\item{n_predicted}{Number of unique predicted clusters}
-\item{n_truth}{Number of unique ground truth clusters}
-\item{perfect}{Logical: TRUE if clustering is perfect (ARI = 1)}
+A list with adjusted Rand index (\code{ari}), variation of information
+in bits (\code{variation_of_information_bits}), pairwise Dice
+(\code{pairwise_dice}), arithmetic normalized mutual information (\code{nmi}),
+exact maximum one-to-one label-matched accuracy (\code{matched_accuracy}),
+its compatibility alias \code{accuracy}, partition counts, and a
+permutation-invariant \code{perfect} flag.
 }
 \description{
 Compares predicted cluster assignments against ground truth using multiple
 metrics that are invariant to cluster label permutation.
 }
 \details{
-Three complementary metrics are computed:
+The metrics compare the two induced equivalence relations; cluster names do
+not need to match. All observations are included, including a label of zero.
+Missing or non-finite labels are rejected rather than silently removed.
+Computation uses only observed contingency cells and is linear in the number
+of observations for singleton-heavy partitions.
 
 \strong{Adjusted Rand Index (ARI):}
 Measures agreement between two clusterings, adjusted for chance.
 ARI = 1 means perfect agreement, ARI = 0 means random, ARI < 0 means
 worse than random.
 
-\strong{Normalized Mutual Information (NMI):}
-Information-theoretic measure of clustering similarity.
-NMI = 1 means perfect agreement, NMI = 0 means independent.
+\strong{Variation of information (VI):}
+The sum of the two conditional entropies, measured with base-2 logarithms.
+VI is zero exactly for identical partitions and increases with disagreement.
 
-\strong{Accuracy:}
-Fraction of correctly assigned voxels after finding optimal
-correspondence between predicted and true labels using the
-Hungarian algorithm.
+\strong{Pairwise Dice:}
+\code{2 * TP / (2 * TP + FP + FN)} over unordered pairs of observations,
+where a positive pair is co-clustered. If both partitions contain only
+singleton clusters, their pairwise Dice is defined as one.
+
+\strong{Matched accuracy:}
+The greatest fraction of matched observations under a one-to-one mapping
+between predicted and truth labels. It is solved exactly on the sparse
+observed contingency graph. \code{accuracy} is retained as an alias for existing
+callers; it is not the former greedy approximation.
 }
 \examples{
 # Perfect clustering

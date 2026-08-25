@@ -1,200 +1,289 @@
-#' Handle Zero-Variance Voxels
+#' Prepare commute-clustering features under an explicit bad-voxel policy
 #'
-#' Internal helper to replace zero-variance or NA voxels with small noise.
-#' Uses a local seed to avoid affecting the global RNG state.
-#'
-#' @param X Numeric matrix (timepoints x voxels)
-#' @param seed Optional seed for reproducibility. If NULL, uses non-deterministic noise.
-#' @return Cleaned matrix
 #' @keywords internal
 #' @noRd
-handle_bad_voxels <- function(X, seed = NULL) {
-  csds <- matrixStats::colSds(X)
-  bad <- which(is.na(csds) | csds < 1e-9)
-
-  if (length(bad) > 0) {
-    warning(sprintf(
-      "commute_cluster: %d voxels have zero variance or NA. Injecting small noise to avoid singularity.",
-      length(bad)
-    ))
-
-    # Use seed if provided for reproducibility
-    if (!is.null(seed)) {
-      old_seed <- if (exists(".Random.seed", envir = .GlobalEnv)) {
-        get(".Random.seed", envir = .GlobalEnv)
-      } else {
-        NULL
-      }
-      on.exit({
-        if (!is.null(old_seed)) {
-          assign(".Random.seed", old_seed, envir = .GlobalEnv)
-        }
-      }, add = TRUE)
-      set.seed(seed)
-    }
-
-    X[, bad] <- matrix(rnorm(length(bad) * nrow(X), sd = 0.01), nrow(X), length(bad))
+.commute_prepare_features <- function(features,
+                                      bad_voxel_policy = c("error", "zero_constant"),
+                                      variance_tol = 1e-9) {
+  bad_voxel_policy <- match.arg(bad_voxel_policy)
+  variance_tol <- .cluster4d_scalar_number(
+    variance_tol, "variance_tol", "commute_cluster", lower = 0
+  )
+  if (!is.matrix(features) || !is.numeric(features) || nrow(features) < 1L ||
+      ncol(features) < 1L) {
+    stop("commute_cluster: features must be a non-empty numeric matrix",
+         call. = FALSE)
   }
 
-  X
+  nonfinite <- which(rowSums(!is.finite(features)) > 0L)
+  if (length(nonfinite)) {
+    stop(
+      "commute_cluster: non-finite data in masked voxel(s): ",
+      paste(head(nonfinite, 10L), collapse = ", "),
+      if (length(nonfinite) > 10L) " ..." else "",
+      "; NA/Inf values are never silently imputed",
+      call. = FALSE
+    )
+  }
+
+  centered <- features - rowMeans(features)
+  variances <- if (ncol(features) > 1L) {
+    rowSums(centered * centered) / (ncol(features) - 1L)
+  } else {
+    rep(0, nrow(features))
+  }
+  constant <- which(variances <= variance_tol^2)
+  if (length(constant) && identical(bad_voxel_policy, "error")) {
+    stop(
+      "commute_cluster: ", length(constant),
+      " masked voxel(s) have variance at or below variance_tol; ",
+      "use bad_voxel_policy='zero_constant' for deterministic zero features",
+      call. = FALSE
+    )
+  }
+
+  scales <- sqrt(variances)
+  good <- scales > variance_tol
+  standardized <- matrix(0, nrow(features), ncol(features))
+  if (any(good)) {
+    standardized[good, ] <- centered[good, , drop = FALSE] / scales[good]
+  }
+  if (any(!is.finite(standardized))) {
+    stop("commute_cluster: standardization produced non-finite features",
+         call. = FALSE)
+  }
+
+  list(
+    features = standardized,
+    provenance = list(
+      policy = bad_voxel_policy,
+      nonfinite_policy = "error",
+      variance_tol = variance_tol,
+      constant_voxels = as.integer(constant),
+      constant_replacement = if (length(constant)) {
+        "zero standardized feature vector"
+      } else {
+        "none"
+      },
+      random_noise_injected = FALSE
+    )
+  )
 }
 
 
-#' Commute Time Clustering
+.commute_knn_graph <- function(coords, features, connectivity,
+                               alpha, spatial_sigma, feature_sigma,
+                               weight_mode = c("binary", "heat")) {
+  weight_mode <- match.arg(weight_mode)
+  n <- nrow(coords)
+  connectivity <- .cluster4d_scalar_number(
+    connectivity, "connectivity", "commute_cluster",
+    lower = 1, upper = n - 1L, integer = TRUE
+  )
+  if (!is.matrix(coords) || ncol(coords) != 3L ||
+      any(!is.finite(coords))) {
+    stop("commute_cluster: coords must be a finite N-by-3 matrix",
+         call. = FALSE)
+  }
+  if (!is.matrix(features) || nrow(features) != n ||
+      any(!is.finite(features))) {
+    stop("commute_cluster: features must be a finite N-row matrix",
+         call. = FALSE)
+  }
+
+  neighbors <- FNN::get.knn(coords, k = connectivity)
+  directed_i <- rep(seq_len(n), each = connectivity)
+  directed_j <- as.integer(t(neighbors$nn.index))
+  pairs <- cbind(
+    pmin(directed_i, directed_j),
+    pmax(directed_i, directed_j)
+  )
+  pairs <- unique(pairs[order(pairs[, 1L], pairs[, 2L]), , drop = FALSE])
+  left <- pairs[, 1L]
+  right <- pairs[, 2L]
+
+  if (identical(weight_mode, "binary")) {
+    weights <- rep(1, length(left))
+  } else {
+    spatial_d2 <- rowSums(
+      (coords[left, , drop = FALSE] - coords[right, , drop = FALSE])^2
+    )
+    feature_d2 <- rowSums(
+      (features[left, , drop = FALSE] - features[right, , drop = FALSE])^2
+    )
+    spatial_similarity <- exp(-spatial_d2 / (2 * spatial_sigma^2))
+    feature_similarity <- exp(-feature_d2 / (2 * feature_sigma^2))
+    weights <- (1 - alpha) * spatial_similarity + alpha * feature_similarity
+  }
+  if (any(!is.finite(weights)) || any(weights <= 0)) {
+    stop("commute_cluster: graph weights must be positive and finite",
+         call. = FALSE)
+  }
+
+  graph <- Matrix::sparseMatrix(
+    i = c(left, right),
+    j = c(right, left),
+    x = c(weights, weights),
+    dims = c(n, n)
+  )
+  components <- igraph::components(
+    igraph::graph_from_adjacency_matrix(
+      graph, mode = "undirected", weighted = TRUE, diag = FALSE
+    )
+  )
+  list(
+    graph = as(graph, "dgCMatrix"),
+    edges = pairs,
+    weights = weights,
+    components = as.integer(components$membership),
+    n_components = as.integer(components$no),
+    contract = "symmetric union of directed physical-coordinate k-nearest-neighbor edges"
+  )
+}
+
+
+.commute_spectral_embedding <- function(graph, ncomp,
+                                        eigen_tol = 1e-10) {
+  graph <- as(graph, "dgCMatrix")
+  n <- nrow(graph)
+  if (n < 2L || n != ncol(graph) || any(!is.finite(graph@x)) ||
+      any(graph@x < 0) || !Matrix::isSymmetric(graph, checkDN = FALSE)) {
+    stop("commute_cluster: graph must be finite, non-negative, symmetric, and at least 2-by-2",
+         call. = FALSE)
+  }
+  ncomp <- .cluster4d_scalar_number(
+    ncomp, "ncomp", "commute_cluster", lower = 1,
+    upper = n - 1L, integer = TRUE
+  )
+  eigen_tol <- .cluster4d_scalar_number(
+    eigen_tol, "eigen_tol", "commute_cluster", lower = 0
+  )
+  if (eigen_tol <= 0) {
+    stop("commute_cluster: eigen_tol must be positive", call. = FALSE)
+  }
+
+  degree <- Matrix::rowSums(graph)
+  if (any(degree <= 0)) {
+    stop("commute_cluster: graph contains isolated voxels", call. = FALSE)
+  }
+  laplacian <- diag(as.numeric(degree)) - as.matrix(graph)
+  decomposition <- eigen(laplacian, symmetric = TRUE)
+  order_idx <- order(decomposition$values)
+  values <- decomposition$values[order_idx]
+  vectors <- decomposition$vectors[, order_idx, drop = FALSE]
+  threshold <- max(
+    eigen_tol,
+    max(abs(values), 1) * .Machine$double.eps * n * 10
+  )
+  positive <- which(values > threshold)
+  zero_count <- sum(abs(values) <= threshold)
+  if (zero_count != 1L) {
+    stop(
+      "commute_cluster: k-nearest graph has ", zero_count,
+      " connected components; increase connectivity",
+      call. = FALSE
+    )
+  }
+  if (length(positive) < ncomp) {
+    stop(
+      "commute_cluster: ncomp exceeds the positive Laplacian eigenspace (",
+      length(positive), ")",
+      call. = FALSE
+    )
+  }
+  selected <- positive[seq_len(ncomp)]
+  volume <- sum(degree)
+  embedding <- sweep(
+    vectors[, selected, drop = FALSE],
+    2L, sqrt(values[selected]), "/"
+  ) * sqrt(volume)
+
+  list(
+    embedding = unname(embedding),
+    eigenvalues = unname(values[selected]),
+    eigenvectors = unname(vectors[, selected, drop = FALSE]),
+    laplacian = laplacian,
+    graph_volume = volume,
+    zero_eigenvalues = as.integer(zero_count)
+  )
+}
+
+
+.commute_initial_centers <- function(embedding, K) {
+  n <- nrow(embedding)
+  if (K == 1L) return(1L)
+  selected <- integer(K)
+  selected[1L] <- order(-rowSums(embedding * embedding), seq_len(n))[1L]
+  min_distance <- rep(Inf, n)
+  for (index in 2:K) {
+    latest <- selected[index - 1L]
+    distance <- rowSums(
+      (embedding - matrix(
+        embedding[latest, ], nrow = n, ncol = ncol(embedding), byrow = TRUE
+      ))^2
+    )
+    min_distance <- pmin(min_distance, distance)
+    min_distance[selected[seq_len(index - 1L)]] <- -Inf
+    selected[index] <- order(-min_distance, seq_len(n))[1L]
+  }
+  if (anyDuplicated(selected)) {
+    stop("commute_cluster: deterministic center initialization failed",
+         call. = FALSE)
+  }
+  selected
+}
+
+
+.commute_local_rng <- function(expression, seed = 1L) {
+  had_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  old_seed <- if (had_seed) get(".Random.seed", envir = .GlobalEnv) else NULL
+  on.exit({
+    if (had_seed) {
+      assign(".Random.seed", old_seed, envir = .GlobalEnv)
+    } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+      rm(".Random.seed", envir = .GlobalEnv)
+    }
+  }, add = TRUE)
+  set.seed(seed)
+  force(expression)
+}
+
+
+#' Commute-time clustering on a physical k-nearest-neighbor graph
 #'
-#' Performs spatially constrained clustering on a \code{NeuroVec} instance
-#' using commute time distance (spectral embedding) and K-means clustering.
+#' Builds an explicitly declared symmetric k-nearest-neighbor graph in physical
+#' coordinate space, computes a Laplacian commute-time embedding, and applies
+#' deterministically initialized k-means.
 #'
-#' @param bvec A \code{NeuroVec} instance supplying the data to cluster.
-#' @param mask A \code{NeuroVol} mask defining the voxels to include in the clustering result.
-#'   If the mask contains \code{numeric} data, nonzero values will define the included voxels.
-#'   If the mask is a \code{\link[neuroim2:LogicalNeuroVol-class]{LogicalNeuroVol}}, then \code{TRUE} will define the set
-#'   of included voxels.
-#' @param K The number of clusters to find. Default is 100.
-#' @param ncomp The number of components to use for the commute time embedding.
-#'   Default is the ceiling of \code{sqrt(K*2)}.
-#' @param alpha A numeric value controlling the balance between spatial and feature similarity.
-#'   Default is 0.5 (balanced). Range: 0 (spatial only) to 1 (feature only).
-#' @param sigma1 A numeric value controlling the spatial weighting function. Default is 0.73.
-#' @param sigma2 A numeric value controlling the feature weighting function. Default is 5.
-#' @param connectivity An integer representing the number of nearest neighbors to consider
-#'   when constructing the similarity graph. Default is 27 (full 3D neighborhood).
-#' @param weight_mode A character string indicating the type of weight function for the
-#'   similarity graph. Options are "binary" and "heat". Default is "heat".
-#' @param noise_seed Optional integer seed for reproducible noise injection when handling
-#'   zero-variance voxels. If NULL (default), uses non-deterministic noise.
-#'   **Note**: This only controls noise injection, not k-means initialization. For full
-#'   reproducibility, wrap the entire call in `set.seed()`.
-#' @param verbose Logical. If TRUE, print progress messages. Default is TRUE.
+#' @param bvec A NeuroVec or SparseNeuroVec supplying voxel features.
+#' @param mask A NeuroVol mask. Finite values strictly greater than zero are included.
+#' @param K Finite integer cluster count from one through the included voxel count.
+#' @param ncomp Finite integer embedding dimension from one through N - 1.
+#' @param alpha Feature-similarity weight from zero through one.
+#' @param sigma1 Positive physical-distance heat-kernel bandwidth.
+#' @param sigma2 Positive feature-distance heat-kernel bandwidth.
+#' @param connectivity Number of nearest physical neighbors per directed search.
+#'   The final undirected graph is the symmetric union of those directed edges;
+#'   this is not masked grid adjacency and may bridge mask holes.
+#' @param weight_mode `"binary"` or `"heat"` edge weights.
+#' @param bad_voxel_policy `"error"` (default), or `"zero_constant"` to map
+#'   finite zero-variance voxel series to deterministic zero standardized vectors.
+#'   NA and Inf always fail closed. No noise is injected.
+#' @param variance_tol Non-negative threshold defining a constant voxel series.
+#' @param eigen_tol Positive tolerance for the Laplacian zero eigenspace.
+#' @param verbose Logical; print progress.
 #'
-#' @return A \code{list} of class \code{commute_time_cluster_result} (inheriting from
-#'   \code{cluster_result}) with the following elements:
-#' \describe{
-#'   \item{clusvol}{An instance of type \link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}.}
-#'   \item{cluster}{A vector of cluster indices equal to the number of voxels in the mask.}
-#'   \item{centers}{A matrix of cluster centers (K x T) where T is the number of timepoints.}
-#'   \item{coord_centers}{A matrix of spatial coordinates (K x 3) with each row
-#'     corresponding to a cluster centroid.}
-#'   \item{embedding}{The spectral embedding coordinates (N x ncomp) from commute time distance.}
-#'   \item{n_clusters}{The number of clusters (same as K).}
-#'   \item{method}{Character string "commute_time".}
-#' }
+#' @return A `commute_time_cluster_result` with contiguous labels, K-by-T
+#'   original-space feature means, K-by-3 physical coordinate means, the N-by-ncomp
+#'   embedding, graph and spectral provenance, and explicit data-policy provenance.
+#' @details The implementation is deterministic. Any RNG initialization performed
+#'   inside `stats::kmeans()` is scoped to a fixed local seed, after which the
+#'   caller's prior RNG state (including absence of `.Random.seed`) is restored
+#'   exactly. It forms a dense Laplacian eigendecomposition,
+#'   requiring quadratic memory and cubic time; use only for small regions.
 #'
-#' @details
-#' ## Algorithm Overview
-#'
-#' Commute time clustering uses spectral graph theory to embed voxels into a lower-dimensional
-#' space where geodesic distances on the graph approximate commute times (expected random walk
-#' return times). This embedding respects both spatial proximity and feature similarity.
-#'
-#' The algorithm has three main steps:
-#'
-#' 1. **Graph Construction**: Build a weighted adjacency matrix combining spatial and
-#'    feature similarity using `neighborweights::weighted_spatial_adjacency()`.
-#'
-#' 2. **Spectral Embedding**: Compute commute time distances via eigendecomposition of
-#'    the graph Laplacian using `neighborweights::commute_time_distance()`.
-#'
-#' 3. **Clustering**: Apply k-means to the embedded coordinates.
-#'
-#' ## Scalability Warning
-#'
-#' **This method is computationally expensive and NOT recommended for whole-brain clustering.**
-#'
-#' - **Complexity**: O(N^3) for eigendecomposition where N = number of voxels
-#' - **Memory**: O(N^2) for adjacency matrix storage
-#' - **Practical limit**: ~10,000 voxels (ROI-based analysis)
-#' - **Whole-brain**: ~100,000+ voxels will likely crash or take hours
-#'
-#' For large-scale clustering, consider:
-#' - `slice_msf()`: Slice-based minimum spanning forests
-#' - `acsc()`: Adaptive correlation superclustering
-#' - `supervoxels()` or `snic()`: Iterative spatial methods
-#'
-#' ## Parallelization Status
-#'
-#' **Currently NOT explicitly parallelized.** The algorithm runs sequentially,
-#' but matrix operations may use multi-threaded BLAS/LAPACK libraries.
-#'
-#' ### Why Not Parallelized:
-#'
-#' - **External dependencies**: Uses `neighborweights` package functions
-#' - **Eigendecomposition**: Difficult to parallelize efficiently in R
-#' - **Already optimized**: BLAS/LAPACK typically use multiple threads automatically
-#' - **Bottleneck**: Eigendecomposition dominates runtime regardless of parallelization
-#'
-#' ### Performance Tips:
-#'
-#' - **Use optimized BLAS**: OpenBLAS, Intel MKL, or Apple Accelerate
-#' - **Reduce connectivity**: Smaller neighborhoods = sparser matrices (e.g., 6 or 18)
-#' - **Increase alpha**: Higher values emphasize features over space, reducing graph density
-#' - **Use fewer components**: Set `ncomp` lower (e.g., `ncomp = K/2`) for faster embedding
-#' - **Pre-filter voxels**: Remove low-variance voxels before clustering
-#' - **ROI analysis**: Apply to small regions of interest rather than whole brain
-#'
-#' ### Common Issues:
-#'
-#' **Eigenvalue Errors**: Often due to singular or near-singular weight matrices.
-#'
-#' Causes:
-#' - Duplicate or perfectly correlated time series
-#' - Disconnected graph components
-#' - Insufficient connectivity parameter
-#'
-#' Solutions:
-#' - Increase `connectivity` (e.g., 27 instead of 6)
-#' - Adjust `alpha` to balance spatial/feature weights
-#' - Use `noise_seed` for reproducible noise injection
-#' - Check for and remove constant voxels beforehand
-#'
-#' **Memory Errors**: Adjacency matrix requires O(N^2) memory.
-#'
-#' Solutions:
-#' - Reduce number of voxels (subsample or use smaller ROI)
-#' - Use alternative method for large N
-#'
-#' @examples
-#' \dontrun{
-#' # Small example with synthetic data
-#' library(neuroim2)
-#' mask <- NeuroVol(array(1, c(20, 20, 20)), NeuroSpace(c(20, 20, 20)))
-#' vec <- replicate(10, NeuroVol(array(runif(20*20*20), c(20, 20, 20)),
-#'   NeuroSpace(c(20, 20, 20))), simplify = FALSE)
-#' vec <- do.call(concat, vec)
-#'
-#' # Run clustering (8000 voxels - feasible for this method)
-#' commute_res <- commute_cluster(vec, mask, K = 50, verbose = TRUE)
-#'
-#' # Access results
-#' print(commute_res$n_clusters)
-#' plot(commute_res$clusvol)
-#' }
-#'
-#' \dontrun{
-#' # With reproducible noise injection (for zero-variance voxels)
-#' commute_res <- commute_cluster(vec, mask, K = 50, noise_seed = 42)
-#'
-#' # For full reproducibility (including k-means), use set.seed() wrapper
-#' set.seed(123)
-#' commute_res <- commute_cluster(vec, mask, K = 50, noise_seed = 42)
-#'
-#' # ROI-based analysis (recommended workflow)
-#' roi_mask <- mask  # In practice, use a smaller ROI
-#' roi_mask[1:10, , ] <- 0  # Reduce voxels
-#' commute_res <- commute_cluster(vec, roi_mask, K = 30)
-#' }
-#' @seealso
-#' \code{\link{snic}} for a faster non-iterative method
-#' \code{\link{slice_msf}} for scalable slice-based clustering
-#' \code{\link{acsc}} for large-scale correlation-based clustering
-#'
-#' @importFrom neuroim2 NeuroVec NeuroVol series index_to_coord ClusteredNeuroVol
-#' @importFrom matrixStats colSds
-#' @importFrom neighborweights weighted_spatial_adjacency commute_time_distance
+#' @importFrom neuroim2 ClusteredNeuroVol
 #' @importFrom stats kmeans
-#' @importFrom Matrix t isSymmetric
-#' @import assertthat
-#'
 #' @export
 commute_cluster <- function(bvec,
                             mask,
@@ -203,158 +292,165 @@ commute_cluster <- function(bvec,
                             alpha = 0.5,
                             sigma1 = 0.73,
                             sigma2 = 5,
-                            connectivity = 27,
+                            connectivity = 6L,
                             weight_mode = c("binary", "heat"),
-                            noise_seed = NULL,
-                            verbose = TRUE) {
-
-  # Validate inputs
-  weight_mode <- match.arg(weight_mode)
-  assertthat::assert_that(K > 0, msg = "K must be positive")
-  assertthat::assert_that(ncomp > 0, msg = "ncomp must be positive")
-  assertthat::assert_that(alpha >= 0 && alpha <= 1, msg = "alpha must be in [0, 1]")
-  assertthat::assert_that(connectivity > 0, msg = "connectivity must be positive")
-
-  # Extract mask indices and coordinates
-  mask.idx <- which(mask > 0)
-  n_voxels <- length(mask.idx)
-
-  if (n_voxels == 0) {
-    stop("Mask is empty. No voxels to cluster.")
-  }
-
-  # Scalability warning
-  if (n_voxels > 15000) {
-    warning(sprintf(
-      paste0(
-        "commute_cluster: Processing %d voxels. This method has O(N^3) complexity and O(N^2) memory.\n",
-        "  Expected runtime: Very slow (possibly hours)\n",
-        "  Memory required: ~%.1f GB\n",
-        "  Consider using slice_msf(), acsc(), or supervoxels() for large datasets."
-      ),
-      n_voxels,
-      (n_voxels^2 * 8) / 1e9  # Rough memory estimate in GB
-    ))
-  }
-
-  grid <- index_to_coord(mask, mask.idx)
-
-  if (verbose) {
-    message(sprintf("commute_cluster: Extracted %d voxels from mask", n_voxels))
-  }
-
-  # Extract feature matrix (timepoints x voxels)
-  feature_mat <- neuroim2::series(bvec, mask.idx)
-
-  # Handle zero-variance voxels
-  feature_mat <- handle_bad_voxels(feature_mat, seed = noise_seed)
-
-  # Scale features
-  feature_mat <- base::scale(feature_mat)
-
-  # Build adjacency graph
-  if (verbose) {
-    message("commute_cluster: Constructing weighted spatial adjacency graph...")
-  }
-
-  W <- neighborweights::weighted_spatial_adjacency(
-    grid,
-    t(feature_mat),  # neighborweights expects voxels x features
-    dthresh = sigma2 * 6,
-    nnk = connectivity,
-    wsigma = sigma1,
-    sigma = sigma2,
-    alpha = alpha,
-    weight_mode = weight_mode,
-    include_diagonal = FALSE,
-    stochastic = TRUE
+                            bad_voxel_policy = c("error", "zero_constant"),
+                            variance_tol = 1e-9,
+                            eigen_tol = 1e-10,
+                            verbose = FALSE) {
+  caller_had_seed <- exists(
+    ".Random.seed", envir = .GlobalEnv, inherits = FALSE
   )
+  caller_seed <- if (caller_had_seed) {
+    get(".Random.seed", envir = .GlobalEnv)
+  } else {
+    NULL
+  }
+  on.exit({
+    if (caller_had_seed) {
+      assign(".Random.seed", caller_seed, envir = .GlobalEnv)
+    } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+      rm(".Random.seed", envir = .GlobalEnv)
+    }
+  }, add = TRUE)
 
-  # Ensure symmetry (only if needed to avoid unnecessary computation)
-  sym_ok <- if (inherits(W, "Matrix")) Matrix::isSymmetric(W, checkDN = FALSE) else isSymmetric(W)
-  if (!sym_ok) {
-    if (verbose) {
-      message("commute_cluster: Symmetrizing adjacency matrix...")
-    }
-    # Handle sparse matrices efficiently
-    if (inherits(W, "Matrix")) {
-      W <- (W + Matrix::t(W)) / 2
-    } else {
-      W <- (W + t(W)) / 2
-    }
+  input <- validate_cluster4d_inputs(bvec, mask, K, "commute_cluster")
+  K <- input$n_clusters
+  n <- input$n_voxels
+  if (n < 2L) {
+    stop("commute_cluster: at least two masked voxels are required",
+         call. = FALSE)
+  }
+  ncomp <- .cluster4d_scalar_number(
+    ncomp, "ncomp", "commute_cluster", lower = 1,
+    upper = n - 1L, integer = TRUE
+  )
+  alpha <- .cluster4d_scalar_number(
+    alpha, "alpha", "commute_cluster", lower = 0, upper = 1
+  )
+  sigma1 <- .cluster4d_scalar_number(
+    sigma1, "sigma1", "commute_cluster", lower = 0
+  )
+  sigma2 <- .cluster4d_scalar_number(
+    sigma2, "sigma2", "commute_cluster", lower = 0
+  )
+  if (sigma1 <= 0 || sigma2 <= 0) {
+    stop("commute_cluster: sigma1 and sigma2 must be positive", call. = FALSE)
+  }
+  connectivity <- .cluster4d_scalar_number(
+    connectivity, "connectivity", "commute_cluster",
+    lower = 1, upper = n - 1L, integer = TRUE
+  )
+  verbose <- .cluster4d_scalar_logical(verbose, "verbose", "commute_cluster")
+  weight_mode <- match.arg(weight_mode)
+  bad_voxel_policy <- match.arg(bad_voxel_policy)
+
+  original <- .cluster4d_original_data(bvec, mask, "commute_cluster")
+  prepared <- .commute_prepare_features(
+    original$features, bad_voxel_policy, variance_tol
+  )
+  if (verbose) message("commute_cluster: building physical k-nearest graph")
+  graph <- .commute_knn_graph(
+    original$coords, prepared$features, connectivity,
+    alpha, sigma1, sigma2, weight_mode
+  )
+  if (graph$n_components != 1L) {
+    stop(
+      "commute_cluster: k-nearest graph has ", graph$n_components,
+      " connected components; increase connectivity",
+      call. = FALSE
+    )
   }
 
-  # Commute time embedding (spectral decomposition)
-  if (verbose) {
-    message(sprintf(
-      "commute_cluster: Computing commute-time embedding (%d components)...",
-      ncomp
-    ))
-  }
-
-  ct <- tryCatch({
-    neighborweights::commute_time_distance(W, ncomp = ncomp)
-  }, error = function(e) {
-    if (grepl("TridiagEigen|eigen", e$message, ignore.case = TRUE)) {
-      stop(
-        "Eigenvalue decomposition failed in commute clustering.\n",
-        "  Common causes:\n",
-        "  1. Disconnected graph (try increasing 'connectivity')\n",
-        "  2. Singular weight matrix (try adjusting 'alpha')\n",
-        "  3. Perfectly correlated time series (use 'noise_seed')\n",
-        "  4. Too few neighbors relative to ncomp\n",
-        "\n  Try:\n",
-        "  - Increase connectivity (e.g., connectivity = 27)\n",
-        "  - Reduce ncomp (e.g., ncomp = K/2)\n",
-        "  - Adjust alpha (try 0.3 or 0.7)\n",
-        "  - Set noise_seed for reproducible noise injection\n",
-        "\n  Original error: ", e$message,
-        call. = FALSE
+  if (verbose) message("commute_cluster: computing dense spectral embedding")
+  spectral <- .commute_spectral_embedding(graph$graph, ncomp, eigen_tol)
+  if (K == n) {
+    labels <- seq_len(n)
+    kmeans_diagnostics <- list(iter = 0L, tot.withinss = 0)
+  } else if (K == 1L) {
+    labels <- rep.int(1L, n)
+    kmeans_diagnostics <- list(
+      iter = 0L,
+      tot.withinss = sum(
+        scale(spectral$embedding, center = TRUE, scale = FALSE)^2
       )
-    } else {
-      stop("Error in commute time distance calculation: ", e$message, call. = FALSE)
-    }
-  })
-
-  # K-means clustering on embedded coordinates
-  if (verbose) {
-    message(sprintf("commute_cluster: Running k-means with K=%d clusters...", K))
+    )
+  } else {
+    seeds <- .commute_initial_centers(spectral$embedding, K)
+    fit <- .commute_local_rng(
+      stats::kmeans(
+        spectral$embedding,
+        centers = spectral$embedding[seeds, , drop = FALSE],
+        iter.max = 500,
+        algorithm = "Lloyd"
+      )
+    )
+    labels <- as.integer(fit$cluster)
+    kmeans_diagnostics <- list(
+      iter = as.integer(fit$iter),
+      tot.withinss = as.numeric(fit$tot.withinss),
+      initial_voxels = as.integer(seeds)
+    )
   }
 
-  # Use multiple starts for robustness
-  # Note: If noise_seed is set, k-means will also be reproducible
-  # But we don't re-set the seed here to avoid affecting global RNG state
-  # User should wrap entire call in set.seed() if full reproducibility needed
-  kres <- kmeans(ct$cds, centers = K, iter.max = 500, nstart = 10)
-
-  # Create clustered volume
-  logical_mask <- mask > 0
-  kvol <- ClusteredNeuroVol(logical_mask, kres$cluster)
-
-  # Compute centroids in feature and spatial space
-  if (verbose) {
-    message("commute_cluster: Computing final centroids...")
-  }
-
-  centroids <- compute_centroids(feature_mat, grid, kres$cluster, medoid = FALSE)
-
-  # Construct result object
-  ret <- structure(
-    list(
-      clusvol = kvol,
-      cluster = kres$cluster,
-      centers = centroids$center,
-      coord_centers = centroids$centroid,
-      embedding = ct$cds,  # Include for potential downstream analysis
-      n_clusters = K,
-      method = "commute_time"
+  centers <- compute_cluster_centers(
+    labels, original$features, original$coords, method = "mean"
+  )
+  logical_mask <- neuroim2::NeuroVol(
+    cluster4d_mask_array(mask, "commute_cluster"),
+    space = neuroim2::space(mask)
+  )
+  clusvol <- suppressWarnings(
+    neuroim2::ClusteredNeuroVol(logical_mask, clusters = labels)
+  )
+  result <- list(
+    labels = labels,
+    cluster = labels,
+    clusvol = clusvol,
+    centers = unname(as.matrix(centers$centers)),
+    coord_centers = unname(as.matrix(centers$coord_centers)),
+    embedding = spectral$embedding,
+    eigenvalues = spectral$eigenvalues,
+    actual_k = as.integer(K),
+    n_clusters = as.integer(K),
+    label_ids = seq_len(K),
+    method = "commute_time",
+    parameters = list(
+      n_clusters_requested = as.integer(K),
+      ncomp = ncomp,
+      alpha = alpha,
+      sigma1 = sigma1,
+      sigma2 = sigma2,
+      connectivity = connectivity,
+      weight_mode = weight_mode,
+      bad_voxel_policy = bad_voxel_policy,
+      variance_tol = variance_tol,
+      eigen_tol = eigen_tol
     ),
+    metadata = list(
+      data_policy = prepared$provenance,
+      graph = list(
+        contract = graph$contract,
+        directed_k = connectivity,
+        undirected_edges = as.integer(nrow(graph$edges)),
+        components = graph$n_components
+      ),
+      spectral = list(
+        eigenvalues = spectral$eigenvalues,
+        graph_volume = spectral$graph_volume,
+        zero_eigenvalues = spectral$zero_eigenvalues
+      ),
+      kmeans = kmeans_diagnostics,
+      rng = list(
+        used = K > 1L && K < n,
+        local_seed = if (K > 1L && K < n) 1L else NULL,
+        purpose = if (K > 1L && K < n) "stats::kmeans internals" else "none",
+        global_state_preserved = TRUE
+      )
+    )
+  )
+  structure(
+    result,
     class = c("commute_time_cluster_result", "cluster_result", "list")
   )
-
-  if (verbose) {
-    message("commute_cluster: Done!")
-  }
-
-  ret
 }

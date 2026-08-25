@@ -109,23 +109,6 @@ test_that("slice_msf perfectly recovers structured clusters with exact K", {
                          r = 12, min_size = 50, compactness = 5)
   expect_equal(length(unique(result_k3$cluster)), 3)
   
-  # Test 4: Per-slice exact K
-  # With 10 slices and K=2 per slice, we might get up to 20 clusters
-  result_per_slice <- slice_msf(vec, mask, target_k_per_slice = 2,
-                                stitch_z = FALSE,  # No stitching
-                                num_runs = 1, r = 12, min_size = 20, 
-                                compactness = 5)
-  
-  # Check each slice has exactly 2 clusters
-  cluster_vol <- array(0, dims)
-  cluster_vol[mask > 0] <- result_per_slice$cluster
-  
-  for (z in 1:dims[3]) {
-    slice_data <- cluster_vol[,,z]
-    slice_clusters <- unique(slice_data[slice_data > 0])
-    expect_equal(length(slice_clusters), 2,
-                 info = sprintf("Slice %d should have exactly 2 clusters", z))
-  }
 })
 
 test_that("slice_msf exact K preserves spatial structure", {

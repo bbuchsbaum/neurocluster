@@ -228,6 +228,7 @@ find_gradient_seeds_g3s <- function(feature_mat,
   if (K < 1 || K > N) {
     stop("K must be between 1 and ", N)
   }
+  if (K == N) return(seq_len(N))
 
   if (k_neighbors >= N) {
     k_neighbors <- N - 1
@@ -277,8 +278,12 @@ find_gradient_seeds_g3s <- function(feature_mat,
 
   # Spatial inhibition radius ~ half expected supervoxel radius
   bbox <- apply(coords, 2, range)
-  vol <- prod(bbox[2, ] - bbox[1, ])
-  avg_radius <- (vol / K)^(1/3)
+  ranges <- bbox[2, ] - bbox[1, ]
+  tolerance <- sqrt(.Machine$double.eps) * max(1, max(abs(coords)))
+  active_ranges <- ranges[ranges > tolerance]
+  effective_dimension <- max(1L, length(active_ranges))
+  measure <- if (length(active_ranges)) prod(active_ranges) else 1
+  avg_radius <- (measure / K)^(1 / effective_dimension)
   min_dist_sq <- (avg_radius * min_separation_factor)^2
 
   seeds <- integer(K)

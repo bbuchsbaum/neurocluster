@@ -25,9 +25,13 @@ test_that("rena_plus uses gradient penalty to separate halves", {
   mask <- NeuroVol(array(1, dims), NeuroSpace(dims))
 
   data_array <- array(0, c(dims, 8))
-  # Left half higher mean, right half lower mean
-  data_array[1:3,,,] <- rnorm(prod(c(3,6,4,8)), mean = 2, sd = 0.5)
-  data_array[4:6,,,] <- rnorm(prod(c(3,6,4,8)), mean = -2, sd = 0.5)
+  # Use opposing temporal profiles. A constant mean shift would be removed by
+  # the documented per-voxel time-series standardization.
+  profile <- c(-1, -0.5, 0, 0.5, 1, 0.5, 0, -0.5)
+  for (time in seq_along(profile)) {
+    data_array[1:3, , , time] <- profile[[time]]
+    data_array[4:6, , , time] <- -profile[[time]]
+  }
 
   vec <- NeuroVec(data_array, NeuroSpace(c(dims, 8)))
 
@@ -75,6 +79,8 @@ test_that("coarsening stops at K_prime and ward returns exact K", {
                    connectivity = 6, max_iterations = 30, verbose = FALSE)
 
   K_prime <- ceiling(4 * 2)
-  expect_lte(res$metadata$coarse_n_clusters, K_prime)
+  # A whole reciprocal-neighbor level is not applied when it would jump below
+  # K_prime; Ward then performs exact one-at-a-time adjacent merges.
+  expect_gte(res$metadata$coarse_n_clusters, K_prime)
   expect_equal(res$n_clusters, 4)
 })

@@ -48,8 +48,7 @@ test_that("slice_msf handles larger datasets with multiple runs", {
     min_size = 100,
     use_features = TRUE,
     lambda = 0.6,
-    stitch_z = TRUE,
-    theta_link = 0.80
+    stitch_z = TRUE
   )
   
   expect_s3_class(result, "slice_msf_cluster_result")
@@ -125,10 +124,8 @@ test_that("slice_msf handles extreme parameter combinations", {
     list(compactness = 5, min_size = 50, r = 20),
     # Minimum r value
     list(compactness = 5, min_size = 50, r = 2),
-    # Very aggressive stitching
-    list(theta_link = 0.5, min_contact = 1, stitch_z = TRUE),
-    # Very conservative stitching
-    list(theta_link = 0.99, min_contact = 10, stitch_z = TRUE)
+    # Explicitly independent slices
+    list(stitch_z = FALSE)
   )
   
   for (i in seq_along(extreme_params)) {
@@ -195,29 +192,7 @@ test_that("slice_msf handles exact-K with different strategies", {
   )
   
   n_clusters <- length(unique(result_global$cluster))
-  # Should achieve target K or be very close
-  expect_true(abs(n_clusters - K_true) <= 2)
-  
-  # Test per-slice K (without stitching)
-  K_per_slice <- 3
-  result_per_slice <- slice_msf(
-    vec = vec,
-    mask = mask,
-    target_k_per_slice = K_per_slice,
-    stitch_z = FALSE,
-    num_runs = 1,
-    r = 8,
-    min_size = 10
-  )
-  
-  expect_s3_class(result_per_slice, "slice_msf_cluster_result")
-  # With 6 slices and 3 clusters per slice, expect multiple clusters
-  # The exact number depends on data structure and min_size constraints
-  n_clusters_total <- length(unique(result_per_slice$cluster))
-  # Should have at least some clusters (more than 1)
-  expect_true(n_clusters_total >= 2)  # At least 2 clusters total
-  # And not more than K_per_slice * number of slices
-  expect_true(n_clusters_total <= K_per_slice * 6)
+  expect_equal(n_clusters, K_true)
 })
 
 test_that("slice_msf memory safety with many runs", {

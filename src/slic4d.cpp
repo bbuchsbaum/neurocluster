@@ -5,11 +5,14 @@
 #include <unordered_set>
 #include <cmath>
 #include <algorithm>
+#include <chrono>
 #include <limits>
 #include <random>
 
 using namespace Rcpp;
 using namespace RcppParallel;
+
+namespace {
 
 struct IntHash { std::size_t operator()(const int &x) const noexcept { return std::hash<int>()(x); } };
 
@@ -166,6 +169,7 @@ void enforce_strict_connectivity(IntegerVector &labels,
   std::vector<int> comp_size_list;
   std::vector<int> comp_label_list;
   for (int i=0;i<N;++i) if (!visited[i]) {
+    if ((i & 2047) == 0) Rcpp::checkUserInterrupt();
     int lab = labels[i];
     int size = 0;
     std::vector<int> q; q.reserve(256); q.push_back(i); visited[i]=1;
@@ -198,6 +202,7 @@ void enforce_strict_connectivity(IntegerVector &labels,
   std::fill(visited.begin(), visited.end(), 0);
   comp_id = 0;
   for (int i=0;i<N;++i) if (!visited[i]) {
+    if ((i & 2047) == 0) Rcpp::checkUserInterrupt();
     int lab = labels[i];
     int target_keep_id = largest_seen_id[lab];
     bool keep = (comp_id == target_keep_id);
@@ -222,11 +227,79 @@ void enforce_strict_connectivity(IntegerVector &labels,
     }
     if (!keep) {
       int bestLab = lab, bestCnt = -1;
-      for (auto &kv : boundary_counts) if (kv.second > bestCnt) { bestCnt = kv.second; bestLab = kv.first; }
+      for (auto &kv : boundary_counts) {
+        if (kv.second > bestCnt || (kv.second == bestCnt && kv.first < bestLab)) {
+          bestCnt = kv.second;
+          bestLab = kv.first;
+        }
+      }
       if (bestCnt >= 0) for (int u : comp) labels[u] = bestLab;
     }
     comp_id++;
   }
+}
+
+// Assign a distinct, contiguous label to every connected component of every
+// current label. Scanning masked indices in order makes the mapping stable.
+int canonicalize_label_components(IntegerVector &labels,
+                                  const IntegerVector &mask_lin_idx,
+                                  const IntegerVector &dims,
+                                  const std::vector<std::array<int,3>> &offsets) {
+  const int N = labels.size();
+  std::unordered_map<int,int, IntHash> idxmap;
+  idxmap.reserve(N * 1.3 + 64);
+  for (int i = 0; i < N; ++i) idxmap[mask_lin_idx[i]] = i;
+
+  IntegerVector canonical(N, -1);
+  int next_label = 0;
+  for (int start = 0; start < N; ++start) {
+    if (canonical[start] >= 0) continue;
+    if ((start & 2047) == 0) Rcpp::checkUserInterrupt();
+    const int source_label = labels[start];
+    std::vector<int> queue;
+    queue.reserve(256);
+    queue.push_back(start);
+    canonical[start] = next_label;
+    for (size_t head = 0; head < queue.size(); ++head) {
+      const int u = queue[head];
+      int x, y, z;
+      lin_to_ijk(mask_lin_idx[u], dims, x, y, z);
+      for (const auto &delta : offsets) {
+        const int nx = x + delta[0], ny = y + delta[1], nz = z + delta[2];
+        if (nx < 0 || ny < 0 || nz < 0 ||
+            nx >= dims[0] || ny >= dims[1] || nz >= dims[2]) continue;
+        const int nlin = ijk_to_lin(nx, ny, nz, dims);
+        auto found = idxmap.find(nlin);
+        if (found == idxmap.end()) continue;
+        const int v = found->second;
+        if (canonical[v] < 0 && labels[v] == source_label) {
+          canonical[v] = next_label;
+          queue.push_back(v);
+        }
+      }
+    }
+    ++next_label;
+  }
+  labels = canonical;
+  return next_label;
+}
+
+int relabel_live_labels(IntegerVector &labels) {
+  std::unordered_map<int,int> mapping;
+  mapping.reserve(labels.size());
+  int next_label = 0;
+  for (R_xlen_t i = 0; i < labels.size(); ++i) {
+    const int old_label = labels[i];
+    auto found = mapping.find(old_label);
+    if (found == mapping.end()) {
+      mapping[old_label] = next_label;
+      labels[i] = next_label;
+      ++next_label;
+    } else {
+      labels[i] = found->second;
+    }
+  }
+  return next_label;
 }
 
 // Seeding: mask-aware grid + farthest fill
@@ -365,6 +438,8 @@ void relocate_seeds_by_gradient(std::vector<int> &seed_idx,
   }
 }
 
+} // namespace
+
 // [[Rcpp::export]]
 Rcpp::List slic4d_core(NumericMatrix feats,
                        NumericMatrix coords,
@@ -389,6 +464,7 @@ Rcpp::List slic4d_core(NumericMatrix feats,
 
   const int N = feats.nrow();
   const int F = feats.ncol();
+  if (N < 1 || F < 1) stop("feats must be a non-empty finite matrix");
   if (coords.nrow() != N || coords.ncol() != 3) {
     stop("coords must have dimensions N x 3 where N = nrow(feats)");
   }
@@ -405,15 +481,55 @@ Rcpp::List slic4d_core(NumericMatrix feats,
     const int64_t nx = (int64_t)dims[0], ny = (int64_t)dims[1], nz = (int64_t)dims[2];
     if (nx <= 0 || ny <= 0 || nz <= 0) stop("dims entries must be positive");
     const int64_t nlin = nx * ny * nz;
+    std::unordered_set<int> seen_indices;
+    seen_indices.reserve(N * 1.3 + 64);
     for (int i = 0; i < N; ++i) {
       const int lin = mask_lin_idx[i];
+      if (IntegerVector::is_na(lin)) stop("mask_lin_idx must not contain NA");
       if (lin < 0 || (int64_t)lin >= nlin) {
         stop("mask_lin_idx must be 0-based linear indices in [0, prod(dims))");
       }
+      if (!seen_indices.insert(lin).second) {
+        stop("mask_lin_idx must contain unique indices");
+      }
     }
   }
-  if (K < 2 || K > N) stop("K must be in [2, N]");
-  if (N < 2) stop("Need at least 2 voxels");
+  for (int j = 0; j < 3; ++j) {
+    if (!std::isfinite(voxmm[j]) || voxmm[j] <= 0.0) {
+      stop("voxmm entries must be finite and positive");
+    }
+  }
+  for (int i = 0; i < N; ++i) {
+    for (int f = 0; f < F; ++f) {
+      if (!std::isfinite(feats(i, f))) stop("feats values must be finite");
+    }
+    for (int j = 0; j < 3; ++j) {
+      if (!std::isfinite(coords(i, j))) stop("coords values must be finite");
+    }
+  }
+  if (K < 1 || K > N) stop("K must be in [1, N]");
+  if (!std::isfinite(compactness) || compactness < 0.0) {
+    stop("compactness must be finite and non-negative");
+  }
+  if (max_iter < 1) stop("max_iter must be positive");
+  if (n_threads < 0) stop("n_threads must be non-negative");
+  if (!std::isfinite(step_mm) || step_mm < 0.0) {
+    stop("step_mm must be finite and non-negative");
+  }
+  if (min_size < 0) stop("min_size must be non-negative");
+  if (connectivity != 6 && connectivity != 26) {
+    stop("connectivity must be 6 or 26");
+  }
+  if (topup_iters < 0) stop("topup_iters must be non-negative");
+  if (seed_relocate_radius < 0) {
+    stop("seed_relocate_radius must be non-negative");
+  }
+  if (grad_masked.size() != 0 && grad_masked.size() != N) {
+    stop("grad_masked must be empty or have length N");
+  }
+  for (R_xlen_t i = 0; i < grad_masked.size(); ++i) {
+    if (!std::isfinite(grad_masked[i])) stop("grad_masked values must be finite");
+  }
   // Note: removed setThreadOptions as it doesn't exist in RcppParallel
   // Threading is handled automatically by parallelFor
 
@@ -446,6 +562,7 @@ Rcpp::List slic4d_core(NumericMatrix feats,
   } else {
     stop("Unknown seed_method");
   }
+  if (seed_idx.empty()) stop("seed initialization produced no seeds");
 
   // Build lin->mask map for relocation
   std::unordered_map<int,int, IntHash> lin2mask; lin2mask.reserve(N*1.3+64);
@@ -490,12 +607,15 @@ Rcpp::List slic4d_core(NumericMatrix feats,
 
   // Outer iterations
   // NOTE: RcppParallel's TBB backend has been observed to hang on some platforms
-  // for very small problems. Respect `n_threads` (and problem size) by running
-  // the assignment step serially when requested.
-  const bool serial_assign = (n_threads <= 1) || (N < 2000);
+  // for very small problems. `n_threads == 0` means the RcppParallel default
+  // (auto), `n_threads == 1` is an explicit serial request, and values above one
+  // request a bounded parallel backend. Small problems stay serial regardless.
+  const bool parallel_requested = (n_threads != 1);
+  const bool serial_assign = !parallel_requested || (N < 2000);
   NumericMatrix prev_center_coords = clone(center_coords);
   NumericMatrix prev_center_feats  = clone(center_feats);
   for (int it=0; it<max_iter; ++it) {
+    Rcpp::checkUserInterrupt();
     NumericVector center_feat_norm2(K);
     for (int k=0; k<K; ++k) {
       double acc = 0.0;
@@ -542,9 +662,16 @@ Rcpp::List slic4d_core(NumericMatrix feats,
     if (shift_c + shift_f < 1e-6) break;
   }
 
-  if (enforce_connectivity) {
+  const bool connectivity_required = enforce_connectivity || strict_connectivity;
+  double connectivity_elapsed_ms = 0.0;
+  IntegerVector labels_before_connectivity = clone(labels);
+  if (connectivity_required) {
+    const auto connectivity_started = std::chrono::steady_clock::now();
     std::vector<std::array<int,3>> offsets = (connectivity==6) ? make_offsets6() : make_offsets26();
     enforce_strict_connectivity(labels, mask_lin_idx, dims, offsets);
+    connectivity_elapsed_ms += std::chrono::duration<double, std::milli>(
+      std::chrono::steady_clock::now() - connectivity_started
+    ).count();
   }
 
   // Preserve K labels if requested (split largest clusters and refine a bit)
@@ -589,6 +716,7 @@ Rcpp::List slic4d_core(NumericMatrix feats,
       }
       // small refinements
       for (int it2=0; it2<topup_iters; ++it2) {
+        Rcpp::checkUserInterrupt();
         // rebuild index
         GridIndex gi(cnx, cny, cnz, cellStep, center_coords, minx, miny, minz);
         gi.first.assign(cnx*cny*cnz, -1); gi.next.assign(K, -1);
@@ -624,11 +752,67 @@ Rcpp::List slic4d_core(NumericMatrix feats,
     }
   }
 
-  // Output labels as 1..K
+  // Top-up assignment can fragment labels, so connectivity is the final
+  // native label operation. Canonical component labels make the strict
+  // guarantee explicit; the R boundary performs an adjacency-preserving
+  // exact-K repair when preserve_k is requested and topologically feasible.
+  int actual_k = 0;
+  const auto final_connectivity_started = std::chrono::steady_clock::now();
+  if (connectivity_required) {
+    std::vector<std::array<int,3>> offsets =
+      (connectivity == 6) ? make_offsets6() : make_offsets26();
+    enforce_strict_connectivity(labels, mask_lin_idx, dims, offsets);
+    actual_k = canonicalize_label_components(
+      labels, mask_lin_idx, dims, offsets
+    );
+  } else {
+    actual_k = relabel_live_labels(labels);
+  }
+  connectivity_elapsed_ms += std::chrono::duration<double, std::milli>(
+    std::chrono::steady_clock::now() - final_connectivity_started
+  ).count();
+  bool connectivity_changed = false;
+  for (int i = 0; i < N; ++i) {
+    if (labels[i] != labels_before_connectivity[i]) {
+      connectivity_changed = true;
+      break;
+    }
+  }
+  // Centers are a summary of the final live labels, never the pre-enforcement
+  // SLIC sites. Matrices therefore have one row per returned label.
+  const auto centers_started = std::chrono::steady_clock::now();
+  NumericMatrix final_center_feats(actual_k, F);
+  NumericMatrix final_center_coords(actual_k, 3);
+  std::vector<int> final_counts(actual_k, 0);
+  for (int i = 0; i < N; ++i) {
+    const int label = labels[i];
+    final_counts[label]++;
+    for (int f = 0; f < F; ++f) final_center_feats(label, f) += feats(i, f);
+    for (int j = 0; j < 3; ++j) final_center_coords(label, j) += coords(i, j);
+  }
+  for (int label = 0; label < actual_k; ++label) {
+    if (final_counts[label] <= 0) stop("internal error: final label has no members");
+    const double count = final_counts[label];
+    for (int f = 0; f < F; ++f) final_center_feats(label, f) /= count;
+    for (int j = 0; j < 3; ++j) final_center_coords(label, j) /= count;
+  }
+  const double center_recompute_elapsed_ms =
+    std::chrono::duration<double, std::milli>(
+      std::chrono::steady_clock::now() - centers_started
+    ).count();
+
+  // Output labels as 1..actual_k
   IntegerVector out_labels(N);
   for (int i=0;i<N;++i) out_labels[i] = labels[i] + 1;
 
   return List::create(_["labels"]=out_labels,
-                      _["center_feats"]=center_feats,
-                      _["center_coords"]=center_coords);
+                      _["center_feats"]=final_center_feats,
+                      _["center_coords"]=final_center_coords,
+                      _["actual_k"]=actual_k,
+                      _["assignment_parallel_requested"]=parallel_requested,
+                      _["assignment_parallel_used"]=!serial_assign,
+                      _["connectivity_changed"]=connectivity_changed,
+                      _["preserve_k_satisfied"]=(!preserve_k || actual_k == K),
+                      _["connectivity_elapsed_ms"]=connectivity_elapsed_ms,
+                      _["center_recompute_elapsed_ms"]=center_recompute_elapsed_ms);
 }

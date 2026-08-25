@@ -23,8 +23,7 @@ test_that("Gaussian blobs are recovered across major clustering methods", {
     compactness = 4,
     min_size = 8,
     stitch_z = TRUE,
-    z_mult = 0.3,
-    theta_link = 0.82
+    z_mult = 0.3
   )
   expect_gt(cluster_purity(msf$cluster, data$truth), 0.78)
 
@@ -47,8 +46,7 @@ test_that("Gaussian blobs are recovered across major clustering methods", {
     vec = data$vec,
     mask = data$mask,
     n_clusters = data$n_clusters,
-    spatial_weight = 0.5,
-    max_iterations = 60
+    spatial_weight = 0.5
   )
   expect_gt(cluster_purity(sn$cluster, data$truth), 0.65)
 
@@ -101,7 +99,6 @@ test_that("Layered scenario remains consistent across methods", {
     compactness = 3,
     min_size = 5,
     stitch_z = TRUE,
-    theta_link = 0.9,
     z_mult = 0.2
   )
   expect_gt(cluster_purity(msf$cluster, data$truth), 0.75)

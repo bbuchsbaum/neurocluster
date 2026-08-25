@@ -88,7 +88,9 @@ test_that("heat kernel computation is mathematically accurate", {
   # Use safe K value that doesn't exceed number of voxels
   nvox_available <- sum(mask > 0)
   K_safe <- min(3, nvox_available)
-  result <- supervoxels(vec, mask, K = K_safe, alpha = 0.5)
+  result <- suppressWarnings(
+    supervoxels(vec, mask, K = K_safe, alpha = 0.5)
+  )
   
   # For identical time series, spatial distance should dominate
   # Verify that clustering respects spatial proximity
@@ -358,30 +360,27 @@ test_that("cosine similarity computation accuracy", {
   })
   vec <- do.call(concat, vec_list)
   
-  # Test z-stitching behavior with different theta_link values
-  # Slices 1&2 should stitch (high similarity), slice 3 should not
-  
-  # High threshold - should stitch similar slices
-  result_high <- slice_msf(vec, mask, stitch_z = TRUE, theta_link = 0.9,
-                          min_contact = 1, r = 6, min_size = 5, 
-                          compactness = 3, num_runs = 1)
-  
-  # Low threshold - should stitch everything
-  result_low <- slice_msf(vec, mask, stitch_z = TRUE, theta_link = 0.1,
-                         min_contact = 1, r = 6, min_size = 5,
-                         compactness = 3, num_runs = 1)
-  
-  # High threshold should have more clusters than low threshold
-  n_clusters_high <- length(unique(result_high$cluster))
-  n_clusters_low <- length(unique(result_low$cluster))
-  
-  expect_true(n_clusters_high >= n_clusters_low,
-              info = sprintf("High theta_link (%d clusters) should produce >= clusters than low theta_link (%d clusters)", 
-                           n_clusters_high, n_clusters_low))
+  # The former theta_link/min_contact heuristic no longer exists. Verify the
+  # current, typed axial-smoothing parameter and exact global topology contract.
+  result_unsmoothed <- slice_msf(
+    vec, mask, stitch_z = TRUE, z_mult = 0,
+    target_k_global = 3, r = 6, min_size = 5,
+    compactness = 3, num_runs = 1
+  )
+  result_smoothed <- slice_msf(
+    vec, mask, stitch_z = TRUE, z_mult = 0.75,
+    target_k_global = 3, r = 6, min_size = 5,
+    compactness = 3, num_runs = 1
+  )
+
+  expect_equal(length(unique(result_unsmoothed$cluster)), 3)
+  expect_equal(length(unique(result_smoothed$cluster)), 3)
+  expect_equal(result_unsmoothed$parameters$z_mult, 0)
+  expect_equal(result_smoothed$parameters$z_mult, 0.75)
   
   # Verify that similar slices (1&2) are more likely to be stitched than dissimilar (1&3 or 2&3)
   cluster_vol_high <- array(0, dims)
-  cluster_vol_high[mask > 0] <- result_high$cluster
+  cluster_vol_high[mask > 0] <- result_smoothed$cluster
   
   # Check cluster overlap between slices
   slice1_clusters <- unique(cluster_vol_high[,,1])[unique(cluster_vol_high[,,1]) > 0]

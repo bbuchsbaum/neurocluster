@@ -12,6 +12,8 @@ using namespace Rcpp;
 // UNION-FIND DATA STRUCTURE FOR CONNECTED COMPONENTS
 // =============================================================================
 
+namespace {
+
 struct UnionFind {
     std::vector<int> parent;
     std::vector<int> rank;
@@ -67,6 +69,8 @@ struct UnionFind {
         return labels;
     }
 };
+
+} // namespace
 
 // =============================================================================
 // HELPER FUNCTIONS

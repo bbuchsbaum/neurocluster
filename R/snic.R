@@ -39,11 +39,9 @@ find_initial_points <- function(cds, grad, K=100) {
     available <- setdiff(seq_len(nrow(cds)), seeds)
     needed <- min(K - length(seeds), length(available))
     if (needed > 0) {
-      extra <- if (needed < length(available)) {
-        sample(available, needed)
-      } else {
-        available
-      }
+      # Deterministic top-up keeps seed ownership and the requested cluster
+      # count reproducible even when gradient seeding returns too few points.
+      extra <- available[seq_len(needed)]
       seeds <- c(seeds, extra)
     }
     if (length(seeds) < K) {
@@ -70,21 +68,24 @@ find_initial_points <- function(cds, grad, K=100) {
 #'   Can also be a 3D \code{\link[neuroim2:NeuroVol-class]{NeuroVol}} for structural image segmentation,
 #'   which will be automatically converted to a single-timepoint NeuroVec internally.
 #' @param mask A \code{NeuroVol} mask defining the voxels to include in the clustering result.
-#' If the mask contains \code{numeric} data, nonzero values will define the included voxels.
+#' If the mask contains \code{numeric} data, finite values strictly greater than
+#' zero define the included voxels.
 #' If the mask is a \code{\link[neuroim2:LogicalNeuroVol-class]{LogicalNeuroVol}}, then \code{TRUE} will define the set
 #' of included voxels.
-#' @param compactness A numeric value controlling the compactness of the clusters, with larger values resulting
-#' in more compact clusters. Default is 5.
+#' @param compactness A finite numeric value in \code{[0, 10]} controlling the
+#' spatial-feature mixture. Zero is feature-only, 10 is spatial-only, and
+#' larger values within the interval produce more compact clusters. Default is 5.
 #' @param K The number of clusters to find. Default is 500.
-#' @param max_iter Maximum number of iterations for the SNIC algorithm. Default is 100.
-#'   Currently ignored as SNIC algorithm uses internal convergence criteria.
+#' @param max_iter Deprecated inactive argument retained in the function
+#' signature for compatibility. SNIC is non-iterative; supplying this argument
+#' explicitly is an error.
 #'
 #' @return A \code{list} of class \code{snic_cluster_result} with the following elements:
 #' \describe{
 #' \item{clusvol}{An instance of type \link[neuroim2:ClusteredNeuroVol-class]{ClusteredNeuroVol}.}
 #' \item{gradvol}{A \code{NeuroVol} instance representing the spatial gradient of the reference volume.}
-#' \item{cluster}{A vector of cluster indices equal to the number of voxels in the mask.}
-#' \item{centers}{A matrix of cluster centers with each column representing the feature vector for a cluster.}
+#' \item{cluster}{A vector of contiguous positive cluster labels, one per included mask voxel.}
+#' \item{centers}{A K-by-T matrix of mean feature values in the original input space.}
 #' \item{coord_centers}{A matrix of spatial coordinates with each row corresponding to a cluster.}
 #' }
 #' 
@@ -143,12 +144,15 @@ find_initial_points <- function(cds, grad, K=100) {
 #' - **Adjust compactness**: Higher values create more local clusters, faster processing
 #' - **Pre-smooth data**: Reduce noise to improve gradient-based initialization
 #' - **Use smaller masks**: Process ROIs separately if possible
-#' - **Alternative**: Consider `slice_msf()` or `acsc()` for parallel execution
+#' - **Parallel alternative**: In the unified API, `supervoxels` and `slic`
+#'   support `parallel = TRUE`. The other methods do not advertise a parallel
+#'   clustering contract.
 #' 
 #' ### Comparison with Other Methods:
 #' 
 #' - **Faster than**: `supervoxels()` due to non-iterative nature
-#' - **Slower than**: `slice_msf()` with parallel slices, `acsc()` with future backend
+#' - **Parallel choices**: Use one of the two unified methods listed above
+#'   when a tested sequential/parallel clustering contract is required.
 #' - **More coherent than**: Methods without spatial priority (ensures connectivity)
 #'
 #' @examples
@@ -168,14 +172,23 @@ find_initial_points <- function(cds, grad, K=100) {
 #'
 #' @export
 snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
+  if (!missing(max_iter)) {
+    stop("snic: max_iter is not supported", call. = FALSE)
+  }
+
   # Accept NeuroVol by wrapping to a single-frame NeuroVec
   vec <- ensure_neurovec(vec)
 
   # Use common validation
-  validate_cluster4d_inputs(vec, mask, K, "snic")
-  requested_K <- K
+  input <- validate_cluster4d_inputs(vec, mask, K, "snic")
+  requested_K <- input$n_clusters
+  compactness <- .cluster4d_scalar_number(compactness, "compactness", "snic")
+  if (compactness < 0 || compactness > 10) {
+    stop("snic: compactness must be between 0 and 10", call. = FALSE)
+  }
+  spatial_mix <- compactness / 10
   
-  mask.idx <- which(mask>0)
+  mask.idx <- input$mask_idx
   mask.grid <- index_to_grid(mask, mask.idx)
   valid_coords <- mask.grid
   # Use physical coordinates (mm) for spatial distances and center reporting.
@@ -189,10 +202,8 @@ snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
   if (!is.matrix(vecmat)) {
     vecmat <- matrix(vecmat, nrow = 1)
   }
-  # For true 3D (single timepoint), scaling would zero out features; skip scaling there
-  if (nrow(vecmat) > 1) {
-    vecmat <- base::scale(vecmat)
-  }
+  vecmat <- .snic_normalize_features(vecmat)
+  normalization <- attr(vecmat, "snic_normalization")
 
   refvol <- vols(vec)[[1]]
   grad <- spatial_gradient(refvol, mask)
@@ -200,20 +211,21 @@ snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
 
   init <- find_initial_points(norm_coords, grad_vals, K)
   centroid_idx <- init$selected
+  centroid_idx <- unique(as.integer(centroid_idx))
   actual_K <- length(centroid_idx)
 
   if (actual_K == 0) {
     stop("SNIC seeding failed: no valid seeds could be selected. Check mask/gradient inputs.")
   }
 
-  if (actual_K < requested_K) {
-    warning(sprintf(
-      "SNIC seeding produced only %d usable seeds (requested %d). Reducing K to available seeds.",
+  if (actual_K != requested_K) {
+    stop(sprintf(
+      "SNIC seeding produced %d distinct seeds but exactly %d were requested",
       actual_K, requested_K
-    ))
-    K <- actual_K
+    ), call. = FALSE)
   }
 
+  K <- requested_K
   centroid_idx <- centroid_idx[seq_len(K)]
   centroids <- norm_coords[centroid_idx, , drop = FALSE]
 
@@ -242,8 +254,18 @@ snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
                             norm_coords,
                             vecmat,
                             K, s,
-                            compactness=compactness,
+                            compactness=spatial_mix,
                             mask_lookup)
+
+  diagnostics <- list(
+    centroid_counts = attr(ret, "snic_centroid_counts", exact = TRUE),
+    assignment_order = attr(ret, "snic_assignment_order", exact = TRUE),
+    assignment_labels = attr(ret, "snic_assignment_labels", exact = TRUE),
+    assignment_distance = attr(ret, "snic_assignment_distance", exact = TRUE),
+    seed_indices = attr(ret, "snic_seed_indices", exact = TRUE),
+    queue_pushes = attr(ret, "snic_queue_pushes", exact = TRUE),
+    queue_pops = attr(ret, "snic_queue_pops", exact = TRUE)
+  )
 
 
   # Create ClusteredNeuroVol with consistent logical mask (only positive values are TRUE)
@@ -270,16 +292,24 @@ snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
     parameters = list(
       K = K,
       requested_K = requested_K,
+      actual_K = length(unique(ret[mask.idx])),
+      n_clusters_requested = requested_K,
       compactness = compactness,
-      max_iter = max_iter
+      spatial_mix = spatial_mix,
+      feature_normalization = normalization
     ),
     metadata = list(
-      gradvol = grad
+      gradvol = grad,
+      snic = diagnostics
     ),
     compute_centers = TRUE,
     center_method = "mean"
   )
   
+  result <- finalize_cluster4d_result(
+    result, vec, mask, "snic", result$parameters
+  )
+
   # Add SNIC-specific class
   class(result) <- c("snic_cluster_result", class(result))
 
@@ -288,4 +318,37 @@ snic <- function(vec, mask, compactness=5, K=500, max_iter=100) {
 
   result
 
+}
+
+# SNIC uses a single, explicit feature convention at both the R and C++
+# boundaries. Multi-frame voxel series are mean-centered and unit-normalized so
+# Euclidean distance is correlation-like. A structural image has no temporal
+# direction; it is standardized globally across voxels and retains intensity.
+.snic_normalize_features <- function(features) {
+  features <- as.matrix(features)
+  if (nrow(features) == 1L) {
+    values <- as.numeric(features)
+    feature_scale <- stats::sd(values)
+    if (!is.finite(feature_scale) || feature_scale <= sqrt(.Machine$double.eps)) {
+      normalized <- matrix(0, nrow = 1L, ncol = length(values))
+    } else {
+      normalized <- matrix(
+        (values - mean(values)) / feature_scale,
+        nrow = 1L,
+        ncol = length(values)
+      )
+    }
+    attr(normalized, "snic_normalization") <- "global_zscore_across_voxels"
+    return(normalized)
+  }
+
+  centered <- sweep(features, 2L, colMeans(features), FUN = "-")
+  feature_norm <- sqrt(colSums(centered * centered))
+  degenerate <- !is.finite(feature_norm) |
+    feature_norm <= sqrt(.Machine$double.eps)
+  feature_norm[degenerate] <- 1
+  normalized <- sweep(centered, 2L, feature_norm, FUN = "/")
+  if (any(degenerate)) normalized[, degenerate] <- 0
+  attr(normalized, "snic_normalization") <- "per_voxel_centered_unit_l2"
+  normalized
 }

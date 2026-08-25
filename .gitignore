@@ -10,6 +10,7 @@ neurocluster_*.tar.gz
 
 # Local tooling artifacts
 .omc/
+.mote/
 .rcmdcheck_result.rds
 ..Rcheck/
 

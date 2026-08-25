@@ -131,20 +131,21 @@ test_that("validates parameter bounds and types", {
   expect_error(slice_msf(vec, mask, r = -5),
                info = "Should reject negative r")
   
-  # Test compactness parameter - API now handles negative values gracefully
+  # Compactness is explicit and fail-closed on [0, 10].
   suppressWarnings(expect_no_error(slice_msf(vec, mask, compactness = 0.1, num_runs = 1)))  # Small compactness
   
-  # Negative compactness might be clamped to 0 or small positive value
   suppressWarnings(expect_no_error(slice_msf(vec, mask, compactness = 0, num_runs = 1)))
-  
-  # Very large compactness should work (just be ineffective)
-  suppressWarnings(expect_no_error(slice_msf(vec, mask, compactness = 1000, num_runs = 1)))
+
+  expect_error(
+    slice_msf(vec, mask, compactness = 1000, num_runs = 1),
+    "compactness must be in \\[0, 10\\]"
+  )
   
   # Test min_size parameter - API now handles edge cases gracefully
   expect_silent(slice_msf(vec, mask, min_size = 1, num_runs = 1))  # Minimum valid
   
-  # min_size = 0 might be clamped to 1
-  expect_silent(slice_msf(vec, mask, min_size = 0, num_runs = 1))
+  expect_error(slice_msf(vec, mask, min_size = 0, num_runs = 1),
+               "min_size must be in \\[1")
   
   # min_size larger than total voxels should work (just be constraining)
   suppressWarnings(expect_no_error(slice_msf(vec, mask, min_size = nvox * 2, num_runs = 1)))
@@ -156,20 +157,11 @@ test_that("validates parameter bounds and types", {
   expect_error(slice_msf(vec, mask, num_runs = -1),
                info = "Should reject negative num_runs")
   
-  # Test theta_link parameter (z-stitching) - API now clamps to valid range
-  suppressWarnings(expect_no_error(slice_msf(vec, mask, theta_link = 0.0, num_runs = 1)))  # Minimum
-  suppressWarnings(expect_no_error(slice_msf(vec, mask, theta_link = 1.0, num_runs = 1)))  # Maximum
-  
-  # Out of range values should be clamped
-  suppressWarnings(expect_no_error(slice_msf(vec, mask, theta_link = -0.1, num_runs = 1)))  # Clamps to 0
-  suppressWarnings(expect_no_error(slice_msf(vec, mask, theta_link = 1.1, num_runs = 1)))   # Clamps to 1
-  
-  # Test min_contact parameter - API now handles gracefully
-  # Negative values likely clamped to 0
-  suppressWarnings(expect_no_error(slice_msf(vec, mask, min_contact = -1, num_runs = 1)))
-  
-  # Zero min_contact should work (no contact requirement)
-  suppressWarnings(expect_no_error(slice_msf(vec, mask, min_contact = 0, num_runs = 1)))
+  # Removed stitching heuristics are rejected rather than silently ignored.
+  expect_error(slice_msf(vec, mask, theta_link = 0.5, num_runs = 1),
+               "unused argument")
+  expect_error(slice_msf(vec, mask, min_contact = 1, num_runs = 1),
+               "unused argument")
   
   # Test nbhd parameter - API now handles invalid values gracefully
   # Invalid nbhd values might default to 8
@@ -284,8 +276,7 @@ test_that("validates algorithm-specific parameter combinations", {
   # Negative compactness might be clamped to small positive value
   expect_silent(snic(vec, mask, K = 5, compactness = 0.1))
   
-  # max_iter might have default or be clamped
-  expect_silent(snic(vec, mask, K = 5, max_iter = 1))
+  expect_error(snic(vec, mask, K = 5, max_iter = 1), "not supported")
   
   # Test supervoxels parameter validation
   expect_error(supervoxels(vec, mask, K = 0),
@@ -445,13 +436,18 @@ test_that("validates consensus and meta-clustering inputs", {
   # API might handle consensus=TRUE with num_runs=1 by ignoring consensus
   suppressWarnings(expect_no_error(slice_msf(vec, mask, num_runs = 1, consensus = TRUE)))
   
-  # Test lambda parameter for consensus - values might be clamped
+  # Consensus mixing has a closed [0, 1] contract.
   suppressWarnings(expect_no_error(slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = 0.0)))
   suppressWarnings(expect_no_error(slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = 1.0)))
   
-  # Out of bounds lambda values might be clamped
-  suppressWarnings(expect_no_error(slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = -0.1)))
-  suppressWarnings(expect_no_error(slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = 1.1)))
+  expect_error(
+    slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = -0.1),
+    "lambda must be in \\[0, 1\\]"
+  )
+  expect_error(
+    slice_msf(vec, mask, num_runs = 3, consensus = TRUE, lambda = 1.1),
+    "lambda must be in \\[0, 1\\]"
+  )
 })
 
 test_that("error messages are informative", {

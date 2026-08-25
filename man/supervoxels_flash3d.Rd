@@ -23,17 +23,21 @@ supervoxels_flash3d(
 \item{vec}{A \code{NeuroVec} instance supplying the 4D data to cluster}
 
 \item{mask}{A \code{NeuroVol} mask defining the voxels to include in the clustering result.
-If the mask contains \code{numeric} data, nonzero values will define the included voxels.
+If the mask contains \code{numeric} data, finite values strictly greater
+than zero define the included voxels.
 If the mask is a \code{\link[neuroim2:LogicalNeuroVol-class]{LogicalNeuroVol}}, then \code{TRUE} will define the set
 of included voxels.}
 
 \item{K}{The number of clusters to find}
 
-\item{lambda_s}{Spatial weight for distance penalty (default 0.6). Will be annealed upward over rounds.}
+\item{lambda_s}{Finite non-negative spatial weight (default 0.6). It is
+annealed upward over rounds.}
 
-\item{lambda_t}{Temporal weight for Hamming distance of time-series hashes (default 1.0)}
+\item{lambda_t}{Finite non-negative temporal weight for Hamming distance of
+time-series hashes (default 1.0).}
 
-\item{lambda_g}{Optional barrier weight (default 0.0). If >0, supply \code{barrier} volume.}
+\item{lambda_g}{Finite non-negative boundary-field weight (default 0.0). If
+positive, \code{barrier} is required.}
 
 \item{rounds}{Number of outer rounds (seed→flood→recenter). Default 2, typically 2-3 is sufficient.}
 
@@ -43,7 +47,9 @@ of included voxels.}
 
 \item{vox_scale}{Voxel size scaling for spatial distance, e.g., c(dx,dy,dz). Default c(1,1,1)}
 
-\item{barrier}{Optional 3D numeric array same dimensions as mask; higher values resist region growth}
+\item{barrier}{Optional non-negative finite 3D boundary field with the same
+geometry as the mask. A candidate site is penalized when its seed and the
+target voxel have different boundary-field values.}
 
 \item{verbose}{Logical indicating whether to print progress messages}
 }

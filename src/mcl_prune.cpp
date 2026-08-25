@@ -1,5 +1,6 @@
 #include <Rcpp.h>
 #include <algorithm>
+#include <cmath>
 #include <numeric>
 #include <vector>
 
@@ -23,6 +24,20 @@ Rcpp::List mcl_prune_sparse_cpp(const IntegerVector& p,
   }
   if (i.size() != x.size()) {
     stop("mcl_prune_sparse_cpp: row index and value lengths differ");
+  }
+  if (p[0] != 0 || p[ncol] != x.size()) {
+    stop("mcl_prune_sparse_cpp: column pointers must span all entries");
+  }
+  if (std::isnan(min_value) || min_value == R_PosInf) {
+    stop("mcl_prune_sparse_cpp: min_value must be finite or -Inf");
+  }
+  for (int idx = 0; idx < x.size(); ++idx) {
+    if (i[idx] < 0 || i[idx] >= ncol) {
+      stop("mcl_prune_sparse_cpp: row index is out of range");
+    }
+    if (!std::isfinite(x[idx]) || x[idx] < 0.0) {
+      stop("mcl_prune_sparse_cpp: values must be finite and non-negative");
+    }
   }
 
   const int nnz_in = x.size();
@@ -54,10 +69,24 @@ Rcpp::List mcl_prune_sparse_cpp(const IntegerVector& p,
       std::iota(keep.begin(), keep.end(), start);
     } else {
       for (int idx = start; idx < end; ++idx) {
-        if (x[idx] > min_value) {
+        if (x[idx] >= min_value) {
           keep.push_back(idx);
         }
       }
+    }
+
+    // Pruning must never create an empty stochastic column.  When every value
+    // is below the threshold, retain the deterministic strongest entry and let
+    // the caller renormalize it.
+    if (keep.empty() && width > 0) {
+      int best = start;
+      for (int idx = start + 1; idx < end; ++idx) {
+        if (x[idx] > x[best] ||
+            (x[idx] == x[best] && i[idx] < i[best])) {
+          best = idx;
+        }
+      }
+      keep.push_back(best);
     }
 
     if (keep.size() > static_cast<size_t>(max_per_col)) {

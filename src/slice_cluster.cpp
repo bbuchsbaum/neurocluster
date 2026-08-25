@@ -28,7 +28,8 @@ inline int idx3d(int x, int y, int z, int nx, int ny) {
 // Enforce that each label is a single connected component.
 // Splits disconnected parts into new labels and returns the new number of labels.
 inline int enforce_connectivity(IntegerVector &labels, const IntegerVector &mask,
-                                int nx, int ny, int nz, int nbhd) {
+                                int nx, int ny, int nz, int nbhd,
+                                bool allow_vertical) {
   const int N = labels.size();
   std::vector<char> visited(N, 0);
   IntegerVector new_labels(N);
@@ -38,7 +39,9 @@ inline int enforce_connectivity(IntegerVector &labels, const IntegerVector &mask
   // 6-neighbors
   offs.push_back({1,0,0}); offs.push_back({-1,0,0});
   offs.push_back({0,1,0}); offs.push_back({0,-1,0});
-  offs.push_back({0,0,1}); offs.push_back({0,0,-1});
+  if (allow_vertical) {
+    offs.push_back({0,0,1}); offs.push_back({0,0,-1});
+  }
   if (nbhd == 8) {
     // in-plane diagonals
     offs.push_back({1,1,0}); offs.push_back({-1,-1,0});
@@ -78,6 +81,8 @@ inline int enforce_connectivity(IntegerVector &labels, const IntegerVector &mask
   labels = new_labels;
   return next - 1;
 }
+
+namespace {
 
 struct Edge {
   int a;
@@ -179,13 +184,18 @@ inline double split_half_corr(const std::vector<double> &z) {
   return r;
 }
 
-inline void build_dct_basis(int T, int r, std::vector<double> &phi) {
+inline void build_dct_basis(int T, const std::vector<int> &frequencies,
+                            const std::vector<double> &mode_weights,
+                            std::vector<double> &phi) {
+  const int r = static_cast<int>(frequencies.size());
   phi.assign(T*r, 0.0);
   const double s  = std::sqrt(2.0 / (double)T);
   const double pi = std::acos(-1.0);
   for (int t=0; t<T; ++t) {
     for (int k=0; k<r; ++k) {
-      phi[t*r + k] = s * std::cos(pi * ((t + 0.5) * (k + 1) / (double)T));
+      phi[t*r + k] = s * std::cos(
+        pi * ((t + 0.5) * frequencies[static_cast<size_t>(k)] / (double)T)
+      ) * mode_weights[static_cast<size_t>(k)];
     }
   }
 }
@@ -310,6 +320,7 @@ inline void build_3d_edges(
   const IntegerVector &mask, const std::vector<double> &U_flat,
   int nx, int ny, int nz, int r, int nbhd,
   const NumericVector &voxdim, double spatial_beta,
+  const NumericVector &reliability, bool allow_vertical,
   std::vector<int> &gids, std::vector<Edge> &edges
 ) {
   gids.clear();
@@ -362,6 +373,7 @@ inline void build_3d_edges(
     int x = rem % nx;
 
     for (const auto &o : offs) {
+      if (!allow_vertical && o[2] != 0) continue;
       int xn = x + o[0];
       int yn = y + o[1];
       int zn = z + o[2];
@@ -372,7 +384,13 @@ inline void build_3d_edges(
 
       double sim = dot_voxel(U_flat, g, gn, r);
       sim = std::max(-1.0, std::min(1.0, sim));
-      double d = 1.0 - sim;
+      const double rel = std::sqrt(std::max(
+        0.0, static_cast<double>(reliability[g]) *
+          static_cast<double>(reliability[gn])
+      ));
+      // Low-reliability feature differences are shrunk toward the spatial
+      // prior (merge), while reliable differences retain their full distance.
+      double d = rel * (1.0 - sim);
 
       double len = std::sqrt((double)o[0]*o[0]*dx*dx +
                              (double)o[1]*o[1]*dy*dy +
@@ -465,6 +483,8 @@ struct PQItem {
   float d; // distance = 1 - cos
   bool operator<(const PQItem &o) const { return d > o.d; } // min-heap
 };
+
+} // namespace
 
 // compute cosine( meanA, meanB )
 inline double cos_mean(int a, int b, const NumericMatrix &sumU, const std::vector<int> &sz) {
@@ -633,13 +653,6 @@ inline void rag_agglomerate_to_K_global(
 
 // Per-slice variant: merge within each slice to targetK_per_slice
 
-inline int count_active_roots(int G, UF &uf) {
-  std::unordered_set<int> roots;
-  roots.reserve(G);
-  for (int i=0; i<G; ++i) roots.insert(uf.find(i));
-  return (int)roots.size();
-}
-
 inline void rag_agglomerate_to_K_per_slice(
   const IntegerVector &mask, int nx, int ny, int nz,
   const std::vector<int> &voxel2group, int G, int targetK,
@@ -753,9 +766,7 @@ Rcpp::List slice_msf_runwise(
     double fh_scale = 0.32,     // FH scale (coarser when larger)
     int min_size = 80,
     int nbhd = 8,               // 4 -> 6-neigh, 8 -> 26-neigh (forward)
-    bool stitch_z = false,      // legacy; ignored in volumetric mode
-    double theta_link = 0.85,   // legacy
-    int min_contact = 1,        // legacy
+    bool stitch_z = false,      // include vertical graph edges
     bool rows_are_time = true,
     double gamma = 1.5,
     Rcpp::NumericVector voxel_dim = R_NilValue, // c(dx,dy,dz)
@@ -763,12 +774,20 @@ Rcpp::List slice_msf_runwise(
     int target_k_global = -1,   // exact-K across volume (2-D if !stitch_z, else 3-D)
     int target_k_per_slice = -1, // exact-K per slice (ignored if stitch_z==TRUE)
     double z_mult = 0.0,
-    double w_threshold = 0.0     // drop voxels with W < w_threshold (0 disables)
+    double w_threshold = 0.0,    // drop voxels with W < w_threshold (0 disables)
+    Rcpp::Nullable<Rcpp::IntegerVector> dct_frequencies = R_NilValue,
+    Rcpp::Nullable<Rcpp::NumericVector> dct_weights = R_NilValue
 ) {
   if (vol_dim.size()!=3) stop("vol_dim must be c(nx,ny,nz)");
   const int nx=vol_dim[0], ny=vol_dim[1], nz=vol_dim[2];
-  const int N = nx*ny*nz;
+  if (nx <= 0 || ny <= 0 || nz <= 0) stop("vol_dim entries must be positive");
+  const long long N64 = static_cast<long long>(nx) * ny * nz;
+  if (N64 > std::numeric_limits<int>::max()) stop("volume is too large");
+  const int N = static_cast<int>(N64);
   if ((int)mask.size()!=N) stop("mask length mismatch");
+  for (int i = 0; i < N; ++i) {
+    if (mask[i] != 0 && mask[i] != 1) stop("mask must contain only 0 and 1");
+  }
 
   int T = rows_are_time ? TS.nrow() : TS.ncol();
   int NN= rows_are_time ? TS.ncol() : TS.nrow();
@@ -776,20 +795,81 @@ Rcpp::List slice_msf_runwise(
   if (nbhd!=4 && nbhd!=8) stop("nbhd must be 4 or 8");
   if (r<1) stop("r must be >=1");
   if (fh_scale<=0.0) stop("fh_scale must be >0");
+  if (min_size < 1) stop("min_size must be >=1");
+  if (T < 2) stop("SLiCE-MSF requires at least two timepoints");
+  if (!std::isfinite(gamma) || gamma < 0.0) stop("gamma must be finite and >= 0");
+  if (!std::isfinite(spatial_beta) || spatial_beta < 0.0) {
+    stop("spatial_beta must be finite and >= 0");
+  }
+  if (target_k_global == 0 || target_k_global < -1 ||
+      target_k_per_slice == 0 || target_k_per_slice < -1) {
+    stop("exact-K targets must be -1 or positive");
+  }
+  if (!std::isfinite(z_mult) || z_mult < 0.0 || z_mult > 1.0) stop("z_mult must be in [0, 1]");
+  if (!std::isfinite(w_threshold) || w_threshold < 0.0 || w_threshold > 1.0) {
+    stop("w_threshold must be in [0, 1]");
+  }
 
-  // Boost working sketch rank for clustering to preserve temporal detail,
-  // but return the requested rank for compatibility with callers/tests.
   const int r_input = r;
-  const int r_boost = 48;
-  const int r_work = std::min(T, std::max(r_input, r_boost));
+  IntegerVector frequency_values = dct_frequencies.isNotNull()
+    ? as<IntegerVector>(dct_frequencies)
+    : IntegerVector();
+  NumericVector weight_values = dct_weights.isNotNull()
+    ? as<NumericVector>(dct_weights)
+    : NumericVector();
+  std::vector<int> frequencies;
+  if (frequency_values.size() == 0) {
+    const int r_default = std::min(r_input, T - 1);
+    frequencies.resize(static_cast<size_t>(r_default));
+    std::iota(frequencies.begin(), frequencies.end(), 1);
+  } else {
+    frequencies.reserve(static_cast<size_t>(frequency_values.size()));
+    std::unordered_set<int> seen;
+    for (int i = 0; i < frequency_values.size(); ++i) {
+      const int frequency = frequency_values[i];
+      if (IntegerVector::is_na(frequency) || frequency < 1 || frequency >= T) {
+        stop("dct_frequencies must be unique integers in [1, T - 1]");
+      }
+      if (!seen.insert(frequency).second) {
+        stop("dct_frequencies must be unique integers in [1, T - 1]");
+      }
+      frequencies.push_back(frequency);
+    }
+  }
+  const int r_work = static_cast<int>(frequencies.size());
+  if (r_work < 1) stop("at least one non-DC DCT frequency is required");
+  std::vector<double> mode_weights(static_cast<size_t>(r_work), 1.0);
+  if (weight_values.size() > 0) {
+    if (weight_values.size() != r_work) {
+      stop("dct_weights must be empty or match dct_frequencies length");
+    }
+    for (int k0 = 0; k0 < r_work; ++k0) {
+      const double weight = weight_values[k0];
+      if (!std::isfinite(weight) || weight <= 0.0) {
+        stop("dct_weights must contain positive finite values");
+      }
+      mode_weights[static_cast<size_t>(k0)] = weight;
+    }
+  }
 
   NumericVector voxdim(3);
   if (voxel_dim.size()==3) { voxdim=voxel_dim; } else { voxdim[0]=voxdim[1]=voxdim[2]=1.0; }
+  for (int axis = 0; axis < 3; ++axis) {
+    if (!std::isfinite(voxdim[axis]) || voxdim[axis] <= 0.0) {
+      stop("voxel_dim must contain positive finite values");
+    }
+  }
+  for (int col = 0; col < TS.ncol(); ++col) {
+    for (int row = 0; row < TS.nrow(); ++row) {
+      if (!std::isfinite(TS(row, col))) stop("TS must contain only finite values");
+    }
+  }
 
   // --- sketches & weights (slice-parallel) ---
   NumericVector W(N);
   std::vector<double> U_flat((size_t)N * r_work, 0.0); // voxel-major contiguous
-  std::vector<double> phi; build_dct_basis(T, r_work, phi);
+  std::vector<double> phi;
+  build_dct_basis(T, frequencies, mode_weights, phi);
   SliceSketchWorker skw(TS, mask, phi, nx, ny, nz, T, r_work, rows_are_time, gamma, U_flat, W);
   parallelFor(0, nz, skw);
 
@@ -810,7 +890,10 @@ Rcpp::List slice_msf_runwise(
   // --- volumetric FH segmentation ---
   std::vector<int> gids;
   std::vector<Edge> edges;
-  build_3d_edges(work_mask, U_flat, nx, ny, nz, r_work, nbhd, voxdim, spatial_beta, gids, edges);
+  build_3d_edges(
+    work_mask, U_flat, nx, ny, nz, r_work, nbhd, voxdim,
+    spatial_beta, W, stitch_z, gids, edges
+  );
   std::vector<int> labs_local;
   segment_slice_fh((int)gids.size(), edges, fh_scale, min_size, labs_local);
 
@@ -830,9 +913,6 @@ Rcpp::List slice_msf_runwise(
     for (int k0 = 0; k0 < r_work; ++k0) grp_sum(k0, gidx) += U_flat[(size_t)v * r_work + k0];
   }
 
-  // --- optional 3-D stitching (removed in volumetric mode) ---
-  if (false) { /* stitching disabled in volumetric mode */ }
-
   // --- optional exact-K agglomeration (RAG) ---
   UF ufG(G);
   if (target_k_per_slice>0 && !stitch_z) {
@@ -841,7 +921,7 @@ Rcpp::List slice_msf_runwise(
   } else if (target_k_global>0) {
     std::unordered_set<std::pair<int,int>, PairHash> pairs;
     build_adjacency_pairs(work_mask, nx, ny, nz, voxel2group, nbhd,
-                          /*allow_vertical=*/true, pairs);
+                          /*allow_vertical=*/stitch_z, pairs);
     rag_agglomerate_to_K_global(G, target_k_global, pairs, grp_sum, grp_sz, ufG);
   }
 
@@ -858,7 +938,9 @@ Rcpp::List slice_msf_runwise(
 
   // --- enforce connectivity for each label; then, if exact-K was requested,
   // re-apply agglomeration on connected components to preserve contiguity.
-  int n_conn = enforce_connectivity(labels, work_mask, nx, ny, nz, nbhd);
+  int n_conn = enforce_connectivity(
+    labels, work_mask, nx, ny, nz, nbhd, stitch_z
+  );
   if ((target_k_global > 0 || target_k_per_slice > 0) && n_conn > 0) {
     // Rebuild component sums after splitting
     int Gconn = n_conn;
@@ -883,7 +965,7 @@ Rcpp::List slice_msf_runwise(
     } else if (target_k_global > 0) {
       std::unordered_set<std::pair<int,int>, PairHash> pairs2;
       build_adjacency_pairs(work_mask, nx, ny, nz, voxel2group2, nbhd,
-                            /*allow_vertical=*/true, pairs2);
+                            /*allow_vertical=*/stitch_z, pairs2);
       rag_agglomerate_to_K_global(Gconn, target_k_global, pairs2, grp_sum2, grp_sz2, uf_conn);
     }
 
@@ -906,9 +988,9 @@ Rcpp::List slice_msf_runwise(
   }
 
   // Materialize r x N sketch matrix for return (backward compatible)
-  NumericMatrix U_out(r_input, N);
+  NumericMatrix U_out(r_work, N);
   for (int v=0; v<N; ++v) {
-    for (int k0=0; k0<r_input; ++k0) {
+    for (int k0=0; k0<r_work; ++k0) {
       U_out(k0, v) = U_flat[(size_t)v * r_work + k0];
     }
   }
@@ -918,12 +1000,16 @@ Rcpp::List slice_msf_runwise(
     _["weights"] = W,
     _["sketch"]  = U_out,
     _["params"]  = List::create(
-      _["r"]=r_input, _["fh_scale"]=fh_scale, _["min_size"]=min_size, _["nbhd"]=nbhd,
-      _["stitch_z"]=stitch_z, _["theta_link"]=theta_link, _["min_contact"]=min_contact,
+      _["r"]=r_work, _["r_requested"]=r_input, _["r_used"]=r_work,
+      _["dct_frequencies"] = wrap(frequencies),
+      _["dct_weights"] = wrap(mode_weights),
+      _["fh_scale"]=fh_scale, _["min_size"]=min_size, _["nbhd"]=nbhd,
+      _["stitch_z"]=stitch_z,
       _["gamma"]=gamma, _["target_k_global"]=target_k_global, _["target_k_per_slice"]=target_k_per_slice,
       _["z_mult"] = z_mult, _["w_threshold"]=w_threshold,
       _["n_components_fh"] = G,
       _["n_components_final"] = n_conn,
+      _["reliability_distance"] = "sqrt(w_i*w_j)*(1-cosine)",
       _["r_work"] = r_work
     )
   );
@@ -934,6 +1020,8 @@ Rcpp::List slice_msf_runwise(
 // If exact-K is requested, set use_features=TRUE so we can build
 // a fused per-voxel sketch to drive merges robustly.
 // ---------------------------------------------------------------
+
+namespace {
 
 struct FuseSliceWorker : public Worker {
   const int nx, ny, nz, r, nbhd;
@@ -1032,6 +1120,8 @@ struct FuseSliceWorker : public Worker {
   }
 };
 
+} // namespace
+
 // [[Rcpp::export]]
 Rcpp::List slice_fuse_consensus(
   Rcpp::List run_results,           // list of results from slice_msf_runwise
@@ -1049,8 +1139,23 @@ Rcpp::List slice_fuse_consensus(
 ) {
   if (vol_dim.size()!=3) stop("vol_dim must be c(nx,ny,nz)");
   const int nx=vol_dim[0], ny=vol_dim[1], nz=vol_dim[2];
-  const int N = nx*ny*nz;
+  if (nx <= 0 || ny <= 0 || nz <= 0) stop("vol_dim entries must be positive");
+  const long long N64 = static_cast<long long>(nx) * ny * nz;
+  if (N64 > std::numeric_limits<int>::max()) stop("volume is too large");
+  const int N = static_cast<int>(N64);
   if (nbhd!=4 && nbhd!=8) stop("nbhd must be 4 or 8");
+  if (!std::isfinite(fh_scale) || fh_scale <= 0.0) stop("fh_scale must be finite and >0");
+  if (min_size < 1) stop("min_size must be >=1");
+  if (!std::isfinite(lambda) || lambda < 0.0 || lambda > 1.0) {
+    stop("lambda must be in [0, 1]");
+  }
+  if (!std::isfinite(spatial_beta) || spatial_beta < 0.0) {
+    stop("spatial_beta must be finite and >=0");
+  }
+  if (target_k_global == 0 || target_k_global < -1 ||
+      target_k_per_slice == 0 || target_k_per_slice < -1) {
+    stop("exact-K targets must be -1 or positive");
+  }
 
   const int R = run_results.size();
   if (R < 2) stop("Need >=2 runs for consensus");
@@ -1072,6 +1177,11 @@ Rcpp::List slice_fuse_consensus(
 
     if (one.containsElementNamed("weights")) {
       NumericVector W = one["weights"]; if ((int)W.size()!=N) stop("weights length mismatch");
+      for (int v = 0; v < N; ++v) {
+        if (!std::isfinite(W[v]) || W[v] < 0.0) {
+          stop("weights must contain finite non-negative values");
+        }
+      }
       Ws.emplace_back(W);
     } else {
       NumericVector empty(0); Ws.emplace_back(empty);
@@ -1084,6 +1194,7 @@ Rcpp::List slice_fuse_consensus(
         double n2 = 0.0;
         for (int k0 = 0; k0 < r; ++k0) {
           double val = U(k0, v);
+          if (!std::isfinite(val)) stop("sketch must contain only finite values");
           n2 += val * val;
         }
         if (n2 <= 1e-12) continue;
@@ -1099,16 +1210,108 @@ Rcpp::List slice_fuse_consensus(
 
   NumericVector voxdim(3);
   if (voxel_dim.size()==3) voxdim=voxel_dim; else { voxdim[0]=voxdim[1]=voxdim[2]=1.0; }
+  for (int axis = 0; axis < 3; ++axis) {
+    if (!std::isfinite(voxdim[axis]) || voxdim[axis] <= 0.0) {
+      stop("voxel_dim must contain positive finite values");
+    }
+  }
 
   IntegerVector fused(N); for (int i=0;i<N;++i) fused[i]=0;
 
-  // Slice-parallel FH consensus
-  FuseSliceWorker worker(
-    nx, ny, nz, std::max(0,r), nbhd,
-    Us, Ls, Ws, mask, fh_scale, min_size,
-    use_features, lambda, voxdim, spatial_beta, fused
+  // Volumetric consensus graph. With stitch_z=FALSE, z edges are omitted and
+  // the same implementation becomes explicitly slice-independent.
+  std::vector<int> gids;
+  std::vector<int> glob2loc(static_cast<size_t>(N), -1);
+  for (int v = 0; v < N; ++v) {
+    if (!mask[v]) continue;
+    glob2loc[static_cast<size_t>(v)] = static_cast<int>(gids.size());
+    gids.push_back(v);
+  }
+  std::vector<std::array<int,3>> offsets;
+  offsets.push_back({1, 0, 0});
+  offsets.push_back({0, 1, 0});
+  if (stitch_z) offsets.push_back({0, 0, 1});
+  if (nbhd == 8) {
+    for (int dzs = 0; dzs <= (stitch_z ? 1 : 0); ++dzs) {
+      for (int dys = -1; dys <= 1; ++dys) {
+        for (int dxs = -1; dxs <= 1; ++dxs) {
+          if (dxs == 0 && dys == 0 && dzs == 0) continue;
+          if (dzs == 0 && dys == 0 && dxs <= 0) continue;
+          if (dzs == 0 && std::abs(dxs) + std::abs(dys) <= 1) continue;
+          if (dzs == 1 && dxs == 0 && dys == 0) continue;
+          offsets.push_back({dxs, dys, dzs});
+        }
+      }
+    }
+  }
+  const double dx = voxdim.size() >= 1 ? static_cast<double>(voxdim[0]) : 1.0;
+  const double dy = voxdim.size() >= 2 ? static_cast<double>(voxdim[1]) : 1.0;
+  const double dz = voxdim.size() >= 3 ? static_cast<double>(voxdim[2]) : 1.0;
+  const double minlen = std::max(1e-6, std::min({dx, dy, dz}));
+  std::vector<Edge> consensus_edges;
+  consensus_edges.reserve(gids.size() * offsets.size());
+  for (size_t local = 0; local < gids.size(); ++local) {
+    const int gi = gids[local];
+    const int zi = gi / (nx * ny);
+    const int rem = gi % (nx * ny);
+    const int yi = rem / nx;
+    const int xi = rem % nx;
+    for (const auto &offset : offsets) {
+      const int xj = xi + offset[0];
+      const int yj = yi + offset[1];
+      const int zj = zi + offset[2];
+      if (xj < 0 || xj >= nx || yj < 0 || yj >= ny || zj < 0 || zj >= nz) continue;
+      const int gj = idx3d(xj, yj, zj, nx, ny);
+      const int neighbor = glob2loc[static_cast<size_t>(gj)];
+      if (neighbor < 0) continue;
+
+      double agreement_num = 0.0, agreement_den = 0.0;
+      double feature_num = 0.0, feature_den = 0.0;
+      for (int rr = 0; rr < R; ++rr) {
+        const double wi = Ws[rr].size() == 0 ? 1.0 : Ws[rr][gi];
+        const double wj = Ws[rr].size() == 0 ? 1.0 : Ws[rr][gj];
+        const double pair_weight = wi * wj;
+        if (pair_weight <= 0.0) continue;
+        agreement_den += pair_weight;
+        if (Ls[rr][gi] != 0 && Ls[rr][gi] == Ls[rr][gj]) {
+          agreement_num += pair_weight;
+        }
+        if (use_features) {
+          double dot = 0.0;
+          for (int k0 = 0; k0 < r; ++k0) {
+            dot += Us[rr](k0, gi) * Us[rr](k0, gj);
+          }
+          feature_num += pair_weight * dot;
+          feature_den += pair_weight;
+        }
+      }
+      const double agreement = agreement_den > 0.0 ? agreement_num / agreement_den : 0.0;
+      double distance = 1.0 - agreement;
+      if (use_features) {
+        const double feature = feature_den > 0.0 ? feature_num / feature_den : 0.0;
+        distance = lambda * (1.0 - agreement) + (1.0 - lambda) * (1.0 - feature);
+      }
+      const double length = std::sqrt(
+        offset[0] * offset[0] * dx * dx +
+        offset[1] * offset[1] * dy * dy +
+        offset[2] * offset[2] * dz * dz
+      );
+      distance *= 1.0 + spatial_beta * (length / minlen - 1.0);
+      Edge edge;
+      edge.a = static_cast<int>(local);
+      edge.b = neighbor;
+      edge.w = static_cast<float>(std::max(0.0, std::min(2.0, distance)));
+      edge.wq = quantize16(edge.w);
+      consensus_edges.push_back(edge);
+    }
+  }
+  std::vector<int> fused_local;
+  segment_slice_fh(
+    static_cast<int>(gids.size()), consensus_edges, fh_scale, min_size, fused_local
   );
-  parallelFor(0, nz, worker);
+  for (size_t local = 0; local < gids.size(); ++local) {
+    fused[gids[local]] = fused_local[local];
+  }
 
   // Optional exact-K agglomeration (requires features for robust similarity)
   if ((target_k_global>0 || target_k_per_slice>0) && !use_features) {
@@ -1133,20 +1336,13 @@ Rcpp::List slice_fuse_consensus(
       for (int k0=0;k0<r;++k0) Ubar(k0,v) /= n2;
     }
 
-    // Map voxels -> components from fused FH labels (per slice)
-    // First, make global unique component ids from fused labels per slice.
+    // Map voxels to globally unique connected FH components.
     std::vector<int> comp_id(N, -1);
-    int G=0;
-    for (int z=0; z<nz; ++z) {
-      // Gather slice IDs
-      std::unordered_map<int,int> local2global; local2global.reserve(1024);
-      for (int y=0;y<ny;++y) for (int x=0;x<nx;++x){
-        int g=idx3d(x,y,z,nx,ny); if(!mask[g]) continue;
-        int lab = fused[g]; if (lab<=0) continue;
-        auto it = local2global.find(lab);
-        if (it==local2global.end()) { local2global.emplace(lab, G); comp_id[g]=G; G++; }
-        else comp_id[g] = it->second;
-      }
+    int G = 0;
+    for (int v = 0; v < N; ++v) {
+      if (!mask[v] || fused[v] <= 0) continue;
+      comp_id[v] = fused[v] - 1;
+      G = std::max(G, fused[v]);
     }
     if (G>0) {
       // Component sums & sizes
@@ -1184,6 +1380,7 @@ Rcpp::List slice_fuse_consensus(
 
   // Outside union mask -> 0
   for (int i=0;i<N;++i) if (!mask[i]) fused[i]=0;
+  enforce_connectivity(fused, mask, nx, ny, nz, nbhd, stitch_z);
 
   return List::create(
     _["labels"] = fused,

@@ -11,14 +11,14 @@ cluster4d_brsslic(
   spatial_weight = 0.05,
   max_iterations = 2,
   connectivity = 6,
-  parallel = TRUE,
+  parallel = FALSE,
   verbose = FALSE,
   embedding_dim = 24L,
   sketch_repeats = 1L,
   coarse_alpha = NULL,
   boundary_passes = 1L,
   global_passes = 0L,
-  refine_spatial_weight = 0,
+  refine_spatial_weight = NULL,
   refine_l2_weight = 0,
   refine_stride = NULL,
   seed = 1L,
@@ -30,31 +30,43 @@ cluster4d_brsslic(
 \item{vec}{A \code{NeuroVec} instance supplying the 4D data (x, y, z, time) to cluster}
 
 \item{mask}{A \code{NeuroVol} mask defining the voxels to include in clustering.
-If numeric, nonzero values define included voxels. If logical, TRUE values
-define included voxels.}
+Values must be finite. Voxels are included exactly when the mask value is
+strictly greater than zero; zero and negative values are excluded.}
 
-\item{n_clusters}{Target number of clusters (default 100). Note that some methods
+\item{n_clusters}{Finite integer target number of clusters (default 100), from
+one through the number of included mask voxels. Note that some methods
 may produce slightly different numbers of clusters due to algorithmic constraints.}
 
 \item{spatial_weight}{Balance between spatial and feature similarity (0-1).
-Higher values emphasize spatial compactness. Default 0.5.
+Both endpoints are supported: 0 disables the spatial term and 1 disables
+the feature term. Higher values emphasize spatial compactness. Default 0.5.
+This parameter is inactive for \code{"rena"} and \code{"rena_plus"};
+supplying it explicitly for either method is an error.
 Maps to method-specific parameters:
 \itemize{
 \item supervoxels: \code{alpha = 1 - spatial_weight} (0 = all spatial, 1 = all feature)
-\item snic/slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
+\item snic: \code{compactness = spatial_weight * 10} (range 0-10)
+\item slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
+\item corr_slic/brs_slic: direct convex blend between correlation and
+scaled spatial distance
 \item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
 \item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
 \item mcl: direct blend between feature and spatial edge similarities
 }}
 
-\item{max_iterations}{Maximum iterations for iterative methods. Default 10.
-Maps to: \code{iterations} (supervoxels), \code{max_iter} (snic/slic),
-\code{rounds} (flash3d).}
+\item{max_iterations}{Positive finite integer iteration limit for iterative
+methods. It is inactive for \code{"snic"}, \code{"slice_msf"}, and
+\code{"commute"}; supplying it explicitly for those methods is an error.}
 
-\item{connectivity}{Neighborhood connectivity (6 or 26). Default 26.
-6 = face neighbors only, 26 = face + edge + corner neighbors.}
+\item{connectivity}{Integer neighborhood connectivity. Supported values are
+method-specific: supervoxels accepts 6, 18, 26, or 27; slic, corr_slic,
+brs_slic, and slice_msf accept 6 or 26; G3S, ReNA variants, and MCL accept
+6, 18, or 26. It is inactive for snic, flash3d, acsc, and commute.}
 
-\item{parallel}{Enable parallel processing where supported. Default TRUE.}
+\item{parallel}{Enable parallel processing for supervoxels and slic. For all
+other methods, an explicit \code{TRUE} is rejected; omitted or
+\code{FALSE} selects the serial implementation. Default TRUE for supported
+methods.}
 
 \item{verbose}{Print progress messages. Default FALSE.}
 
@@ -62,13 +74,15 @@ Maps to: \code{iterations} (supervoxels), \code{max_iter} (snic/slic),
 
 \item{sketch_repeats}{Number of independent sketches to average.}
 
-\item{coarse_alpha}{Compactness weight in the coarse sketch-SLIC stage.}
+\item{coarse_alpha}{Optional backward-compatible alias for the coarse spatial
+blend weight in \verb{[0, 1]}.}
 
 \item{boundary_passes}{Number of boundary-only refinement passes.}
 
 \item{global_passes}{Number of local-global refinement passes after boundary passes.}
 
-\item{refine_spatial_weight}{Spatial regularization during boundary refinement.}
+\item{refine_spatial_weight}{Optional spatial blend weight during exact
+refinement. \code{NULL} inherits \code{coarse_alpha}; both endpoints are supported.}
 
 \item{refine_l2_weight}{Optional L2 prototype penalty during boundary refinement.}
 
@@ -86,4 +100,14 @@ A cluster4d_result object
 \description{
 Hybrid method: fast sketch-SLIC coarse assignment, then exact-correlation
 refinement only on boundary voxels.
+}
+\details{
+Both the coarse and exact-refinement spatial weights use the convex
+blend \code{(1 - w) * correlation_distance + w * scaled_spatial_distance}.
+\code{refine_l2_weight} is a separate optional feature penalty, so a strictly
+spatial-only refinement uses \code{refine_spatial_weight = 1} and
+\code{refine_l2_weight = 0}. The hash-sketch artifact is explicitly marked as a
+pre-refinement embedding under \code{metadata$approximation$coarse_embedding}.
+Public centers and coordinates are final-label means in original feature and
+physical coordinate spaces, respectively.
 }

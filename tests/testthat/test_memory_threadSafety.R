@@ -306,7 +306,7 @@ test_that("extreme parameter combinations don't cause memory issues", {
     # Very large min_size (force few clusters)
     list(r = 8, k = 0.5, min_size = nvox/2),
     # High compactness in full algorithm
-    list(compactness = 20, min_size = 1, r = 8)
+    list(compactness = 10, min_size = 1, r = 8)
   )
   
   for (i in seq_along(extreme_params)) {

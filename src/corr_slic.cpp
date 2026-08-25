@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <numeric>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -186,7 +187,15 @@ static VoxelGrid build_voxel_grid(const IntegerVector &mask_lin_idx,
   G.X = dims[0];
   G.Y = dims[1];
   G.Z = dims[2];
-  G.V = G.X * G.Y * G.Z;
+  if (G.X <= 0 || G.Y <= 0 || G.Z <= 0) {
+    stop("dims must contain three positive extents");
+  }
+  const int64_t volume_size = static_cast<int64_t>(G.X) *
+    static_cast<int64_t>(G.Y) * static_cast<int64_t>(G.Z);
+  if (volume_size > static_cast<int64_t>(std::numeric_limits<int>::max())) {
+    stop("dims product exceeds the supported integer index range");
+  }
+  G.V = static_cast<int>(volume_size);
   G.N = mask_lin_idx.size();
 
   G.mask_lin.resize(G.N);
@@ -202,6 +211,9 @@ static VoxelGrid build_voxel_grid(const IntegerVector &mask_lin_idx,
     int lin = mask_lin_idx[i];
     if (lin < 0 || lin >= G.V) {
       stop("mask_lin_idx contains out-of-range linear index");
+    }
+    if (G.id_map[static_cast<size_t>(lin)] != -1) {
+      stop("mask_lin_idx must not contain duplicate linear indices");
     }
 
     int x = lin % G.X;
@@ -611,7 +623,7 @@ static void enforce_connectivity(const VoxelGrid &G,
         } else {
           int32_t nl = labels[u];
           int32_t cnt = ++adj_counts[nl];
-          if (cnt > best_cnt) {
+          if (cnt > best_cnt || (cnt == best_cnt && nl < best_adj)) {
             best_cnt = cnt;
             best_adj = nl;
           }
@@ -647,7 +659,227 @@ static void enforce_connectivity(const VoxelGrid &G,
   }
 }
 
+static void validate_finite_matrix(const NumericMatrix &x,
+                                   const char *name) {
+  const R_xlen_t n = x.size();
+  const double *ptr = x.begin();
+  for (R_xlen_t i = 0; i < n; ++i) {
+    if (!std::isfinite(ptr[i])) {
+      stop(std::string(name) + " must contain only finite values");
+    }
+  }
+}
+
+// Relabel live clusters in ascending old-label order, then recompute every
+// returned summary from the labels that survive the final connectivity pass.
+// The optional embedding buffer is voxel-major and represents the actual
+// sketch used by Corr-SLIC; its means are metadata, never public data centers.
+static List summarize_final_labels(const NumericMatrix &feat,
+                                   const VoxelGrid &G,
+                                   std::vector<int32_t> &labels,
+                                   const int K,
+                                   const std::vector<float> *embedding,
+                                   const int embedding_dim) {
+  std::vector<int32_t> old_to_new(static_cast<size_t>(K), -1);
+  std::vector<int32_t> original_ids;
+  original_ids.reserve(static_cast<size_t>(K));
+
+  for (int v = 0; v < G.N; ++v) {
+    const int old = labels[static_cast<size_t>(v)];
+    if (old < 0 || old >= K) stop("internal label escaped [0, K)");
+    if (old_to_new[static_cast<size_t>(old)] == -1) {
+      old_to_new[static_cast<size_t>(old)] = -2;
+    }
+  }
+  for (int old = 0; old < K; ++old) {
+    if (old_to_new[static_cast<size_t>(old)] == -2) {
+      old_to_new[static_cast<size_t>(old)] =
+        static_cast<int32_t>(original_ids.size());
+      original_ids.push_back(static_cast<int32_t>(old));
+    }
+  }
+
+  const int actual_k = static_cast<int>(original_ids.size());
+  if (actual_k <= 0) stop("no live clusters remain after connectivity");
+  const int T = feat.ncol();
+  std::vector<int32_t> counts(static_cast<size_t>(actual_k), 0);
+  std::vector<double> sum_xyz(static_cast<size_t>(actual_k) * 3U, 0.0);
+  std::vector<double> sum_feat(
+    static_cast<size_t>(actual_k) * static_cast<size_t>(T), 0.0
+  );
+  std::vector<double> sum_embedding;
+  if (embedding != nullptr) {
+    if (embedding_dim <= 0 ||
+        embedding->size() != static_cast<size_t>(G.N) *
+          static_cast<size_t>(embedding_dim)) {
+      stop("internal embedding dimensions do not match final labels");
+    }
+    sum_embedding.assign(
+      static_cast<size_t>(actual_k) * static_cast<size_t>(embedding_dim), 0.0
+    );
+  }
+
+  const double *feat_ptr = feat.begin();
+  IntegerVector out_labels(G.N);
+  for (int v = 0; v < G.N; ++v) {
+    const int old = labels[static_cast<size_t>(v)];
+    const int lab = old_to_new[static_cast<size_t>(old)];
+    labels[static_cast<size_t>(v)] = static_cast<int32_t>(lab);
+    out_labels[v] = lab + 1;
+    counts[static_cast<size_t>(lab)] += 1;
+    const size_t k3 = static_cast<size_t>(lab) * 3U;
+    sum_xyz[k3] += static_cast<double>(G.vx[static_cast<size_t>(v)]);
+    sum_xyz[k3 + 1] += static_cast<double>(G.vy[static_cast<size_t>(v)]);
+    sum_xyz[k3 + 2] += static_cast<double>(G.vz[static_cast<size_t>(v)]);
+    for (int t = 0; t < T; ++t) {
+      sum_feat[static_cast<size_t>(lab) * static_cast<size_t>(T) +
+               static_cast<size_t>(t)] +=
+        feat_ptr[static_cast<size_t>(v) + static_cast<size_t>(t) *
+                 static_cast<size_t>(G.N)];
+    }
+    if (embedding != nullptr) {
+      const float *src = embedding->data() + static_cast<size_t>(v) *
+        static_cast<size_t>(embedding_dim);
+      double *dst = sum_embedding.data() + static_cast<size_t>(lab) *
+        static_cast<size_t>(embedding_dim);
+      for (int j = 0; j < embedding_dim; ++j) dst[j] += src[j];
+    }
+  }
+
+  NumericMatrix original_centers(actual_k, T);
+  NumericMatrix centers_xyz(actual_k, 3);
+  NumericMatrix embedding_centers(
+    actual_k, embedding == nullptr ? 0 : embedding_dim
+  );
+  IntegerVector count_out(actual_k);
+  IntegerVector label_ids(actual_k);
+  IntegerVector original_label_ids(actual_k);
+  for (int k = 0; k < actual_k; ++k) {
+    const int32_t count = counts[static_cast<size_t>(k)];
+    if (count <= 0) stop("internal final-label compaction created an empty row");
+    const double inv = 1.0 / static_cast<double>(count);
+    count_out[k] = count;
+    label_ids[k] = k + 1;
+    original_label_ids[k] = original_ids[static_cast<size_t>(k)] + 1;
+    for (int t = 0; t < T; ++t) {
+      original_centers(k, t) =
+        sum_feat[static_cast<size_t>(k) * static_cast<size_t>(T) +
+                 static_cast<size_t>(t)] * inv;
+    }
+    const size_t k3 = static_cast<size_t>(k) * 3U;
+    centers_xyz(k, 0) = sum_xyz[k3] * inv + 1.0;
+    centers_xyz(k, 1) = sum_xyz[k3 + 1] * inv + 1.0;
+    centers_xyz(k, 2) = sum_xyz[k3 + 2] * inv + 1.0;
+    if (embedding != nullptr) {
+      for (int j = 0; j < embedding_dim; ++j) {
+        embedding_centers(k, j) =
+          sum_embedding[static_cast<size_t>(k) *
+                        static_cast<size_t>(embedding_dim) +
+                        static_cast<size_t>(j)] * inv;
+      }
+    }
+  }
+
+  return List::create(
+    _["labels"] = out_labels,
+    _["original_centers"] = original_centers,
+    _["centers_xyz"] = centers_xyz,
+    _["embedding_centers"] = embedding_centers,
+    _["label_ids"] = label_ids,
+    _["original_label_ids"] = original_label_ids,
+    _["counts"] = count_out,
+    _["actual_k"] = actual_k
+  );
+}
+
 } // namespace
+
+// Exact score oracle used to verify the Pearson-correlation refinement path.
+// Coordinates and centers must use the same coordinate system.
+// [[Rcpp::export]]
+NumericMatrix corrslic_exact_scores_cpp(const NumericMatrix feat,
+                                        const NumericMatrix prototypes,
+                                        const NumericMatrix coords,
+                                        const NumericMatrix center_coords,
+                                        const double spatial_weight,
+                                        const double spatial_scale,
+                                        const int stride = 1,
+                                        const double l2_weight = 0.0) {
+  const int N = feat.nrow();
+  const int T = feat.ncol();
+  const int K = prototypes.nrow();
+  if (N <= 0 || T <= 1 || K <= 0) {
+    stop("feat and prototypes must be nonempty with at least two timepoints");
+  }
+  if (prototypes.ncol() != T) stop("prototypes must have ncol(feat) columns");
+  if (coords.nrow() != N || coords.ncol() != 3) stop("coords must be N by 3");
+  if (center_coords.nrow() != K || center_coords.ncol() != 3) {
+    stop("center_coords must be K by 3");
+  }
+  if (!std::isfinite(spatial_weight) || spatial_weight < 0.0 || spatial_weight > 1.0) {
+    stop("spatial_weight must be finite and in [0, 1]");
+  }
+  if (!std::isfinite(spatial_scale) || spatial_scale <= 0.0) {
+    stop("spatial_scale must be a positive finite scalar");
+  }
+  if (stride < 1 || stride > T) stop("stride must be in [1, ncol(feat)]");
+  if (!std::isfinite(l2_weight) || l2_weight < 0.0) {
+    stop("l2_weight must be finite and >= 0");
+  }
+  validate_finite_matrix(feat, "feat");
+  validate_finite_matrix(prototypes, "prototypes");
+  validate_finite_matrix(coords, "coords");
+  validate_finite_matrix(center_coords, "center_coords");
+
+  const int Teff = (T + stride - 1) / stride;
+  const double eps = 1e-10;
+  const double spatial_factor = spatial_weight / (spatial_scale * spatial_scale);
+  const double feature_weight = 1.0 - spatial_weight;
+  NumericMatrix scores(N, K);
+
+  for (int v = 0; v < N; ++v) {
+    if ((v & 1023) == 0) Rcpp::checkUserInterrupt();
+    double sx = 0.0;
+    double sx2 = 0.0;
+    for (int t = 0; t < T; t += stride) {
+      const double x = feat(v, t);
+      sx += x;
+      sx2 += x * x;
+    }
+    const double mx = sx / static_cast<double>(Teff);
+    const double ssx = std::max(0.0, sx2 - static_cast<double>(Teff) * mx * mx);
+    const double invsd_x = 1.0 / std::sqrt(ssx + eps);
+
+    for (int k = 0; k < K; ++k) {
+      double sp = 0.0;
+      double sp2 = 0.0;
+      double dotxp = 0.0;
+      double sqdiff = 0.0;
+      for (int t = 0; t < T; t += stride) {
+        const double x = feat(v, t);
+        const double p = prototypes(k, t);
+        sp += p;
+        sp2 += p * p;
+        dotxp += x * p;
+        const double delta = x - p;
+        sqdiff += delta * delta;
+      }
+      const double mp = sp / static_cast<double>(Teff);
+      const double ssp = std::max(0.0, sp2 - static_cast<double>(Teff) * mp * mp);
+      double corr = (dotxp - static_cast<double>(Teff) * mx * mp) *
+        invsd_x / std::sqrt(ssp + eps);
+      corr = std::max(-1.0, std::min(1.0, corr));
+      const double dx = coords(v, 0) - center_coords(k, 0);
+      const double dy = coords(v, 1) - center_coords(k, 1);
+      const double dz = coords(v, 2) - center_coords(k, 2);
+      const double dist2 = dx * dx + dy * dy + dz * dz;
+      scores(v, k) = feature_weight * (1.0 - corr) +
+        l2_weight * sqdiff / static_cast<double>(Teff) +
+        spatial_factor * dist2;
+    }
+  }
+  return scores;
+}
 
 // [[Rcpp::export]]
 List corrslic_core(const NumericMatrix feat,
@@ -676,19 +908,27 @@ List corrslic_core(const NumericMatrix feat,
 
   if (N <= 0) stop("feat has zero rows");
   if (T <= 0) stop("feat has zero columns");
+  validate_finite_matrix(feat, "feat");
   if (mask_lin_idx.size() != N) stop("mask_lin_idx length must match nrow(feat)");
   if (K < 2) stop("K must be >= 2");
   if (K > N) stop("K must be <= number of masked voxels");
   if (d < 8) stop("embedding dimension d must be >= 8");
   if (sketch_repeats < 1 || sketch_repeats > 8) stop("sketch_repeats must be in [1, 8]");
+  if (!std::isfinite(alpha) || alpha < 0.0 || alpha > 1.0) {
+    stop("alpha must be a finite spatial blend weight in [0, 1]");
+  }
+  if (max_iter < 1 || max_iter > 1000) stop("max_iter must be in [1, 1000]");
   if (assign_stride < 1 || assign_stride > 16) stop("assign_stride must be in [1, 16]");
   if (embed_basis != "hash" && embed_basis != "dct") stop("embed_basis must be 'hash' or 'dct'");
   if (refine_exact_iters < 0 || refine_exact_iters > 16) stop("refine_exact_iters must be in [0, 16]");
   if (refine_stride < 1 || refine_stride > 64) stop("refine_stride must be in [1, 64]");
-  if (!std::isfinite(refine_alpha) || (refine_alpha != -1.0 && refine_alpha <= 0.0)) {
-    stop("refine_alpha must be -1 or a positive finite scalar");
+  if (!std::isfinite(refine_alpha) ||
+      (refine_alpha != -1.0 && (refine_alpha < 0.0 || refine_alpha > 1.0))) {
+    stop("refine_alpha must be -1 or a finite spatial blend weight in [0, 1]");
   }
   if (connectivity != 6 && connectivity != 26) stop("connectivity must be 6 or 26");
+  if (min_size < 0) stop("min_size must be >= 0");
+  if (n_threads < 0) stop("n_threads must be >= 0");
 
 #ifdef _OPENMP
   if (n_threads <= 0) n_threads = omp_get_max_threads();
@@ -908,7 +1148,10 @@ List corrslic_core(const NumericMatrix feat,
 
   float S = std::cbrt(static_cast<float>(N) / static_cast<float>(K));
   if (S < 1.0f) S = 1.0f;
-  float alpha_over_s2 = static_cast<float>(alpha / (static_cast<double>(S) * static_cast<double>(S)));
+  const float feature_weight = static_cast<float>(1.0 - alpha);
+  const float alpha_over_s2 = static_cast<float>(
+    alpha / (static_cast<double>(S) * static_cast<double>(S))
+  );
 
   Centers C = init_seeds_grid(G, feat_emb, d, K, S, seed);
   Bins B = init_bins(G, S, K);
@@ -1001,7 +1244,7 @@ List corrslic_core(const NumericMatrix feat,
             const float dist2 = dxs * dxs + dys * dys + dzs * dzs;
             const float *fk = C.cf.data() + static_cast<size_t>(k) * static_cast<size_t>(d);
             const float dot = dot_row(fv, fk, d);
-            const float D = (1.0f - dot) + alpha_over_s2 * dist2;
+            const float D = feature_weight * (1.0f - dot) + alpha_over_s2 * dist2;
 
             if (D < bestD) {
               bestD = D;
@@ -1019,7 +1262,7 @@ List corrslic_core(const NumericMatrix feat,
             const float dist2 = dxs * dxs + dys * dys + dzs * dzs;
             const float *fk = C.cf.data() + static_cast<size_t>(k) * static_cast<size_t>(d);
             const float dot = dot_row(fv, fk, d);
-            const float D = (1.0f - dot) + alpha_over_s2 * dist2;
+            const float D = feature_weight * (1.0f - dot) + alpha_over_s2 * dist2;
             if (D < bestD) {
               bestD = D;
               bestk = k;
@@ -1042,7 +1285,7 @@ List corrslic_core(const NumericMatrix feat,
             const float dist2 = dxs * dxs + dys * dys + dzs * dzs;
             const int8_t *fkq = center_q.data() + static_cast<size_t>(k) * static_cast<size_t>(d);
             const float dotq = static_cast<float>(dot_row_i8(fvq, fkq, d)) * inv_qscale2;
-            const float Dq = (1.0f - dotq) + alpha_over_s2 * dist2;
+            const float Dq = feature_weight * (1.0f - dotq) + alpha_over_s2 * dist2;
 
             if (Dq < bestD) {
               bestD = Dq;
@@ -1060,7 +1303,7 @@ List corrslic_core(const NumericMatrix feat,
             const float dist2 = dxs * dxs + dys * dys + dzs * dzs;
             const int8_t *fkq = center_q.data() + static_cast<size_t>(k) * static_cast<size_t>(d);
             const float dotq = static_cast<float>(dot_row_i8(fvq, fkq, d)) * inv_qscale2;
-            const float Dq = (1.0f - dotq) + alpha_over_s2 * dist2;
+            const float Dq = feature_weight * (1.0f - dotq) + alpha_over_s2 * dist2;
             if (Dq < bestD) {
               bestD = Dq;
               bestk = k;
@@ -1251,6 +1494,7 @@ List corrslic_core(const NumericMatrix feat,
     const int phase = (subsample_now ? ((it - 1) % stride_eff) : 0);
     assignment_pass(subsample_now, phase, changes, processed);
     update_centers();
+    Rcpp::checkUserInterrupt();
 
     double change_ratio = static_cast<double>(changes) / static_cast<double>(N);
     if (verbose) {
@@ -1284,7 +1528,8 @@ List corrslic_core(const NumericMatrix feat,
   }
 
   if (refine_exact_iters > 0) {
-    const float alpha_refine = static_cast<float>(refine_alpha > 0.0 ? refine_alpha : alpha);
+    const float alpha_refine = static_cast<float>(refine_alpha >= 0.0 ? refine_alpha : alpha);
+    const float feature_refine = 1.0f - alpha_refine;
     const float alpha_refine_over_s2 =
       alpha_refine / (static_cast<float>(S) * static_cast<float>(S));
 
@@ -1543,7 +1788,7 @@ List corrslic_core(const NumericMatrix feat,
             const float dist2 = dxs * dxs + dys * dys + dzs * dzs;
             const float *fk = center_exact.data() + static_cast<size_t>(k) * static_cast<size_t>(Td);
             const float dot = dot_row(fv, fk, Td);
-            const float D = (1.0f - dot) + alpha_refine_over_s2 * dist2;
+            const float D = feature_refine * (1.0f - dot) + alpha_refine_over_s2 * dist2;
             if (D < bestD) {
               bestD = D;
               bestk = k;
@@ -1559,7 +1804,7 @@ List corrslic_core(const NumericMatrix feat,
             const float dist2 = dxs * dxs + dys * dys + dzs * dzs;
             const float *fk = center_exact.data() + static_cast<size_t>(k) * static_cast<size_t>(Td);
             const float dot = dot_row(fv, fk, Td);
-            const float D = (1.0f - dot) + alpha_refine_over_s2 * dist2;
+            const float D = feature_refine * (1.0f - dot) + alpha_refine_over_s2 * dist2;
             if (D < bestD) {
               bestD = D;
               bestk = k;
@@ -1613,7 +1858,7 @@ List corrslic_core(const NumericMatrix feat,
             const int8_t *fkq = center_exact_q.data() + static_cast<size_t>(k) * static_cast<size_t>(Td);
             const int32_t dot_i8 = dot_row_i8(fvq, fkq, Td);
             const float dot = inv_qscale2 * static_cast<float>(dot_i8);
-            const float D = (1.0f - dot) + alpha_refine_over_s2 * dist2;
+            const float D = feature_refine * (1.0f - dot) + alpha_refine_over_s2 * dist2;
             if (D < bestD) {
               bestD = D;
               bestk = k;
@@ -1630,7 +1875,7 @@ List corrslic_core(const NumericMatrix feat,
             const int8_t *fkq = center_exact_q.data() + static_cast<size_t>(k) * static_cast<size_t>(Td);
             const int32_t dot_i8 = dot_row_i8(fvq, fkq, Td);
             const float dot = inv_qscale2 * static_cast<float>(dot_i8);
-            const float D = (1.0f - dot) + alpha_refine_over_s2 * dist2;
+            const float D = feature_refine * (1.0f - dot) + alpha_refine_over_s2 * dist2;
             if (D < bestD) {
               bestD = D;
               bestk = k;
@@ -1661,6 +1906,7 @@ List corrslic_core(const NumericMatrix feat,
       } else {
         assignment_exact_pass_f(bm, changes, processed);
       }
+      Rcpp::checkUserInterrupt();
       if (verbose) {
         const double cr = static_cast<double>(changes) / static_cast<double>(N);
         Rcout << "corrslic_core refine " << (it + 1)
@@ -1686,36 +1932,26 @@ List corrslic_core(const NumericMatrix feat,
   }
 
   enforce_connectivity(G, labels, K, min_size_eff, connectivity);
-
-  IntegerVector out_labels(N);
-  for (int i = 0; i < N; ++i) {
-    out_labels[i] = labels[i] + 1;
-  }
-
-  NumericMatrix centers_xyz(K, 3);
-  for (int k = 0; k < K; ++k) {
-    centers_xyz(k, 0) = C.cx[k] + 1.0;
-    centers_xyz(k, 1) = C.cy[k] + 1.0;
-    centers_xyz(k, 2) = C.cz[k] + 1.0;
-  }
-
-  NumericMatrix center_feats(K, d);
-  for (int k = 0; k < K; ++k) {
-    const float *src = C.cf.data() + static_cast<size_t>(k) * static_cast<size_t>(d);
-    for (int j = 0; j < d; ++j) {
-      center_feats(k, j) = src[j];
-    }
-  }
+  List final = summarize_final_labels(feat, G, labels, K, &feat_emb, d);
 
   return List::create(
-    _["labels"] = out_labels,
-    _["centers"] = center_feats,
-    _["centers_xyz"] = centers_xyz,
+    _["labels"] = final["labels"],
+    _["centers"] = final["original_centers"],
+    _["original_centers"] = final["original_centers"],
+    _["embedding_centers"] = final["embedding_centers"],
+    _["centers_xyz"] = final["centers_xyz"],
+    _["label_ids"] = final["label_ids"],
+    _["original_label_ids"] = final["original_label_ids"],
+    _["counts"] = final["counts"],
+    _["actual_k"] = final["actual_k"],
     _["params"] = List::create(
-      _["K"] = K,
+      _["K_requested"] = K,
+      _["actual_k"] = final["actual_k"],
       _["d"] = d,
       _["sketch_repeats"] = sketch_repeats,
-      _["alpha"] = alpha,
+      _["spatial_weight"] = alpha,
+      _["weight_semantics"] = "(1-w)*feature_distance + w*scaled_spatial_distance",
+      _["supports_weight_endpoints"] = true,
       _["assign_stride"] = assign_stride,
       _["assign_subsample_iters"] = subsample_iters,
       _["quantize_assign"] = quantize_assign,
@@ -1724,7 +1960,7 @@ List corrslic_core(const NumericMatrix feat,
       _["refine_exact_iters"] = refine_exact_iters,
       _["refine_boundary_only"] = refine_boundary_only,
       _["refine_stride"] = refine_stride,
-      _["refine_alpha"] = (refine_alpha > 0.0 ? refine_alpha : alpha),
+      _["refine_spatial_weight"] = (refine_alpha >= 0.0 ? refine_alpha : alpha),
       _["max_iter"] = max_iter,
       _["seed"] = seed,
       _["connectivity"] = connectivity,
@@ -1757,15 +1993,25 @@ List brs_slic_core(const NumericMatrix feat,
 
   if (N <= 0) stop("feat has zero rows");
   if (T <= 1) stop("feat must have at least 2 timepoints");
+  validate_finite_matrix(feat, "feat");
   if (mask_lin_idx.size() != N) stop("mask_lin_idx length must match nrow(feat)");
   if (K < 2 || K > N) stop("K must be in [2, N]");
   if (d < 8) stop("embedding dimension d must be >= 8");
-  if (coarse_iter < 1) stop("coarse_iter must be >= 1");
-  if (boundary_passes < 0) stop("boundary_passes must be >= 0");
-  if (global_passes < 0) stop("global_passes must be >= 0");
-  if (refine_l2 < 0) stop("refine_l2 must be >= 0");
-  if (refine_stride < 0) stop("refine_stride must be >= 0");
+  if (sketch_repeats < 1 || sketch_repeats > 8) stop("sketch_repeats must be in [1, 8]");
+  if (!std::isfinite(alpha) || alpha < 0.0 || alpha > 1.0) {
+    stop("alpha must be a finite spatial blend weight in [0, 1]");
+  }
+  if (coarse_iter < 1 || coarse_iter > 1000) stop("coarse_iter must be in [1, 1000]");
+  if (boundary_passes < 0 || boundary_passes > 16) stop("boundary_passes must be in [0, 16]");
+  if (global_passes < 0 || global_passes > 16) stop("global_passes must be in [0, 16]");
+  if (!std::isfinite(refine_spatial) || refine_spatial < 0.0 || refine_spatial > 1.0) {
+    stop("refine_spatial must be a finite spatial blend weight in [0, 1]");
+  }
+  if (!std::isfinite(refine_l2) || refine_l2 < 0.0) stop("refine_l2 must be finite and >= 0");
+  if (refine_stride < 0 || refine_stride > 64) stop("refine_stride must be in [0, 64]");
   if (connectivity != 6 && connectivity != 26) stop("connectivity must be 6 or 26");
+  if (min_size < 0) stop("min_size must be >= 0");
+  if (n_threads < 0) stop("n_threads must be >= 0");
 
 #ifdef _OPENMP
   if (n_threads <= 0) n_threads = omp_get_max_threads();
@@ -1780,8 +2026,11 @@ List brs_slic_core(const NumericMatrix feat,
   );
 
   IntegerVector coarse_labels = coarse["labels"];
-  NumericMatrix coarse_centers = coarse["centers"];
+  NumericMatrix coarse_embedding_centers = coarse["embedding_centers"];
   NumericMatrix coarse_centers_xyz = coarse["centers_xyz"];
+  IntegerVector coarse_label_ids = coarse["label_ids"];
+  IntegerVector coarse_original_label_ids = coarse["original_label_ids"];
+  IntegerVector coarse_counts = coarse["counts"];
   std::vector<int32_t> labels(static_cast<size_t>(N), 0);
   for (int i = 0; i < N; ++i) labels[static_cast<size_t>(i)] = static_cast<int32_t>(coarse_labels[i] - 1);
 
@@ -1791,6 +2040,7 @@ List brs_slic_core(const NumericMatrix feat,
   const int Teff = (T + refine_stride_eff - 1) / refine_stride_eff;
 
   const double S = std::max(1.0, std::cbrt(static_cast<double>(N) / static_cast<double>(K)));
+  const double refine_feature_weight = 1.0 - refine_spatial;
   const double refine_alpha_over_s2 = refine_spatial / (S * S);
   const double refine_l2_weight = refine_l2;
   if (boundary_passes > 0 || global_passes > 0) {
@@ -2028,7 +2278,8 @@ List brs_slic_core(const NumericMatrix feat,
           const double dy = static_cast<double>(y) - cy[static_cast<size_t>(k)];
           const double dz = static_cast<double>(z) - cz[static_cast<size_t>(k)];
           const double dist2 = dx * dx + dy * dy + dz * dz;
-          const double score = (1.0 - corr) + refine_l2_weight * l2 + refine_alpha_over_s2 * dist2;
+          const double score = refine_feature_weight * (1.0 - corr) +
+            refine_l2_weight * l2 + refine_alpha_over_s2 * dist2;
 
           if (score < best_score) {
             best_score = score;
@@ -2043,6 +2294,7 @@ List brs_slic_core(const NumericMatrix feat,
       }
 
       labels.swap(new_labels);
+      Rcpp::checkUserInterrupt();
       if (verbose) {
         const double cr = static_cast<double>(changes) / static_cast<double>(N);
         Rcout << "brs_slic_core refine pass " << (bp + 1)
@@ -2157,7 +2409,8 @@ List brs_slic_core(const NumericMatrix feat,
           const double dy = static_cast<double>(y) - cy[static_cast<size_t>(k)];
           const double dz = static_cast<double>(z) - cz[static_cast<size_t>(k)];
           const double dist2 = dx * dx + dy * dy + dz * dz;
-          const double score = (1.0 - corr) + refine_l2_weight * l2 + refine_alpha_over_s2 * dist2;
+          const double score = refine_feature_weight * (1.0 - corr) +
+            refine_l2_weight * l2 + refine_alpha_over_s2 * dist2;
           if (score < best_score) {
             best_score = score;
             best = k;
@@ -2171,6 +2424,7 @@ List brs_slic_core(const NumericMatrix feat,
       }
 
       labels.swap(new_labels);
+      Rcpp::checkUserInterrupt();
       if (verbose) {
         const double cr = static_cast<double>(changes) / static_cast<double>(N);
         Rcout << "brs_slic_core global pass " << (gp + 1)
@@ -2187,47 +2441,33 @@ List brs_slic_core(const NumericMatrix feat,
   }
 
   enforce_connectivity(G, labels, K, min_size_eff, connectivity);
-
-  IntegerVector out_labels(N);
-  for (int i = 0; i < N; ++i) out_labels[i] = labels[static_cast<size_t>(i)] + 1;
-
-  std::vector<double> sx(static_cast<size_t>(K), 0.0);
-  std::vector<double> sy(static_cast<size_t>(K), 0.0);
-  std::vector<double> sz(static_cast<size_t>(K), 0.0);
-  std::vector<int32_t> cnt(static_cast<size_t>(K), 0);
-  for (int v = 0; v < N; ++v) {
-    const int k = labels[static_cast<size_t>(v)];
-    if (k < 0 || k >= K) continue;
-    cnt[static_cast<size_t>(k)] += 1;
-    sx[static_cast<size_t>(k)] += static_cast<double>(G.vx[static_cast<size_t>(v)]);
-    sy[static_cast<size_t>(k)] += static_cast<double>(G.vy[static_cast<size_t>(v)]);
-    sz[static_cast<size_t>(k)] += static_cast<double>(G.vz[static_cast<size_t>(v)]);
-  }
-
-  NumericMatrix centers_xyz(K, 3);
-  for (int k = 0; k < K; ++k) {
-    const int32_t c = cnt[static_cast<size_t>(k)];
-    if (c > 0) {
-      const double inv = 1.0 / static_cast<double>(c);
-      centers_xyz(k, 0) = sx[static_cast<size_t>(k)] * inv + 1.0;
-      centers_xyz(k, 1) = sy[static_cast<size_t>(k)] * inv + 1.0;
-      centers_xyz(k, 2) = sz[static_cast<size_t>(k)] * inv + 1.0;
-    } else {
-      centers_xyz(k, 0) = coarse_centers_xyz(k, 0);
-      centers_xyz(k, 1) = coarse_centers_xyz(k, 1);
-      centers_xyz(k, 2) = coarse_centers_xyz(k, 2);
-    }
-  }
+  List final = summarize_final_labels(feat, G, labels, K, nullptr, 0);
 
   return List::create(
-    _["labels"] = out_labels,
-    _["centers"] = coarse_centers,
-    _["centers_xyz"] = centers_xyz,
+    _["labels"] = final["labels"],
+    _["centers"] = final["original_centers"],
+    _["original_centers"] = final["original_centers"],
+    _["centers_xyz"] = final["centers_xyz"],
+    _["label_ids"] = final["label_ids"],
+    _["original_label_ids"] = final["original_label_ids"],
+    _["counts"] = final["counts"],
+    _["actual_k"] = final["actual_k"],
+    _["coarse_embedding"] = List::create(
+      _["centers"] = coarse_embedding_centers,
+      _["centers_xyz"] = coarse_centers_xyz,
+      _["label_ids"] = coarse_label_ids,
+      _["original_label_ids"] = coarse_original_label_ids,
+      _["counts"] = coarse_counts,
+      _["stage"] = "pre_refinement"
+    ),
     _["params"] = List::create(
-      _["K"] = K,
+      _["K_requested"] = K,
+      _["actual_k"] = final["actual_k"],
       _["d"] = d,
       _["sketch_repeats"] = sketch_repeats,
-      _["alpha"] = alpha,
+      _["coarse_spatial_weight"] = alpha,
+      _["weight_semantics"] = "(1-w)*feature_distance + w*scaled_spatial_distance",
+      _["supports_weight_endpoints"] = true,
       _["coarse_iter"] = coarse_iter,
       _["boundary_passes"] = boundary_passes,
       _["global_passes"] = global_passes,

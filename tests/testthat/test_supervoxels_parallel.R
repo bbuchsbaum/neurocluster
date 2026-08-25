@@ -27,6 +27,9 @@ test_that("parallel supervoxels produces same results as sequential", {
   expect_equal(res_seq$cluster, res_par$cluster)
   expect_equal(res_seq$centers, res_par$centers)
   expect_equal(res_seq$coord_centers, res_par$coord_centers)
+  expect_false(res_seq$metadata$algorithm$parallel_used)
+  expect_true(res_par$metadata$algorithm$parallel_requested)
+  expect_true(res_par$metadata$algorithm$parallel_used)
 })
 
 test_that("parallel supervoxels works with different grain sizes", {

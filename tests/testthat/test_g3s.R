@@ -42,17 +42,23 @@ test_that("SVD compression handles edge cases", {
 
   # Small dataset
   small_mat <- matrix(rnorm(10 * 20), 10, 20)
-  compressed <- compress_features_svd(small_mat, n_components = 5)
+  compressed <- suppressWarnings(
+    compress_features_svd(small_mat, n_components = 5)
+  )
   expect_equal(nrow(compressed$features), 10)
 
   # More components requested than available
-  compressed2 <- compress_features_svd(small_mat, n_components = 100)
+  compressed2 <- suppressWarnings(
+    compress_features_svd(small_mat, n_components = 100)
+  )
   expect_lte(ncol(compressed2$features), min(10, 20))
 
   # Zero variance column
   zero_var_mat <- matrix(rnorm(10 * 20), 10, 20)
   zero_var_mat[, 1] <- 1  # Constant column
-  compressed3 <- compress_features_svd(zero_var_mat, n_components = 5)
+  compressed3 <- suppressWarnings(
+    compress_features_svd(zero_var_mat, n_components = 5)
+  )
   expect_equal(nrow(compressed3$features), 10)
 })
 
@@ -62,7 +68,9 @@ test_that("transform_new_data_svd applies compression consistently", {
 
   # Train compression
   train_data <- matrix(rnorm(50 * 100), 50, 100)
-  compression <- compress_features_svd(train_data, n_components = 10)
+  compression <- suppressWarnings(
+    compress_features_svd(train_data, n_components = 10)
+  )
 
   # Apply to new data
   test_data <- matrix(rnorm(20 * 100), 20, 100)
@@ -178,7 +186,6 @@ test_that("g3s_propagate_cpp assigns all voxels", {
   # Run G3S propagation
   labels <- g3s_propagate_cpp(
     feature_mat = feature_mat,
-    coords = coords,
     seed_indices = seed_indices,
     neighbor_indices = neib$nn.index,
     neighbor_dists = neib$nn.dist,
@@ -221,8 +228,10 @@ test_that("cluster4d_g3s produces valid results", {
                   NeuroSpace(c(5, 5, 5, 20)))
 
   # Run G3S
-  result <- cluster4d_g3s(vec, mask, K = 10, n_components = 5,
-                         max_refinement_iter = 1, verbose = FALSE)
+  result <- suppressWarnings(cluster4d_g3s(
+    vec, mask, K = 10, n_components = 5,
+    max_refinement_iter = 1, verbose = FALSE
+  ))
 
   # Check result structure
   expect_s3_class(result, "g3s_result")
@@ -274,7 +283,7 @@ test_that("cluster4d with method='g3s' works", {
   expect_lte(result$n_clusters, 5)
 })
 
-test_that("G3S knn backends are behaviorally consistent with fixed seed", {
+test_that("G3S exact grid connectivity is recorded", {
   skip_on_cran()
 
   library(neuroim2)
@@ -284,39 +293,27 @@ test_that("G3S knn backends are behaviorally consistent with fixed seed", {
   vec <- NeuroVec(array(rnorm(6 * 6 * 4 * 20), c(6, 6, 4, 20)),
                   NeuroSpace(c(6, 6, 4, 20)))
 
-  ari_local <- function(labels1, labels2) {
-    tab <- table(labels1, labels2)
-    sum_comb <- sum(choose(tab, 2))
-    sum_rows <- sum(choose(rowSums(tab), 2))
-    sum_cols <- sum(choose(colSums(tab), 2))
-    n <- length(labels1)
-    expected <- sum_rows * sum_cols / choose(n, 2)
-    max_idx <- 0.5 * (sum_rows + sum_cols)
-    if (max_idx == expected) return(0)
-    (sum_comb - expected) / (max_idx - expected)
-  }
-
-  set.seed(212)
-  res_fnn <- cluster4d_g3s(
+  res_6 <- suppressWarnings(cluster4d_g3s(
     vec, mask, K = 10,
     n_components = 8,
     max_refinement_iter = 1,
-    knn_backend = "fnn",
+    connectivity = 6,
     verbose = FALSE
-  )
+  ))
 
-  set.seed(212)
-  res_rann <- cluster4d_g3s(
+  res_26 <- suppressWarnings(cluster4d_g3s(
     vec, mask, K = 10,
     n_components = 8,
     max_refinement_iter = 1,
-    knn_backend = "rann",
+    connectivity = 26,
     verbose = FALSE
-  )
+  ))
 
-  expect_equal(length(res_fnn$cluster), length(res_rann$cluster))
-  expect_equal(res_fnn$n_clusters, res_rann$n_clusters)
-  expect_gte(ari_local(res_fnn$cluster, res_rann$cluster), 0.99)
+  expect_equal(res_6$n_clusters, 10)
+  expect_equal(res_26$n_clusters, 10)
+  expect_equal(res_6$metadata$graph$connectivity, 6)
+  expect_equal(res_26$metadata$graph$connectivity, 26)
+  expect_lt(res_6$metadata$graph$n_edges, res_26$metadata$graph$n_edges)
 })
 
 
@@ -335,7 +332,7 @@ test_that("G3S handles small datasets gracefully", {
   expect_error(
     cluster4d_g3s(vec, mask, K = 30, n_components = 5,
                   max_refinement_iter = 0, verbose = FALSE),
-    "must be between"
+    "Cannot create 30 clusters from 27 masked voxels"
   )
 })
 
@@ -371,7 +368,10 @@ test_that("Boundary refinement improves cluster quality", {
   labels_refined <- refine_boundaries_g3s_cpp(
     labels = labels,
     feature_mat = t(features),
+    coords = coords,
     neighbor_indices = neib$nn.index,
+    alpha = 0.5,
+    compactness = 2,
     max_iter = 3L
   )
 
@@ -402,8 +402,10 @@ test_that("G3S produces stable clusters on synthetic data", {
   }, simplify = FALSE)
   vec <- do.call(concat, vec_list)
 
-  result_g3s <- cluster4d(vec, mask, n_clusters = 20, method = "g3s",
-                          max_iterations = 2, verbose = FALSE)
+  result_g3s <- suppressWarnings(cluster4d(
+    vec, mask, n_clusters = 20, method = "g3s",
+    max_iterations = 2, verbose = FALSE
+  ))
 
   # NOTE: We previously compared against SNIC here, but SNIC occasionally
   # segfaults on this randomized volume (see devtools::test(filter = "g3s") logs).

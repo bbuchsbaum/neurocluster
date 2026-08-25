@@ -2,7 +2,7 @@
 % Please edit documentation in R/g3s.R
 \name{cluster4d_g3s}
 \alias{cluster4d_g3s}
-\title{G3S: Gradient-Guided Geodesic Supervoxels}
+\title{Gradient-guided geodesic clustering on a masked grid}
 \usage{
 cluster4d_g3s(
   vec,
@@ -16,132 +16,50 @@ cluster4d_g3s(
   verbose = FALSE,
   use_irlba = TRUE,
   use_rsvd = TRUE,
-  knn_backend = c("rann", "fnn")
+  connectivity = 26
 )
 }
 \arguments{
-\item{vec}{A \code{NeuroVec} instance supplying the 4D neuroimaging data to cluster.}
+\item{vec}{A \code{NeuroVec} or \code{SparseNeuroVec} containing the input features.}
 
-\item{mask}{A \code{NeuroVol} mask defining voxels to include. Nonzero = included.}
+\item{mask}{A \code{NeuroVol}; exactly finite values greater than zero are included.}
 
-\item{K}{Integer; target number of clusters. Default: 100.}
+\item{K}{Positive requested cluster count.}
 
-\item{n_components}{Integer; number of SVD components for feature compression.
-Default: 15. Higher values preserve more variance but reduce speed gains.}
+\item{n_components}{Requested SVD feature count.}
 
-\item{variance_threshold}{Numeric (0-1); minimum variance to preserve in SVD.
-If n_components doesn't meet this, more components will be added. Default: 0.95.}
+\item{variance_threshold}{Minimum retained variance in \verb{[0, 1]}.}
 
-\item{alpha}{Numeric (0-1); feature weight. 0 = all spatial, 1 = all feature.
-Default: 0.5 (balanced).}
+\item{alpha}{Feature-distance weight in \verb{[0, 1]}; zero is spatial-only and
+one is feature-only.}
 
-\item{compactness}{Numeric; spatial scaling factor. Larger = more compact clusters.
-Default: auto-computed from volume and K.}
+\item{compactness}{Positive finite physical length scale. Smaller values
+impose a stronger spatial penalty. The default uses masked voxel measure,
+K, and the effective dimension, so single-slice masks remain well-defined.}
 
-\item{max_refinement_iter}{Integer; number of boundary refinement iterations.
-Default: 3. Set to 0 to skip refinement.}
+\item{max_refinement_iter}{Non-negative number of boundary passes. Refinement
+uses the same feature/spatial mixture and final labels are repaired through
+the shared adjacency-preserving exact-K engine.}
 
-\item{verbose}{Logical; print progress messages. Default: FALSE.}
+\item{verbose}{Whether to report phase progress.}
 
-\item{use_irlba}{Logical; use fast randomized SVD for large datasets. Default: TRUE.}
+\item{use_irlba}{Whether large SVDs may use \code{irlba}.}
 
-\item{use_rsvd}{Logical; if TRUE and the \pkg{rsvd} package is installed,
-prefer the randomized SVD backend in \code{compress_features_svd}. Default: TRUE.}
+\item{use_rsvd}{Whether randomized SVD may be used when available.}
 
-\item{knn_backend}{Character; spatial kNN backend used for seed/propagation
-graph construction. One of \code{"rann"} (default) or \code{"fnn"}.}
+\item{connectivity}{Exact grid connectivity: 6, 18, or 26.}
 }
 \value{
-A \code{cluster4d_result} object (also inherits \code{g3s_result},
-\code{cluster_result}) with components:
-\item{clusvol}{\code{ClusteredNeuroVol} with cluster assignments.}
-\item{cluster}{Integer vector of cluster labels for masked voxels.}
-\item{centers}{Matrix of cluster centers in feature space.}
-\item{coord_centers}{Matrix of cluster spatial centers.}
-\item{n_clusters}{Actual number of clusters produced.}
-\item{method}{Character; "g3s".}
-\item{parameters}{List of all parameters used.}
-\item{metadata}{G3S-specific metadata including compression info.}
+A typed \code{g3s_result} and \code{cluster4d_result} with K by T centers,
+physical coordinate centers, graph provenance, and physical-scale metadata.
 }
 \description{
-The "Platonic Ideal" of fMRI clustering: combines manifold learning (SVD compression),
-gradient-based seeding, and geodesic propagation for O(N log N) speed with high
-biological plausibility.
+Compresses voxel features, selects low-gradient seeds, and assigns voxels by
+deterministic multi-source Dijkstra propagation. Edges are exactly the
+requested masked-grid neighbors; excluded gaps are never bridged. The edge
+objective is \code{alpha * feature_distance + (1 - alpha) * physical_distance / compactness}.
 }
-\details{
-\subsection{Algorithm Overview}{
-
-G3S combines four key phases:
-\enumerate{
-\item \strong{Hyper-Compression (Phase 1)}: Uses SVD to reduce T=300 timepoints to
-M=15 dimensions, achieving 20x speedup in similarity calculations while
-preserving 95\%+ variance.
-\item \strong{Gradient Seeding (Phase 2)}: Finds local minima in the functional gradient
-field, placing seeds in stable functional cores rather than on boundaries.
-\item \strong{Geodesic Propagation (Phase 3)}: Uses a priority queue to grow clusters
-from seeds along paths of least resistance, ensuring contiguity and
-respecting cortical geometry.
-\item \strong{Boundary Refinement (Phase 4)}: Polishes cluster boundaries by checking
-if surface voxels correlate better with neighboring clusters.
-}
-}
-
-\subsection{Complexity and Performance}{
-\itemize{
-\item \strong{Time}: O(N log N) where N = number of voxels
-\item \strong{Memory}: O(N x M) where M << T (typically 15 vs 300)
-\item \strong{Speedup}: 10-20x faster than iterative supervoxels
-\item \strong{Quality}: Superior boundaries due to geodesic propagation
-}
-}
-
-\subsection{Comparison with Other Methods}{
-
-\tabular{lllll}{
-\strong{Method} \tab \strong{Speed} \tab \strong{Quality} \tab \strong{Memory} \tab \strong{Complexity} \cr
-G3S \tab Fast \tab Excellent \tab Low \tab O(N log N) \cr
-Supervoxels \tab Slow \tab Good \tab High \tab O(N x K x iters) \cr
-SNIC \tab Fast \tab Good \tab Low \tab O(N log N) \cr
-FLASH3D \tab Fast \tab Good \tab Medium \tab O(N) \cr
-}
-
-G3S advantages:
-\itemize{
-\item \strong{vs. Supervoxels}: 10-20x faster, better boundaries, no iterations
-\item \strong{vs. SNIC}: Better initialization (gradient vs spatial), adaptive centroids
-\item \strong{vs. FLASH3D}: No quantization artifacts, true correlation-based similarity
-}
-}
-}
-\examples{
-\dontrun{
-# Load example data
-mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
-vec <- replicate(50, NeuroVol(array(rnorm(20*20*20), c(20,20,20)),
-                              NeuroSpace(c(20,20,20))), simplify=FALSE)
-vec <- do.call(concat, vec)
-
-# Basic G3S clustering
-result <- cluster4d_g3s(vec, mask, K = 100)
-print(result$n_clusters)
-print(result$metadata$variance_explained)
-
-# Conservative compression (preserve 98\% variance)
-result <- cluster4d_g3s(vec, mask, K = 100, variance_threshold = 0.98)
-
-# More aggressive compression (faster, less accurate)
-result <- cluster4d_g3s(vec, mask, K = 100, n_components = 10)
-
-# Emphasize spatial compactness
-result <- cluster4d_g3s(vec, mask, K = 100, alpha = 0.3)
-
-# Skip boundary refinement for maximum speed
-result <- cluster4d_g3s(vec, mask, K = 100, max_refinement_iter = 0)
-}
-
-}
-\seealso{
-\code{\link{cluster4d}} for unified clustering interface.
-\code{\link{compress_features_svd}} for SVD compression details.
-\code{\link{find_gradient_seeds_g3s}} for gradient seeding details.
+\references{
+Dijkstra, E. W. (1959). A note on two problems in connexion
+with graphs. Numerische Mathematik, 1, 269-271.
 }

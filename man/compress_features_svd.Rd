@@ -32,8 +32,10 @@ tall-and-skinny matrices. Default: TRUE.}
 }
 \value{
 A list with components:
-\item{features}{Compressed feature matrix (N x M) where M <= n_components.
-Each row is normalized to unit length for cosine similarity calculations.}
+\item{features}{Compressed feature matrix (N x M), starting from the
+requested \code{n_components} and increasing M when needed to satisfy
+\code{variance_threshold}. Each row is normalized to unit length for
+cosine similarity calculations.}
 \item{variance_explained}{Proportion of total variance explained by the
 retained components (0-1).}
 \item{n_components}{Actual number of components retained (may be > n_components
@@ -85,19 +87,23 @@ enabling fast cosine similarity via dot products: \code{cor(x, y) approx x * y}
 }
 
 The function will automatically increase n_components if needed to meet
-variance_threshold, ensuring accuracy is never sacrificed for speed.
+variance_threshold. If that requires the full available rank, the exact
+full-rank decomposition is used.
 }
 }
 \examples{
 # Simulate fMRI time series data
 n_voxels <- 1000
 n_timepoints <- 300
-feature_mat <- matrix(rnorm(n_voxels * n_timepoints), n_voxels, n_timepoints)
+latent <- matrix(rnorm(n_voxels * 8), n_voxels, 8)
+loadings <- matrix(rnorm(n_timepoints * 8), n_timepoints, 8)
+feature_mat <- latent \%*\% t(loadings) +
+  matrix(rnorm(n_voxels * n_timepoints, sd = 0.05), n_voxels, n_timepoints)
 
 # Compress to 15 dimensions (typical for G3S)
 compressed <- compress_features_svd(feature_mat, n_components = 15)
-print(compressed$variance_explained)  # Should be ~0.95
-print(ncol(compressed$features))      # Should be 15
+print(compressed$variance_explained)  # At least 0.95
+print(ncol(compressed$features))      # 15 here; may increase when necessary
 
 # More aggressive compression
 compressed_fast <- compress_features_svd(feature_mat, n_components = 10)

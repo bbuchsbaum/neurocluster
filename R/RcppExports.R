@@ -32,6 +32,10 @@ compute_centroids_parallel_fast <- function(cluster_ids, data, coords, n_cluster
     .Call('_neurocluster_compute_centroids_parallel_fast', PACKAGE = 'neurocluster', cluster_ids, data, coords, n_clusters)
 }
 
+corrslic_exact_scores_cpp <- function(feat, prototypes, coords, center_coords, spatial_weight, spatial_scale, stride = 1L, l2_weight = 0.0) {
+    .Call('_neurocluster_corrslic_exact_scores_cpp', PACKAGE = 'neurocluster', feat, prototypes, coords, center_coords, spatial_weight, spatial_scale, stride, l2_weight)
+}
+
 corrslic_core <- function(feat, mask_lin_idx, dims, K, d = 64L, sketch_repeats = 2L, alpha = 0.5, max_iter = 5L, seed = 1L, assign_stride = 1L, quantize_assign = FALSE, embed_basis = "hash", whiten_embed = FALSE, refine_exact_iters = 0L, refine_boundary_only = TRUE, refine_stride = 1L, refine_alpha = -1.0, connectivity = 6L, min_size = 0L, n_threads = 0L, verbose = FALSE) {
     .Call('_neurocluster_corrslic_core', PACKAGE = 'neurocluster', feat, mask_lin_idx, dims, K, d, sketch_repeats, alpha, max_iter, seed, assign_stride, quantize_assign, embed_basis, whiten_embed, refine_exact_iters, refine_boundary_only, refine_stride, refine_alpha, connectivity, min_size, n_threads, verbose)
 }
@@ -84,8 +88,12 @@ normalized_heat_kernel <- function(x1, x2, sigma) {
     .Call('_neurocluster_normalized_heat_kernel', PACKAGE = 'neurocluster', x1, x2, sigma)
 }
 
-flash3d_supervoxels_cpp <- function(ts, mask_lin0, dims, K, lambda, rounds = 2L, bits = 64L, dctM = 12L, vox_scale = as.numeric( c(1.0,1.0,1.0)), barrier_opt = NULL, verbose = FALSE) {
-    .Call('_neurocluster_flash3d_supervoxels_cpp', PACKAGE = 'neurocluster', ts, mask_lin0, dims, K, lambda, rounds, bits, dctM, vox_scale, barrier_opt, verbose)
+flash3d_reseed_empty_cpp <- function(labels, best, K) {
+    .Call('_neurocluster_flash3d_reseed_empty_cpp', PACKAGE = 'neurocluster', labels, best, K)
+}
+
+flash3d_supervoxels_cpp <- function(ts, mask_lin0, dims, K, lambda, rounds = 2L, bits = 64L, dctM = 12L, vox_scale = as.numeric( c(1.0,1.0,1.0)), barrier_opt = NULL, verbose = FALSE, diagnostics = FALSE) {
+    .Call('_neurocluster_flash3d_supervoxels_cpp', PACKAGE = 'neurocluster', ts, mask_lin0, dims, K, lambda, rounds, bits, dctM, vox_scale, barrier_opt, verbose, diagnostics)
 }
 
 fused_assignment <- function(nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, data, dthresh, sigma1, sigma2, alpha) {
@@ -100,24 +108,24 @@ compute_centroids_parallel <- function(cluster_ids, data, coords, n_clusters, gr
     .Call('_neurocluster_compute_centroids_parallel', PACKAGE = 'neurocluster', cluster_ids, data, coords, n_clusters, grain_size)
 }
 
-fused_assignment_parallel_binned <- function(nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, data, dthresh, sigma1, sigma2, alpha, grain_size = 2048L, window_factor = 2.0, bin_expand = 1L) {
-    .Call('_neurocluster_fused_assignment_parallel_binned', PACKAGE = 'neurocluster', nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, data, dthresh, sigma1, sigma2, alpha, grain_size, window_factor, bin_expand)
+fused_assignment_parallel_binned <- function(nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, cluster_counts, data, dthresh, sigma1, sigma2, alpha, grain_size = 2048L, window_factor = 2.0, bin_expand = 1L) {
+    .Call('_neurocluster_fused_assignment_parallel_binned', PACKAGE = 'neurocluster', nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, cluster_counts, data, dthresh, sigma1, sigma2, alpha, grain_size, window_factor, bin_expand)
 }
 
-fused_assignment_binned <- function(nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, data, dthresh, sigma1, sigma2, alpha, window_factor = 2.0, bin_expand = 1L) {
-    .Call('_neurocluster_fused_assignment_binned', PACKAGE = 'neurocluster', nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, data, dthresh, sigma1, sigma2, alpha, window_factor, bin_expand)
+fused_assignment_binned <- function(nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, cluster_counts, data, dthresh, sigma1, sigma2, alpha, window_factor = 2.0, bin_expand = 1L) {
+    .Call('_neurocluster_fused_assignment_binned', PACKAGE = 'neurocluster', nn_index, nn_dist, curclus, coords, data_centroids, coord_centroids, cluster_counts, data, dthresh, sigma1, sigma2, alpha, window_factor, bin_expand)
 }
 
 calculate_local_gradient <- function(feature_mat, neighbor_indices) {
     .Call('_neurocluster_calculate_local_gradient', PACKAGE = 'neurocluster', feature_mat, neighbor_indices)
 }
 
-g3s_propagate_cpp <- function(feature_mat, coords, seed_indices, neighbor_indices, neighbor_dists, alpha, compactness) {
-    .Call('_neurocluster_g3s_propagate_cpp', PACKAGE = 'neurocluster', feature_mat, coords, seed_indices, neighbor_indices, neighbor_dists, alpha, compactness)
+g3s_propagate_cpp <- function(feature_mat, seed_indices, neighbor_indices, neighbor_dists, alpha, compactness) {
+    .Call('_neurocluster_g3s_propagate_cpp', PACKAGE = 'neurocluster', feature_mat, seed_indices, neighbor_indices, neighbor_dists, alpha, compactness)
 }
 
-refine_boundaries_g3s_cpp <- function(labels, feature_mat, neighbor_indices, max_iter) {
-    .Call('_neurocluster_refine_boundaries_g3s_cpp', PACKAGE = 'neurocluster', labels, feature_mat, neighbor_indices, max_iter)
+refine_boundaries_g3s_cpp <- function(labels, feature_mat, coords, neighbor_indices, alpha, compactness, max_iter) {
+    .Call('_neurocluster_refine_boundaries_g3s_cpp', PACKAGE = 'neurocluster', labels, feature_mat, coords, neighbor_indices, alpha, compactness, max_iter)
 }
 
 mcl_prune_sparse_cpp <- function(p, i, x, ncol, max_per_col, min_value) {
@@ -400,8 +408,8 @@ slic4d_core <- function(feats, coords, mask_lin_idx, dims, voxmm, K, compactness
     .Call('_neurocluster_slic4d_core', PACKAGE = 'neurocluster', feats, coords, mask_lin_idx, dims, voxmm, K, compactness, max_iter, step_mm, n_threads, seed_method, enforce_connectivity, min_size, connectivity, strict_connectivity, preserve_k, topup_iters, grad_masked, seed_relocate_radius, verbose)
 }
 
-slice_msf_runwise <- function(TS, mask, vol_dim, r = 12L, fh_scale = 0.32, min_size = 80L, nbhd = 8L, stitch_z = FALSE, theta_link = 0.85, min_contact = 1L, rows_are_time = TRUE, gamma = 1.5, voxel_dim = NULL, spatial_beta = 0.0, target_k_global = -1L, target_k_per_slice = -1L, z_mult = 0.0, w_threshold = 0.0) {
-    .Call('_neurocluster_slice_msf_runwise', PACKAGE = 'neurocluster', TS, mask, vol_dim, r, fh_scale, min_size, nbhd, stitch_z, theta_link, min_contact, rows_are_time, gamma, voxel_dim, spatial_beta, target_k_global, target_k_per_slice, z_mult, w_threshold)
+slice_msf_runwise <- function(TS, mask, vol_dim, r = 12L, fh_scale = 0.32, min_size = 80L, nbhd = 8L, stitch_z = FALSE, rows_are_time = TRUE, gamma = 1.5, voxel_dim = NULL, spatial_beta = 0.0, target_k_global = -1L, target_k_per_slice = -1L, z_mult = 0.0, w_threshold = 0.0, dct_frequencies = NULL, dct_weights = NULL) {
+    .Call('_neurocluster_slice_msf_runwise', PACKAGE = 'neurocluster', TS, mask, vol_dim, r, fh_scale, min_size, nbhd, stitch_z, rows_are_time, gamma, voxel_dim, spatial_beta, target_k_global, target_k_per_slice, z_mult, w_threshold, dct_frequencies, dct_weights)
 }
 
 slice_fuse_consensus <- function(run_results, vol_dim, nbhd = 8L, fh_scale = 0.30, min_size = 80L, use_features = FALSE, lambda = 0.7, voxel_dim = NULL, spatial_beta = 0.0, target_k_global = -1L, target_k_per_slice = -1L, stitch_z = FALSE) {

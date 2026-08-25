@@ -66,9 +66,11 @@ toy <- make_toy_seam()
 
 # Consensus {#consensus}
 ```r
-res_cons <- cluster4d(toy$vec, toy$mask, n_clusters = 6, method = "slice_msf",
-                      spatial_weight = 0.5, connectivity = 26,
-                      num_runs = 3, consensus = TRUE, stitch_z = FALSE)
+res_cons <- slice_msf(
+  toy$vec, toy$mask, target_k_global = -1,
+  compactness = 5, nbhd = 8,
+  num_runs = 3, consensus = TRUE, stitch_z = FALSE
+)
 ```
 
 ```{r albers_inject, echo=FALSE, results='asis'}
@@ -81,9 +83,11 @@ cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
 
 # Stitch across z {#stitch}
 ```r
-res_stitch <- cluster4d(toy$vec, toy$mask, n_clusters = 6, method = "slice_msf",
-                        spatial_weight = 0.5, connectivity = 26,
-                        num_runs = 1, consensus = FALSE, stitch_z = TRUE)
+res_stitch <- slice_msf(
+  toy$vec, toy$mask, target_k_global = -1,
+  compactness = 5, nbhd = 8,
+  num_runs = 1, consensus = FALSE, stitch_z = TRUE
+)
 ```
 
 # Visual comparison {#fig-stitch}
@@ -102,12 +106,14 @@ if (ok) {
 # Post-merge {#post-merge}
 ```r
 # Example: merge clusters if too small (toy illustration)
-val <- validate_cluster4d(res_stitch)
+val <- validate_cluster4d(res_stitch, toy$vec, toy$mask)
 val$summary
 ```
 
 # Notes & limitations {#pitfalls}
-- Slice-wise clustering operates independently per slice; boundaries can be discontinuous across z. `stitch_z = TRUE` merges adjacent slices using contact and similarity thresholds.
+- With `stitch_z = FALSE`, each axial slice has an independent graph and a
+  global exact-K target is unavailable. With `stitch_z = TRUE`, the graph adds
+  axial edges and exact `target_k_global` becomes available.
 - Consensus (`num_runs > 1, consensus = TRUE`) aggregates multiple runs; improves stability at additional runtime cost.
 includes:
   in_header: |-

@@ -59,7 +59,7 @@ test_that("slice_msf handles multiple runs with various parameter combinations",
   # Test matrix of parameter combinations
   test_params <- expand.grid(
     num_runs = c(2, 3),
-    consensus = c(TRUE, FALSE),
+    consensus = TRUE,
     r = c(4, 8),
     compactness = c(2, 5),
     stitch_z = c(TRUE, FALSE),
@@ -70,9 +70,6 @@ test_that("slice_msf handles multiple runs with various parameter combinations",
   for (i in 1:nrow(test_params)) {
     params <- test_params[i, ]
     
-    # Skip non-sensical combinations
-    if (params$num_runs == 1 && params$consensus) next
-    
     result <- tryCatch({
       slice_msf(
         vec = data$vec,
@@ -82,9 +79,7 @@ test_that("slice_msf handles multiple runs with various parameter combinations",
         r = params$r,
         compactness = params$compactness,
         stitch_z = params$stitch_z,
-        min_size = 10,
-        theta_link = 0.85,
-        min_contact = 1
+        min_size = 10
       )
     }, error = function(e) {
       fail(sprintf("slice_msf failed with params: num_runs=%d, consensus=%s, r=%d, compactness=%d, stitch_z=%s\nError: %s",
@@ -153,22 +148,21 @@ test_that("slice_msf handles target_k parameters correctly", {
   )
   
   n_clusters_global <- length(unique(result_global$cluster))
-  # Should be close to target (allowing some flexibility due to algorithm constraints)
-  expect_true(abs(n_clusters_global - 10) <= 5)
-  
-  # Test target_k_per_slice (requires stitch_z = FALSE)
-  result_per_slice <- slice_msf(
-    vec = data$vec,
-    mask = data$mask,
-    target_k_per_slice = 5,
-    stitch_z = FALSE,
-    num_runs = 1,
-    r = 6,
-    min_size = 10
+  expect_equal(n_clusters_global, 10)
+
+  expect_error(
+    slice_msf(
+      vec = data$vec,
+      mask = data$mask,
+      target_k_global = 5,
+      stitch_z = FALSE,
+      num_runs = 1,
+      consensus = FALSE,
+      r = 6,
+      min_size = 10
+    ),
+    "requires stitch_z"
   )
-  
-  expect_s3_class(result_per_slice, "slice_msf_cluster_result")
-  expect_equal(length(result_per_slice$cluster), data$nvox)
 })
 
 test_that("slice_msf consensus fusion parameters work correctly", {
@@ -300,47 +294,21 @@ test_that("slice_msf reliability weighting works", {
   }
 })
 
-test_that("slice_msf z-stitching parameters work correctly", {
+test_that("slice_msf volumetric topology is explicit", {
   data <- create_slice_test_data(dims = c(10, 10, 6), n_time = 40, seed = 222)
-  
-  # Test different theta_link values
-  theta_links <- c(0.7, 0.75, 0.85, 0.9, 0.95)
-  
-  for (theta in theta_links) {
-    result <- slice_msf(
-      vec = data$vec,
-      mask = data$mask,
-      stitch_z = TRUE,
-      theta_link = theta,
-      min_contact = 1,
-      num_runs = 2,
-      consensus = TRUE,
-      r = 6,
-      min_size = 20
-    )
-    
-    expect_s3_class(result, "slice_msf_cluster_result")
-    expect_equal(length(result$cluster), data$nvox)
-  }
-  
-  # Test different min_contact values
-  min_contacts <- c(1, 2, 3, 5)
-  
-  for (mc in min_contacts) {
-    result <- slice_msf(
-      vec = data$vec,
-      mask = data$mask,
-      stitch_z = TRUE,
-      theta_link = 0.85,
-      min_contact = mc,
-      num_runs = 1,
-      r = 6,
-      min_size = 20
-    )
-    
-    expect_s3_class(result, "slice_msf_cluster_result")
-    expect_equal(length(result$cluster), data$nvox)
-  }
+
+  volumetric <- slice_msf(
+    data$vec, data$mask, stitch_z = TRUE,
+    num_runs = 1, consensus = FALSE, r = 6, min_size = 20
+  )
+  per_slice <- slice_msf(
+    data$vec, data$mask, stitch_z = FALSE,
+    num_runs = 1, consensus = FALSE, r = 6, min_size = 20
+  )
+  expect_true(volumetric$metadata$topology$volumetric)
+  expect_false(per_slice$metadata$topology$volumetric)
+  expect_equal(length(volumetric$cluster), data$nvox)
+  expect_equal(length(per_slice$cluster), data$nvox)
 })
 
 test_that("slice_msf produces consistent results across runs", {
@@ -474,8 +442,6 @@ test_that("z-axis smoothing increases vertical feature agreement", {
     min_size = 1,
     nbhd = 4,
     stitch_z = TRUE,
-    theta_link = 0.9,
-    min_contact = 1,
     rows_are_time = TRUE,
     gamma = 1.0,
     voxel_dim = voxel_dim,
@@ -494,8 +460,6 @@ test_that("z-axis smoothing increases vertical feature agreement", {
     min_size = 1,
     nbhd = 4,
     stitch_z = TRUE,
-    theta_link = 0.9,
-    min_contact = 1,
     rows_are_time = TRUE,
     gamma = 1.0,
     voxel_dim = voxel_dim,

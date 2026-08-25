@@ -65,7 +65,10 @@ init_gradient_seeds <- function(coords, n_clusters, mask = NULL, vec = NULL,
     grad <- spatial_gradient(refvol, mask)
   } else if (gradient_type == "correlation") {
     img4d <- as.array(vec)
-    mask_numeric <- array(as.numeric(as.logical(mask)), dim = dim(mask))
+    mask_numeric <- array(
+      as.numeric(cluster4d_mask_array(mask, "init_gradient_seeds")),
+      dim = dim(mask)
+    )
     grad3d <- correlation_gradient_cpp(img4d, mask_numeric)
     dim(grad3d) <- dim(mask)
     grad <- neuroim2::NeuroVol(grad3d, space = neuroim2::space(mask))
@@ -76,7 +79,7 @@ init_gradient_seeds <- function(coords, n_clusters, mask = NULL, vec = NULL,
   }
   
   # Get gradient values at masked voxels
-  mask_idx <- which(mask > 0)
+  mask_idx <- which(cluster4d_mask_array(mask, "init_gradient_seeds"))
   grad_vals <- grad[mask_idx]
   
   # Find high-gradient points with spatial separation

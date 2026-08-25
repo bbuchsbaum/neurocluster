@@ -239,146 +239,84 @@ merge_clus.cluster_result_time <- function(x, ...) {
   as.integer(hpart$.Data)
 }
 
-#' Lightweight cluster-quality metrics
+#' Explicit cluster-quality estimands
 #'
-#' Computes quick diagnostic metrics for a clustering result, supporting both
-#' data-driven and spatial assessments.
+#' Computes partition, within-cluster temporal, and physical spatial estimands
+#' from final voxel labels. Temporal coherence is the mean Pearson correlation
+#' over all unordered within-cluster voxel pairs. Spatial dispersion is the
+#' root mean squared Euclidean distance from each voxel coordinate to its final
+#' cluster centroid; lower values are more compact.
 #'
-#' @param result A \code{cluster_result} (or compatible list with \code{cluster} and optionally \code{centers}, \code{coord_centers}).
-#' @param feature_mat Optional matrix of features (voxels x time/features). If NULL, tries \code{result$metadata$features} or \code{result$data_prep$features}.
-#' @param coords Optional matrix of coordinates (voxels x 3). If NULL, tries \code{result$metadata$coords} or \code{result$data_prep$coords}.
-#' @param truth Optional integer vector of ground-truth labels for ARI.
+#' @param result A `cluster_result` with one final label per voxel.
+#' @param feature_mat Optional finite numeric matrix with voxels in rows and at
+#'   least two time/features in columns. A transposed matrix is accepted when
+#'   only its columns match the number of labels. Every row must be
+#'   non-constant for Pearson correlation.
+#' @param coords Optional finite numeric matrix with voxels in rows and spatial
+#'   dimensions in columns. When omitted for a canonical `cluster4d_result`,
+#'   physical millimetre coordinates are reconstructed from its mask and
+#'   affine provenance.
+#' @param truth Optional partition labels over exactly the same voxels.
 #'
-#' @return Named list with fields (when available):
-#' \describe{
-#'   \item{n_clusters}{Number of clusters.}
-#'   \item{size_summary}{Min/median/max cluster size.}
-#'   \item{ari_truth}{Adjusted Rand Index vs. \code{truth} (if provided).}
-#'   \item{within_data_corr}{Mean Fisher-z of voxel-to-centroid correlations (data space).}
-#'   \item{between_data_corr}{Mean Fisher-z of centroid-to-centroid correlations (data space).}
-#'   \item{within_spatial_dist}{Mean Euclidean distance voxel-to-centroid (spatial).}
-#' }
+#' @return A named list. Always contains `n_clusters` and `size_summary`.
+#'   With `truth`, it adds adjusted Rand, variation of information in bits, and
+#'   pairwise Dice. With `feature_mat`, it adds
+#'   `temporal_pairwise_correlation`. With coordinates, it adds
+#'   `spatial_rms_distance_mm` (or `spatial_rms_distance` when explicit
+#'   coordinates are not declared to be millimetres by a canonical result).
 #' @export
 cluster_metrics <- function(result,
                             feature_mat = NULL,
                             coords = NULL,
                             truth = NULL) {
-
-  labs <- result$cluster
-  stopifnot(!is.null(labs))
+  if (is.null(result$cluster)) {
+    stop("result must contain final voxel labels in $cluster", call. = FALSE)
+  }
+  labs <- .partition_label_codes(result$cluster, "result$cluster")
   n <- length(labs)
-  n_clusters <- length(unique(labs))
-
-  # Pull features/coords if not provided
-  if (is.null(feature_mat)) {
-    feature_mat <- result$metadata$features %||% result$data_prep$features
-  }
-  if (is.null(coords)) {
-    coords <- result$metadata$coords %||% result$data_prep$coords
-  }
-
-  fisher_z <- function(r) 0.5 * log((1 + r) / (1 - r))
-
-  # Size summary
-  sz <- tabulate(labs, nbins = n_clusters)
-  size_summary <- c(min = min(sz), median = stats::median(sz), max = max(sz))
-
+  n_clusters <- max(labs)
+  sizes <- tabulate(labs, nbins = n_clusters)
+  size_summary <- c(
+    min = min(sizes), median = stats::median(sizes), max = max(sizes)
+  )
   out <- list(
     n_clusters = n_clusters,
     size_summary = size_summary
   )
 
-  # ARI if truth supplied
-  if (!is.null(truth) && length(truth) == n) {
-    out$ari_truth <- adj_rand_index_internal(labs, truth)
+  if (!is.null(truth)) {
+    agreement <- .partition_metrics(labs, truth)
+    out$ari_truth <- agreement$ari
+    out$variation_of_information_truth_bits <-
+      agreement$variation_of_information_bits
+    out$pairwise_dice_truth <- agreement$pairwise_dice
   }
 
-  # Data-based metrics
   if (!is.null(feature_mat)) {
-    # Ensure matrix is voxels x features
-    if (nrow(feature_mat) != n && ncol(feature_mat) == n) {
-      feature_mat <- t(feature_mat)
-    }
-    stopifnot(nrow(feature_mat) == n)
-
-    # Use provided centers if present, else compute means
-    centers <- result$centers
-    if (is.null(centers)) {
-      centers <- vapply(seq_len(n_clusters), function(k) colMeans(feature_mat[labs == k, , drop = FALSE]), numeric(ncol(feature_mat)))
-      centers <- t(centers)
-    }
-    if (nrow(centers) != n_clusters) {
-      # attempt to reorder/trim to contiguous ids
-      centers <- centers[seq_len(n_clusters), , drop = FALSE]
-    }
-
-    # voxel-to-centroid correlation
-    # normalize
-    fm <- scale(feature_mat, center = TRUE, scale = TRUE)
-    cm <- scale(centers, center = TRUE, scale = TRUE)
-    # efficient dot product correlation
-    denom_v <- sqrt(rowSums(fm^2))
-    denom_c <- sqrt(rowSums(cm^2))
-    denom_v[denom_v == 0] <- 1
-    denom_c[denom_c == 0] <- 1
-    # compute per voxel corr with its centroid
-    within_corr <- numeric(n)
-    for (k in seq_len(n_clusters)) {
-      idx <- which(labs == k)
-      if (length(idx) == 0) next
-      within_corr[idx] <- as.numeric(fm[idx, , drop = FALSE] %*% cm[k, ]) /
-        (denom_v[idx] * denom_c[k])
-    }
-    within_corr[!is.finite(within_corr)] <- 0
-    out$within_data_corr <- mean(fisher_z(within_corr))
-
-    # centroid-to-centroid correlation
-    cc <- stats::cor(t(cm))
-    cc[!is.finite(cc)] <- 0
-    out$between_data_corr <- mean(fisher_z(cc[upper.tri(cc)]))
+    out$temporal_pairwise_correlation <-
+      .temporal_pairwise_correlation(labs, feature_mat)
   }
 
-  # Spatial metrics
+  coords_are_mm <- FALSE
+  if (is.null(coords) && inherits(result, "cluster4d_result")) {
+    support <- .cluster4d_result_support(result)
+    coords <- support$coords
+    coords_are_mm <- TRUE
+  }
   if (!is.null(coords)) {
-    if (nrow(coords) != n && ncol(coords) == n) coords <- t(coords)
-    stopifnot(nrow(coords) == n)
-    ccent <- result$coord_centers
-    if (is.null(ccent)) {
-      ccent <- vapply(seq_len(n_clusters), function(k) colMeans(coords[labs == k, , drop = FALSE]), numeric(ncol(coords)))
-      ccent <- t(ccent)
+    spatial_name <- if (coords_are_mm ||
+                        (inherits(result, "cluster4d_result") &&
+                         identical(
+                           result$provenance$coordinate_space$units, "mm"
+                         ))) {
+      "spatial_rms_distance_mm"
+    } else {
+      "spatial_rms_distance"
     }
-    if (nrow(ccent) != n_clusters) {
-      ccent <- ccent[seq_len(n_clusters), , drop = FALSE]
-    }
-    within_dist <- numeric(n)
-    for (k in seq_len(n_clusters)) {
-      idx <- which(labs == k)
-      if (length(idx) == 0) next
-      diff <- coords[idx, , drop = FALSE] - matrix(rep(ccent[k, ], each = length(idx)), ncol = ncol(coords), byrow = TRUE)
-      within_dist[idx] <- sqrt(rowSums(diff^2))
-    }
-    out$within_spatial_dist <- mean(within_dist)
+    out[[spatial_name]] <- .spatial_rms_dispersion(labs, coords)
   }
-
   out
 }
-
-# Internal ARI (duplicated here to avoid extra deps)
-adj_rand_index_internal <- function(labels1, labels2) {
-  if (length(labels1) != length(labels2)) return(NA_real_)
-  tab <- table(labels1, labels2)
-  sum_comb <- sum(choose(tab, 2))
-  sum_rows <- sum(choose(rowSums(tab), 2))
-  sum_cols <- sum(choose(colSums(tab), 2))
-  n <- length(labels1)
-  expected <- sum_rows * sum_cols / choose(n, 2)
-  max_idx <- 0.5 * (sum_rows + sum_cols)
-  if (max_idx == expected) return(0)
-  (sum_comb - expected) / (max_idx - expected)
-}
-
-# Null-coalescing helper
-`%||%` <- function(a, b) if (!is.null(a)) a else b
 
 #' Extract Class IDs from Cluster Result
 #'

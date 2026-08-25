@@ -31,6 +31,8 @@ inline double normalized_heat_kernel_impl(const double* x1, const double* x2, in
 }
 
 // Parallel worker for best_candidate computation
+namespace {
+
 struct BestCandidateWorker : public Worker {
   // Inputs
   const std::vector< std::vector<int> > &candidates;
@@ -121,6 +123,8 @@ struct BestCandidateWorker : public Worker {
     }
   }
 };
+
+} // namespace
 
 // [[Rcpp::export]]
 IntegerVector best_candidate_parallel(List candidates,

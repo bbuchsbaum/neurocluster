@@ -68,58 +68,21 @@ test_that("slice_msf achieves exact K with target_k_global", {
                info = "Should have exactly 2 clusters with target_k_global=2")
 })
 
-test_that("slice_msf achieves exact K per slice with target_k_per_slice", {
-  # Create test data with structure in each slice
-  set.seed(200)
-  dims <- c(10, 10, 3)
+test_that("slice_msf rejects global exact K on independent slices", {
+  dims <- c(4, 4, 2)
   mask <- NeuroVol(array(1, dims), NeuroSpace(dims))
-  ntime <- 40
-  
-  nvox <- prod(dims)
-  ts_data <- matrix(0, nrow = nvox, ncol = ntime)
-  t_seq <- seq(0, 2*pi, length.out = ntime)
-  
-  # Each slice has left/right regions with different patterns
-  for (z in 1:dims[3]) {
-    for (y in 1:dims[2]) {
-      for (x in 1:dims[1]) {
-        idx <- x + (y-1)*dims[1] + (z-1)*dims[1]*dims[2]
-        if (x <= 5) {
-          # Left: sine wave
-          ts_data[idx, ] <- sin(t_seq + z*pi/4) + rnorm(ntime, sd = 0.15)
-        } else {
-          # Right: cosine wave
-          ts_data[idx, ] <- cos(t_seq + z*pi/4) + rnorm(ntime, sd = 0.15)
-        }
-      }
-    }
-  }
-  
-  # Create NeuroVec
-  vec_list <- lapply(1:ntime, function(t) {
-    vol_data <- array(0, dims)
-    vol_data[mask > 0] <- ts_data[, t]
-    NeuroVol(vol_data, NeuroSpace(dims))
-  })
-  vec <- do.call(concat, vec_list)
-  
-  # Test exact K = 2 per slice (should preserve left/right in each slice)
-  result <- slice_msf(vec, mask, target_k_per_slice = 2, 
-                      stitch_z = FALSE,  # Important: no z-stitching
-                      num_runs = 1, r = 6, min_size = 10, compactness = 3)
-  
-  # Check each slice has exactly 2 clusters
-  cluster_vol <- array(0, dims)
-  cluster_vol[mask > 0] <- result$cluster
-  
-  for (z in 1:dims[3]) {
-    slice_data <- cluster_vol[,,z]
-    slice_clusters <- unique(slice_data[slice_data > 0])
-    expect_equal(length(slice_clusters), 2,
-                 info = sprintf("Slice %d should have exactly 2 clusters", z))
-  }
+  vec <- NeuroVec(
+    array(rnorm(prod(dims) * 8), c(dims, 8)),
+    NeuroSpace(c(dims, 8))
+  )
+  expect_error(
+    slice_msf(
+      vec, mask, target_k_global = 2, stitch_z = FALSE,
+      num_runs = 1, consensus = FALSE, min_size = 1
+    ),
+    "requires stitch_z"
+  )
 })
-
 test_that("slice_msf exact K preserves spatial contiguity", {
   # Create data that would naturally form many small clusters
   set.seed(300)
@@ -210,7 +173,7 @@ test_that("slice_msf exact K preserves spatial contiguity", {
   }
 })
 
-test_that("slice_msf consensus with exact K requires use_features", {
+test_that("slice_msf consensus exact K uses shared features", {
   # Small test data
   mask <- NeuroVol(array(1, c(6, 6, 2)), NeuroSpace(c(6, 6, 2)))
   nvox <- sum(mask > 0)
@@ -230,15 +193,12 @@ test_that("slice_msf consensus with exact K requires use_features", {
                        r = 4, min_size = 5, use_features = FALSE)
   expect_s3_class(result1, "slice_msf_cluster_result")
   
-  # Should fail with exact K but no features
-  expect_error(
-    slice_msf(vec, mask, target_k_global = 3, num_runs = 2, 
-              consensus = TRUE, r = 4, min_size = 5, use_features = FALSE),
-    "Exact-K in consensus requires use_features=TRUE"
+  result_no_features <- slice_msf(
+    vec, mask, target_k_global = 3, num_runs = 2,
+    consensus = TRUE, r = 4, min_size = 5, use_features = FALSE
   )
-  
-  # Should work with exact K and features
   result2 <- slice_msf(vec, mask, target_k_global = 3, num_runs = 2,
                        consensus = TRUE, r = 4, min_size = 5, use_features = TRUE)
+  expect_equal(length(unique(result_no_features$cluster)), 3)
   expect_equal(length(unique(result2$cluster)), 3)
 })
