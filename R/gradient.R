@@ -125,20 +125,27 @@ perturb_seeds <- function(grad, seeds) {
 #'   fewer seeds if spatial separation constraints cannot be satisfied.
 #' @param k_neighbors Integer; number of nearest neighbors to use for gradient
 #'   computation. Default: 26 (full 3D connectivity).
-#' @param oversample_ratio Numeric; ratio of candidates to K for initial gradient
-#'   ranking. Default: 3 (considers top 3*K candidates before applying spatial
-#'   separation).
-#' @param min_separation_factor Numeric; minimum spatial separation between seeds
-#'   as a multiple of the expected grid spacing. Default: 0.5 (ensures seeds are
-#'   not immediate neighbors).
+#' @param oversample_ratio Numeric; ratio of candidates to K considered before
+#'   spatial separation is applied. Default: 3. Candidates are the
+#'   lowest-gradient voxels *within each spatial cell* rather than the globally
+#'   lowest, so a flat or heavily tied gradient field cannot concentrate the
+#'   whole pool in one part of the mask.
+#' @param min_separation_factor Numeric; starting minimum separation between
+#'   seeds, as a multiple of the expected supervoxel scale. Default: 1. This is
+#'   a starting point only: the radius decays until K seeds fit, so the outcome
+#'   is the widest separation the mask actually admits and is insensitive to the
+#'   exact starting value.
 #' @param distance Character; distance metric for gradient computation.
 #'   One of `"cosine"` (default) or `"euclidean"`.
 #' @param knn Optional pre-computed k-nearest-neighbor object. If NULL (default),
 #'   KNN is computed internally.
+#' @param spatial_scale Optional positive physical length scale for the seed
+#'   inhibition radius, normally the masked-volume scale used for compactness.
+#'   When NULL the radius is estimated from the coordinate bounding box, which
+#'   can overestimate it on non-convex masks.
 #'
-#' @return Integer vector of length <= K containing the row indices of selected
-#'   seed voxels in the feature_mat/coords matrices. If fewer than K spatially
-#'   separated seeds can be found, a warning is issued.
+#' @return Integer vector of length K containing the row indices of selected
+#'   seed voxels in the feature_mat/coords matrices.
 #'
 #' @details
 #' ## Algorithm
@@ -155,7 +162,9 @@ perturb_seeds <- function(grad, seeds) {
 #'
 #' 3. **Spatial Separation**: Starting with the lowest-gradient candidate, greedily
 #'    select seeds that maintain minimum spatial separation from all previously
-#'    selected seeds.
+#'    selected seeds. If that pool cannot provide K seeds at the physical
+#'    inhibition radius, deterministic farthest-point sampling over the full
+#'    mask fills the shortfall.
 #'
 #' ## Why Gradient-Based Seeding?
 #'
@@ -211,9 +220,10 @@ find_gradient_seeds_g3s <- function(feature_mat,
                                    K,
                                    k_neighbors = 26,
                                    oversample_ratio = 3,
-                                   min_separation_factor = 0.5,
+                                   min_separation_factor = 1,
                                    distance = c("cosine", "euclidean"),
-                                   knn = NULL) {
+                                   knn = NULL,
+                                   spatial_scale = NULL) {
 
   distance <- match.arg(distance)
 
@@ -272,47 +282,90 @@ find_gradient_seeds_g3s <- function(feature_mat,
     }, numeric(1))
   }
 
-  # Candidate pool: lowest gradients
-  candidate_count <- min(N, K * oversample_ratio)
-  candidates <- order(grad_vals)[seq_len(candidate_count)]
-
-  # Spatial inhibition radius ~ half expected supervoxel radius
-  bbox <- apply(coords, 2, range)
-  ranges <- bbox[2, ] - bbox[1, ]
-  tolerance <- sqrt(.Machine$double.eps) * max(1, max(abs(coords)))
-  active_ranges <- ranges[ranges > tolerance]
-  effective_dimension <- max(1L, length(active_ranges))
-  measure <- if (length(active_ranges)) prod(active_ranges) else 1
-  avg_radius <- (measure / K)^(1 / effective_dimension)
-  min_dist_sq <- (avg_radius * min_separation_factor)^2
-
-  seeds <- integer(K)
-  accepted_coords <- matrix(0, K, 3)
-  n_selected <- 0
-
-  for (idx in candidates) {
-    if (n_selected == K) break
-
-    if (n_selected > 0) {
-      diffs <- accepted_coords[seq_len(n_selected), , drop = FALSE] -
-        matrix(coords[idx, ], n_selected, 3, byrow = TRUE)
-      if (any(rowSums(diffs^2) < min_dist_sq)) next
+  # Spatial inhibition radius ~ the expected supervoxel scale. The masked
+  # measure is the right basis; the bounding box is only a fallback and can
+  # exceed the true masked volume several-fold on a non-convex mask.
+  if (is.null(spatial_scale)) {
+    bbox <- apply(coords, 2, range)
+    ranges <- bbox[2, ] - bbox[1, ]
+    tolerance <- sqrt(.Machine$double.eps) * max(1, max(abs(coords)))
+    active_ranges <- ranges[ranges > tolerance]
+    effective_dimension <- max(1L, length(active_ranges))
+    measure <- if (length(active_ranges)) prod(active_ranges) else 1
+    avg_radius <- (measure / K)^(1 / effective_dimension)
+  } else {
+    avg_radius <- as.numeric(spatial_scale)[[1L]]
+    if (!is.finite(avg_radius) || avg_radius <= 0) {
+      stop("spatial_scale must be a positive finite number")
     }
-
-    n_selected <- n_selected + 1
-    seeds[n_selected] <- idx
-    accepted_coords[n_selected, ] <- coords[idx, ]
   }
 
-  if (n_selected < K) {
-    remainder <- setdiff(seq_len(N), seeds[seq_len(n_selected)])
-    needed <- K - n_selected
-    seeds <- c(seeds[seq_len(n_selected)], head(remainder, needed))
-  } else {
-    seeds <- seeds[seq_len(n_selected)]
+  # Candidate pool, stratified by spatial cell. Ranking every voxel by gradient
+  # and keeping the globally lowest K * oversample_ratio concentrates the pool
+  # wherever the gradient happens to be flattest; worse, when the field is tied
+  # (low noise makes it exactly flat inside a parcel) order() resolves the tie
+  # by voxel index, which collapses the pool into one corner of the volume and
+  # leaves most parcels with no seed at all. Ranking within cells of the
+  # expected supervoxel size keeps the pool the same size while guaranteeing it
+  # spans the mask.
+  candidate_count <- min(N, max(K, round(K * oversample_ratio)))
+  cell <- floor((coords - rep(apply(coords, 2L, min), each = N)) / avg_radius)
+  n_x <- max(cell[, 1L]) + 1
+  n_y <- max(cell[, 2L]) + 1
+  cell_id <- (cell[, 3L] * n_y + cell[, 2L]) * n_x + cell[, 1L]
+  ranked <- order(cell_id, grad_vals, seq_len(N))
+  rank_in_cell <- sequence(rle(cell_id[ranked])$lengths)
+  per_cell <- max(1L, as.integer(ceiling(
+    candidate_count / max(1L, length(unique(cell_id)))
+  )))
+  candidates <- ranked[rank_in_cell <= per_cell]
+  candidates <- candidates[order(grad_vals[candidates], candidates)]
+
+  # Greedy spatial inhibition in native code, decaying the radius until K seeds
+  # fit. Because the pool now spans the mask, decaying is safe: it converges on
+  # the widest separation the mask admits instead of letting one concentrated
+  # low-gradient region consume every seed.
+  selection <- g3s_select_seeds_cpp(
+    coords = coords,
+    candidates = as.integer(candidates),
+    K = as.integer(K),
+    radius = avg_radius * min_separation_factor,
+    decay = 0.9,
+    max_rounds = 60L
+  )
+  seeds <- selection$seeds
+
+  if (length(seeds) < K) {
+    # Only reachable when the stratified pool itself holds fewer than K
+    # voxels. Fill the residual by deterministic farthest-point sampling so
+    # the extra seeds are still spread across the mask.
+    seeds <- .g3s_maximin_pad(seeds, coords, K)
   }
 
   sort(seeds)
+}
+
+#' Extend a seed set to K by repeated farthest-point selection.
+#'
+#' @keywords internal
+#' @noRd
+.g3s_maximin_pad <- function(seeds, coords, K) {
+  n <- nrow(coords)
+  if (!length(seeds)) seeds <- 1L
+  nearest <- rep(Inf, n)
+  for (seed in seeds) {
+    delta <- coords - matrix(coords[seed, ], n, 3L, byrow = TRUE)
+    nearest <- pmin(nearest, .rowSums(delta * delta, n, 3L))
+  }
+  nearest[seeds] <- -Inf
+  while (length(seeds) < K) {
+    pick <- which.max(nearest)
+    seeds <- c(seeds, pick)
+    delta <- coords - matrix(coords[pick, ], n, 3L, byrow = TRUE)
+    nearest <- pmin(nearest, .rowSums(delta * delta, n, 3L))
+    nearest[seeds] <- -Inf
+  }
+  seeds
 }
 
 

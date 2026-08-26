@@ -4,7 +4,7 @@
 \alias{estimate_resolution}
 \title{Estimate Louvain resolution parameter}
 \usage{
-estimate_resolution(K, graph)
+estimate_resolution(K, graph, seed = 20090601L)
 }
 \description{
 Estimate Louvain resolution parameter

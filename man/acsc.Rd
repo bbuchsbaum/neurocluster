@@ -76,7 +76,9 @@ to non-negative Louvain similarities as \code{(correlation + 1) / 2}. At
 \code{alpha = 0}, feature-neighbor selection is bypassed entirely, so the graph
 topology and weights depend only on spatial adjacency. Optional DCT or random
 projection changes feature-neighbor candidate selection, but edge weights are
-always recomputed using the declared metric.
+always recomputed using the declared metric. Louvain calls use a fixed
+internal seed and restore the caller's RNG state, so identical ACSC inputs
+produce the same partition independently of the surrounding random stream.
 
 Boundary refinement uses the same metric representation as graph building.
 Pearson uses centered unit vectors, Spearman uses centered average ranks, and

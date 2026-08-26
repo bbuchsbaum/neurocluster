@@ -79,9 +79,10 @@ cluster4d_g3s <- function(vec, mask, K = 100,
     stop("cluster4d_g3s: connectivity must be 6, 18, or 26", call. = FALSE)
   }
 
-  # Get coordinates and raw features
-  coords <- index_to_coord(mask, mask.idx)
-  feature_mat_raw <- series(vec, mask.idx)  # T x N matrix
+  # The contract already pulled and validated the T x N series, including the
+  # single-frame case that neuroim2 simplifies to a bare vector.
+  feature_mat_raw <- input_contract$features   # T x N matrix
+  features_by_voxel <- t(feature_mat_raw)      # N x T, materialised once
 
   n_timepoints <- nrow(feature_mat_raw)
   use_cosine <- n_timepoints > 1
@@ -101,7 +102,7 @@ cluster4d_g3s <- function(vec, mask, K = 100,
     }
 
     compressed <- compress_features_svd(
-      feature_mat = t(feature_mat_raw),  # Needs N x T
+      feature_mat = features_by_voxel,  # Needs N x T
       n_components = n_components,
       variance_threshold = variance_threshold,
       use_irlba = use_irlba,
@@ -120,7 +121,7 @@ cluster4d_g3s <- function(vec, mask, K = 100,
     if (verbose) {
       message("Phase 1: single timepoint detected; using Euclidean features without SVD")
     }
-    feature_mat_compressed <- base::scale(t(feature_mat_raw), center = TRUE, scale = TRUE)
+    feature_mat_compressed <- base::scale(features_by_voxel, center = TRUE, scale = TRUE)
     feature_mat_compressed[is.na(feature_mat_compressed)] <- 0
     actual_components <- 1
     variance_explained <- 1
@@ -135,9 +136,12 @@ cluster4d_g3s <- function(vec, mask, K = 100,
   }
 
   # Build the exact masked-grid graph once and reuse it for seeding,
-  # propagation, refinement, and topology validation.
+  # propagation, refinement, exact-K repair, and topology validation. `neib`
+  # carries the .exact_k_graph() fields, so force_exact_k() below never has to
+  # rebuild the same adjacency.
   neib <- build_grid_neighbors_g3s(mask, mask.idx, connectivity)
-  graph_components <- igraph::components(neib$graph)$membership
+  coords <- neib$coords
+  graph_components <- neib$components
   minimum_clusters <- max(graph_components)
   if (K < minimum_clusters) {
     .exact_k_abort(
@@ -150,13 +154,20 @@ cluster4d_g3s <- function(vec, mask, K = 100,
   }
   k_neighbors <- ncol(neib$nn.index)
 
+  # The masked physical scale drives both the seed inhibition radius and the
+  # default compactness, so compute it once and use it for both. Deriving the
+  # radius from the coordinate bounding box instead badly overestimates it on
+  # non-convex masks.
+  scale_info <- .g3s_spatial_scale(mask, mask.idx, K)
+
   seed_indices <- find_gradient_seeds_g3s(
     feature_mat = feature_mat_compressed,
     coords = coords,
     K = K,
     k_neighbors = k_neighbors,
     distance = if (use_cosine) "cosine" else "euclidean",
-    knn = neib
+    knn = neib,
+    spatial_scale = scale_info$scale
   )
   seed_indices <- .g3s_cover_components(
     seed_indices, graph_components, feature_mat_compressed,
@@ -179,28 +190,31 @@ cluster4d_g3s <- function(vec, mask, K = 100,
 
   # Auto-compute compactness if not provided
   if (is.null(compactness)) {
-    scale_info <- .g3s_spatial_scale(mask, mask.idx, actual_K)
     compactness <- scale_info$scale
     if (verbose) {
       message("  Auto-computed compactness: ", round(compactness, 2))
     }
-  } else {
-    scale_info <- .g3s_spatial_scale(mask, mask.idx, actual_K)
   }
   compactness <- .cluster4d_scalar_number(
     compactness, "compactness", "cluster4d_g3s",
     lower = .Machine$double.eps
   )
 
+  compressed_by_component <- t(feature_mat_compressed)  # M x N, materialised once
+
   # Call optimized C++ propagation
   labels <- g3s_propagate_cpp(
-    feature_mat = t(feature_mat_compressed),
+    feature_mat = compressed_by_component,
     seed_indices = as.integer(seed_indices),
     neighbor_indices = neib$nn.index,
     neighbor_dists = neib$nn.dist,
     alpha = alpha,
     compactness = compactness
   )
+
+  if (any(labels <= 0L)) {
+    stop("cluster4d_g3s: propagation left included voxels unlabeled", call. = FALSE)
+  }
 
   # =============================================================================
   # Phase 4: Boundary Refinement (optional)
@@ -211,38 +225,38 @@ cluster4d_g3s <- function(vec, mask, K = 100,
       message("Phase 4: Boundary refinement (", max_refinement_iter, " iterations)")
     }
 
+    # Refinement keeps every label to a single connected component, so the
+    # exact-K engine below has almost nothing left to merge.
     labels <- refine_boundaries_g3s_cpp(
       labels = as.integer(labels),
-      feature_mat = t(feature_mat_compressed),
+      feature_mat = compressed_by_component,
       coords = coords,
       neighbor_indices = neib$nn.index,
       alpha = alpha,
       compactness = compactness,
-      max_iter = as.integer(max_refinement_iter)
+      max_iter = as.integer(max_refinement_iter),
+      enforce_connectivity = TRUE
     )
+    if (any(labels <= 0L)) {
+      stop("cluster4d_g3s: refinement left included voxels unlabeled",
+           call. = FALSE)
+    }
   }
 
-  if (any(labels <= 0L)) {
-    stop("cluster4d_g3s: propagation left included voxels unlabeled", call. = FALSE)
-  }
   labels <- .exact_k_connected_labels(labels, neib$graph, neib$edges)
   labels <- force_exact_k(
-    labels, t(feature_mat_raw), K,
-    mask = mask, connectivity = connectivity
+    labels, features_by_voxel, K,
+    mask = mask, connectivity = connectivity, graph_info = neib
   )
 
   # =============================================================================
   # Create Result Object
   # =============================================================================
 
-  # Build ClusteredNeuroVol
-  logical_mask <- mask > 0
-  clusvol <- ClusteredNeuroVol(logical_mask, clusters = labels)
-
   # Prepare data for standardized result
   # Use original features for center computation (same dimensionality as input)
   data_prep <- list(
-    features = t(feature_mat_raw),  # N x T for compute_cluster_centers
+    features = features_by_voxel,  # N x T for compute_cluster_centers
     coords = coords,
     mask_idx = mask.idx,
     n_voxels = n_voxels,
@@ -258,7 +272,10 @@ cluster4d_g3s <- function(vec, mask, K = 100,
     method = "g3s",
     parameters = list(
       K_requested = K,
-      K_actual = actual_K,
+      # force_exact_k() guarantees exactly K connected labels; the seed count
+      # is reported separately because it is not the final cluster count.
+      K_actual = length(unique(labels)),
+      n_seeds = actual_K,
       n_components = actual_components,
       variance_threshold = variance_threshold,
       variance_explained = variance_explained,
@@ -269,6 +286,8 @@ cluster4d_g3s <- function(vec, mask, K = 100,
       connectivity = connectivity
     ),
     metadata = list(
+      # Masked-voxel indices of the propagation seeds. Labels are re-derived by
+      # the exact-K repair afterwards, so seed i does not index cluster i.
       seed_indices = seed_indices,
       graph = list(
         contract = "exact_masked_grid",
@@ -305,27 +324,29 @@ cluster4d_g3s <- function(vec, mask, K = 100,
 #'
 #' @keywords internal
 #' @noRd
-build_grid_neighbors_g3s <- function(mask, mask_idx, connectivity) {
-  graph_info <- .exact_k_graph(mask, connectivity)
+build_grid_neighbors_g3s <- function(mask, mask_idx, connectivity,
+                                     graph_info = NULL) {
+  graph_info <- .exact_k_resolve_graph(graph_info, mask, connectivity)
   if (!identical(as.integer(mask_idx), as.integer(graph_info$mask_idx))) {
     stop("build_grid_neighbors_g3s: mask index contract mismatch", call. = FALSE)
   }
   n <- length(mask_idx)
-  degree <- lengths(graph_info$neighbors)
-  max_degree <- if (length(degree)) max(degree) else 0L
+  ptr <- graph_info$neighbor_ptr
+  idx <- graph_info$neighbor_idx
+  degree <- diff(ptr)
+  max_degree <- if (n) max(degree) else 0L
   neighbor_indices <- matrix(0L, nrow = n, ncol = max_degree)
   neighbor_dists <- matrix(Inf, nrow = n, ncol = max_degree)
   coords <- .cluster4d_index_to_coord(mask, mask_idx)
   if (max_degree > 0L) {
-    for (i in seq_len(n)) {
-      adjacent <- graph_info$neighbors[[i]]
-      if (!length(adjacent)) next
-      slots <- seq_along(adjacent)
-      neighbor_indices[i, slots] <- adjacent
-      delta <- coords[adjacent, , drop = FALSE] -
-        matrix(coords[i, ], nrow = length(adjacent), ncol = 3L, byrow = TRUE)
-      neighbor_dists[i, slots] <- sqrt(rowSums(delta * delta))
-    }
+    # Fill both padded matrices from the CSR adjacency in one vectorised pass;
+    # the per-voxel R loop this replaces dominated graph construction.
+    from <- rep.int(seq_len(n), degree)
+    slot <- sequence(degree)
+    position <- from + (slot - 1L) * n
+    neighbor_indices[position] <- idx
+    delta <- coords[idx, , drop = FALSE] - coords[from, , drop = FALSE]
+    neighbor_dists[position] <- sqrt(.rowSums(delta * delta, length(idx), 3L))
   }
   c(
     graph_info,
@@ -388,33 +409,6 @@ build_grid_neighbors_g3s <- function(mask, mask_idx, connectivity) {
     seeds[remove_position] <- replacement
   }
   sort(as.integer(seeds))
-}
-
-
-#' Compute Cluster Centroids
-#'
-#' @keywords internal
-#' @noRd
-compute_cluster_centroids <- function(labels, feature_mat) {
-  unique_labels <- sort(unique(labels[labels > 0]))
-  centroids <- list()
-
-  for (label in unique_labels) {
-    cluster_voxels <- which(labels == label)
-    if (length(cluster_voxels) == 0) next
-
-    # Compute mean and normalize
-    centroid <- colMeans(feature_mat[cluster_voxels, , drop = FALSE])
-    centroid_norm <- sqrt(sum(centroid^2))
-
-    if (centroid_norm > 0) {
-      centroid <- centroid / centroid_norm
-    }
-
-    centroids[[as.character(label)]] <- centroid
-  }
-
-  centroids
 }
 
 

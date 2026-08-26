@@ -5,7 +5,14 @@
 \alias{force_exact_k}
 \title{Adjacency-preserving exact-K repair}
 \usage{
-force_exact_k(labels, feature_mat, K_target, mask, connectivity = 6L)
+force_exact_k(
+  labels,
+  feature_mat,
+  K_target,
+  mask,
+  connectivity = 6L,
+  graph_info = NULL
+)
 }
 \arguments{
 \item{labels}{Positive integer labels in masked-voxel order.}
@@ -17,6 +24,12 @@ force_exact_k(labels, feature_mat, K_target, mask, connectivity = 6L)
 \item{mask}{NeuroVol defining voxel geometry and inclusion.}
 
 \item{connectivity}{Grid connectivity, one of 6, 18, or 26.}
+
+\item{graph_info}{Optional prebuilt \code{.exact_k_graph()} result for the same
+mask and connectivity. Supplying it avoids rebuilding the masked-grid
+graph, which callers that already hold one would otherwise pay for twice.
+The receipt is rejected if its dimensions, included voxels, or connectivity
+do not match \code{mask}.}
 }
 \value{
 Contiguous positive integer labels with exactly \code{K_target}

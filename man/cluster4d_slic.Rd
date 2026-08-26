@@ -15,7 +15,8 @@ cluster4d_slic(
   verbose = FALSE,
   preserve_k = FALSE,
   seed_relocate = "none",
-  ...
+  ...,
+  .input_contract = NULL
 )
 }
 \arguments{
@@ -70,6 +71,9 @@ feasible cluster count is returned with a warning.}
 \item{seed_relocate}{Seed relocation method}
 
 \item{...}{Additional parameters passed to slic4d_supervoxels}
+
+\item{.input_contract}{Internal prevalidated input receipt used by
+\code{cluster4d()}; direct callers should leave this as \code{NULL}.}
 }
 \value{
 A cluster4d_result object

@@ -4,7 +4,7 @@
 \alias{run_louvain_clustering}
 \title{Run Louvain clustering}
 \usage{
-run_louvain_clustering(graph, resolution = NULL)
+run_louvain_clustering(graph, resolution = NULL, seed = 20090601L)
 }
 \description{
 Run Louvain clustering

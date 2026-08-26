@@ -25,6 +25,15 @@ NULL
   stop(condition)
 }
 
+#' Build the masked-grid graph used by every exact-K caller.
+#'
+#' Returns the upper-triangular edge list, a CSR adjacency (`neighbor_ptr` /
+#' `neighbor_idx`), the weak-component membership, and an igraph handle for
+#' callers that still want one. The edge list and CSR come straight from C++;
+#' no N-by-N sparse matrix is materialised, so there is no 65535-voxel ceiling.
+#'
+#' @keywords internal
+#' @noRd
 .exact_k_graph <- function(mask, connectivity) {
   method <- "force_exact_k"
   connectivity <- .cluster4d_scalar_number(
@@ -34,34 +43,57 @@ NULL
     stop("force_exact_k: connectivity must be 6, 18, or 26", call. = FALSE)
   }
   mask_idx <- which(cluster4d_mask_array(mask, method))
-  adjacency <- build_grid_adjacency(mask, mask_idx, connectivity)
-  summary <- Matrix::summary(adjacency)
-  keep <- summary$i < summary$j
-  edges <- cbind(
-    as.integer(summary$i[keep]),
-    as.integer(summary$j[keep])
+  native <- build_grid_edges_cpp(
+    mask_idx = as.integer(mask_idx),
+    dims = as.integer(dim(mask)),
+    connectivity = as.integer(connectivity)
   )
-  if (!length(edges)) edges <- matrix(integer(), ncol = 2L)
+  edges <- native$edges
+  if (!nrow(edges)) edges <- matrix(integer(), ncol = 2L)
 
   graph <- igraph::make_empty_graph(length(mask_idx), directed = FALSE)
   if (nrow(edges)) {
     graph <- igraph::add_edges(graph, as.vector(t(edges)))
   }
-  from <- c(edges[, 1L], edges[, 2L])
-  to <- c(edges[, 2L], edges[, 1L])
-  neighbors <- split(
-    to,
-    factor(from, levels = seq_len(length(mask_idx)))
-  )
-  neighbors <- lapply(neighbors, function(x) sort(as.integer(x)))
 
   list(
+    dims = as.integer(dim(mask)),
     mask_idx = mask_idx,
     edges = edges,
     graph = graph,
-    neighbors = neighbors,
+    neighbor_ptr = native$neighbor_ptr,
+    neighbor_idx = native$neighbor_idx,
+    components = native$components,
+    n_voxels = length(mask_idx),
     connectivity = connectivity
   )
+}
+
+#' Validate that a caller-supplied graph matches the mask and connectivity.
+#' @keywords internal
+#' @noRd
+.exact_k_resolve_graph <- function(graph_info, mask, connectivity) {
+  if (is.null(graph_info)) return(.exact_k_graph(mask, connectivity))
+  required <- c("dims", "mask_idx", "edges", "neighbor_ptr", "neighbor_idx",
+                "components", "n_voxels", "connectivity")
+  if (!is.list(graph_info) || !all(required %in% names(graph_info))) {
+    stop("force_exact_k: graph_info is not an .exact_k_graph() result",
+         call. = FALSE)
+  }
+  if (!identical(as.integer(graph_info$connectivity), as.integer(connectivity))) {
+    stop("force_exact_k: graph_info connectivity does not match", call. = FALSE)
+  }
+  if (!identical(as.integer(graph_info$dims), as.integer(dim(mask)))) {
+    stop("force_exact_k: graph_info dimensions do not match mask", call. = FALSE)
+  }
+  mask_idx <- which(cluster4d_mask_array(mask, "force_exact_k"))
+  if (!identical(as.integer(graph_info$mask_idx), as.integer(mask_idx))) {
+    stop("force_exact_k: graph_info mask does not match", call. = FALSE)
+  }
+  if (!identical(as.integer(graph_info$n_voxels), as.integer(length(mask_idx)))) {
+    stop("force_exact_k: graph_info voxel count does not match mask", call. = FALSE)
+  }
+  graph_info
 }
 
 .exact_k_relabel <- function(labels) {
@@ -70,14 +102,9 @@ NULL
 }
 
 .exact_k_connected_labels <- function(labels, graph, edges) {
-  same <- if (nrow(edges)) labels[edges[, 1L]] == labels[edges[, 2L]] else logical()
-  label_graph <- igraph::make_empty_graph(length(labels), directed = FALSE)
-  if (any(same)) {
-    label_graph <- igraph::add_edges(
-      label_graph, as.vector(t(edges[same, , drop = FALSE]))
-    )
-  }
-  .exact_k_relabel(as.integer(igraph::components(label_graph)$membership))
+  # `graph` is accepted for backwards compatibility; components come from a
+  # single union-find pass over the edge list, which needs no igraph object.
+  edge_label_components_cpp(as.integer(labels), edges)
 }
 
 .exact_k_cluster_summaries <- function(labels, feature_mat) {
@@ -121,65 +148,186 @@ NULL
   )
 }
 
-.exact_k_tree_leaves <- function(nodes, neighbors, labels, cluster_id) {
-  root <- min(nodes)
-  parent <- integer(length(labels))
-  visited <- logical(length(labels))
-  queue <- integer(length(nodes))
-  head <- 1L
-  tail <- 1L
-  queue[tail] <- root
-  visited[root] <- TRUE
-
-  while (head <= tail) {
-    node <- queue[head]
-    head <- head + 1L
-    adjacent <- neighbors[[node]]
-    if (!length(adjacent)) next
-    adjacent <- adjacent[labels[adjacent] == cluster_id & !visited[adjacent]]
-    for (next_node in adjacent) {
-      visited[next_node] <- TRUE
-      parent[next_node] <- node
-      tail <- tail + 1L
-      queue[tail] <- next_node
-    }
-  }
-  if (!all(visited[nodes])) {
-    .exact_k_abort(
-      "disconnected_input_label", max(labels), 1L, length(labels),
-      paste0("label ", cluster_id, " is not connected after normalization")
-    )
-  }
-  child_count <- tabulate(parent[parent > 0L], nbins = length(labels))
-  leaves <- nodes[child_count[nodes] == 0L & nodes != root]
-  if (!length(leaves) && length(nodes) == 2L) leaves <- max(nodes)
-  leaves
+#' Ward cost of merging each (lo, hi) cluster pair.
+#' @keywords internal
+#' @noRd
+.exact_k_pair_cost <- function(sums, counts, lo, hi) {
+  if (!length(lo)) return(numeric())
+  n_left <- counts[lo]
+  n_right <- counts[hi]
+  differences <- sums[lo, , drop = FALSE] / n_left -
+    sums[hi, , drop = FALSE] / n_right
+  n_left * n_right / (n_left + n_right) *
+    .rowSums(differences * differences, length(lo), ncol(sums))
 }
 
-.exact_k_select_split <- function(labels, feature_mat, neighbors) {
-  candidates <- vector("list", max(labels))
+#' Merge adjacent clusters down to `K_target`.
+#'
+#' Same greedy adjacent-Ward rule and the same (cost, left, right) tie-break as
+#' `.exact_k_select_merge()`, but the cluster sums, counts, and the boundary
+#' pair set are all carried forward across merges instead of being rebuilt from
+#' every edge on every iteration. That turns an O(merges * E) loop into
+#' O(E + merges * boundary_degree).
+#'
+#' @keywords internal
+#' @noRd
+.exact_k_merge_to_target <- function(labels, feature_mat, K_target, edges,
+                                     minimum_k, n_voxels) {
+  k <- max(labels)
+  if (k <= K_target) return(labels)
+
+  counts <- tabulate(labels, nbins = k)
+  sums <- rowsum(feature_mat, labels, reorder = TRUE)
+  dimnames(sums) <- NULL
+
+  left <- labels[edges[, 1L]]
+  right <- labels[edges[, 2L]]
+  boundary <- left != right
+  lo <- pmin.int(left[boundary], right[boundary])
+  hi <- pmax.int(left[boundary], right[boundary])
+  keep <- !duplicated(as.numeric(lo) * (k + 1) + hi)
+  lo <- lo[keep]
+  hi <- hi[keep]
+  cost <- .exact_k_pair_cost(sums, counts, lo, hi)
+
+  while (k > K_target) {
+    if (!length(lo)) {
+      .exact_k_abort(
+        "no_adjacent_merge", K_target, minimum_k, n_voxels,
+        "no adjacent cluster pair remains"
+      )
+    }
+    best <- which(cost == min(cost))
+    if (length(best) > 1L) best <- best[order(lo[best], hi[best])[1L]]
+    target <- lo[[best]]
+    donor <- hi[[best]]
+
+    counts[target] <- counts[target] + counts[donor]
+    sums[target, ] <- sums[target, ] + sums[donor, ]
+    labels[labels == donor] <- target
+
+    # Redirect the donor's pairs onto the target, then drop the pair that just
+    # became a self-loop plus any duplicates the redirection created.
+    lo[lo == donor] <- target
+    hi[hi == donor] <- target
+    flipped <- lo > hi
+    if (any(flipped)) {
+      swap <- lo[flipped]
+      lo[flipped] <- hi[flipped]
+      hi[flipped] <- swap
+    }
+    alive <- lo != hi
+    lo <- lo[alive]
+    hi <- hi[alive]
+    cost <- cost[alive]
+    touched <- which(lo == target | hi == target)
+    if (length(touched) > 1L) {
+      duplicated_pairs <- duplicated(
+        as.numeric(lo[touched]) * (k + 1) + hi[touched]
+      )
+      if (any(duplicated_pairs)) {
+        drop <- touched[duplicated_pairs]
+        lo <- lo[-drop]
+        hi <- hi[-drop]
+        cost <- cost[-drop]
+      }
+    }
+
+    # Compact the label space exactly as .exact_k_relabel() would: the donor id
+    # disappears and every larger id shifts down by one.
+    labels <- labels - (labels > donor)
+    lo <- lo - (lo > donor)
+    hi <- hi - (hi > donor)
+    target <- target - (target > donor)
+    counts <- counts[-donor]
+    sums <- sums[-donor, , drop = FALSE]
+    k <- k - 1L
+
+    touched <- which(lo == target | hi == target)
+    if (length(touched)) {
+      cost[touched] <- .exact_k_pair_cost(
+        sums, counts, lo[touched], hi[touched]
+      )
+    }
+  }
+  as.integer(labels)
+}
+
+.exact_k_select_split <- function(labels, feature_mat, ptr, idx) {
+  n <- length(labels)
+  # Scratch is allocated once and modified in place; passing it into a helper
+  # would make R copy all three vectors on every cluster, which is what made
+  # this O(K * N) rather than O(N + E).
+  visited <- logical(n)
+  parent <- integer(n)
+  child_count <- integer(n)
+  queue <- integer(n)
+
+  best_gain <- -Inf
+  best <- NULL
+  nodes_by_cluster <- split(seq_len(n), labels)
+
   for (cluster_id in seq_len(max(labels))) {
-    nodes <- which(labels == cluster_id)
-    if (length(nodes) <= 1L) next
-    leaves <- .exact_k_tree_leaves(nodes, neighbors, labels, cluster_id)
+    nodes <- nodes_by_cluster[[as.character(cluster_id)]]
+    if (is.null(nodes) || length(nodes) <= 1L) next
+
+    # Breadth-first spanning tree of the cluster, rooted at its lowest voxel.
+    root <- nodes[[1L]]
+    head <- 1L
+    tail <- 1L
+    queue[tail] <- root
+    visited[root] <- TRUE
+    while (head <= tail) {
+      node <- queue[head]
+      head <- head + 1L
+      from <- ptr[[node]]
+      to <- ptr[[node + 1L]]
+      if (to <= from) next
+      adjacent <- idx[(from + 1L):to]
+      adjacent <- adjacent[labels[adjacent] == cluster_id & !visited[adjacent]]
+      for (next_node in adjacent) {
+        visited[next_node] <- TRUE
+        parent[next_node] <- node
+        child_count[node] <- child_count[node] + 1L
+        tail <- tail + 1L
+        queue[tail] <- next_node
+      }
+    }
+
+    if (!all(visited[nodes])) {
+      .exact_k_abort(
+        "disconnected_input_label", max(labels), 1L, n,
+        paste0("label ", cluster_id, " is not connected after normalization")
+      )
+    }
+    leaves <- nodes[child_count[nodes] == 0L & nodes != root]
+    if (!length(leaves) && length(nodes) == 2L) leaves <- max(nodes)
+
+    visited[nodes] <- FALSE
+    parent[nodes] <- 0L
+    child_count[nodes] <- 0L
     if (!length(leaves)) next
+
     center <- colMeans(feature_mat[nodes, , drop = FALSE])
     differences <- feature_mat[leaves, , drop = FALSE] -
-      matrix(center, nrow = length(leaves), ncol = ncol(feature_mat), byrow = TRUE)
-    gains <- length(nodes) / (length(nodes) - 1) * rowSums(differences^2)
-    best <- order(-gains, leaves)[1L]
-    candidates[[cluster_id]] <- list(
-      cluster = as.integer(cluster_id),
-      voxel = as.integer(leaves[best]),
-      gain = as.numeric(gains[best])
-    )
+      matrix(center, nrow = length(leaves), ncol = ncol(feature_mat),
+             byrow = TRUE)
+    gains <- length(nodes) / (length(nodes) - 1) *
+      .rowSums(differences * differences, length(leaves), ncol(feature_mat))
+    pick <- order(-gains, leaves)[1L]
+    gain <- gains[[pick]]
+    # Clusters are visited in ascending id and only a strictly larger gain
+    # wins, which reproduces order(-gains, cluster, voxel)[1].
+    if (gain > best_gain) {
+      best_gain <- gain
+      best <- list(
+        cluster = as.integer(cluster_id),
+        voxel = as.integer(leaves[[pick]]),
+        gain = as.numeric(gain)
+      )
+    }
   }
-  candidates <- Filter(Negate(is.null), candidates)
-  if (!length(candidates)) return(NULL)
-  gains <- vapply(candidates, `[[`, numeric(1), "gain")
-  clusters <- vapply(candidates, `[[`, integer(1), "cluster")
-  voxels <- vapply(candidates, `[[`, integer(1), "voxel")
-  candidates[[order(-gains, clusters, voxels)[1L]]]
+  best
 }
 
 #' @rdname exact_k
@@ -188,11 +336,16 @@ NULL
 #' @param K_target Desired number of connected labels.
 #' @param mask NeuroVol defining voxel geometry and inclusion.
 #' @param connectivity Grid connectivity, one of 6, 18, or 26.
+#' @param graph_info Optional prebuilt `.exact_k_graph()` result for the same
+#'   mask and connectivity. Supplying it avoids rebuilding the masked-grid
+#'   graph, which callers that already hold one would otherwise pay for twice.
+#'   The receipt is rejected if its dimensions, included voxels, or connectivity
+#'   do not match `mask`.
 #' @return Contiguous positive integer labels with exactly `K_target`
 #'   connected components, or a `cluster4d_exact_k_infeasible` condition.
 #' @keywords internal
 force_exact_k <- function(labels, feature_mat, K_target, mask,
-                          connectivity = 6L) {
+                          connectivity = 6L, graph_info = NULL) {
   if (!inherits(mask, "NeuroVol")) {
     stop("force_exact_k: mask must be a NeuroVol", call. = FALSE)
   }
@@ -208,7 +361,7 @@ force_exact_k <- function(labels, feature_mat, K_target, mask,
     stop("force_exact_k: labels must be finite positive integers", call. = FALSE)
   }
   labels <- as.integer(labels)
-  graph_info <- .exact_k_graph(mask, connectivity)
+  graph_info <- .exact_k_resolve_graph(graph_info, mask, connectivity)
   n_voxels <- length(graph_info$mask_idx)
   if (length(labels) != n_voxels || nrow(feature_mat) != n_voxels) {
     stop(
@@ -221,8 +374,7 @@ force_exact_k <- function(labels, feature_mat, K_target, mask,
     lower = 1, upper = n_voxels, integer = TRUE
   )
 
-  mask_components <- as.integer(igraph::components(graph_info$graph)$membership)
-  minimum_k <- length(unique(mask_components))
+  minimum_k <- length(unique(as.integer(graph_info$components)))
   if (K_target < minimum_k) {
     .exact_k_abort(
       "disconnected_mask_components", K_target, minimum_k, n_voxels,
@@ -238,22 +390,16 @@ force_exact_k <- function(labels, feature_mat, K_target, mask,
   )
   current_k <- max(labels)
 
-  while (current_k > K_target) {
-    merge <- .exact_k_select_merge(labels, feature_mat, graph_info$edges)
-    if (is.null(merge)) {
-      .exact_k_abort(
-        "no_adjacent_merge", K_target, minimum_k, n_voxels,
-        "no adjacent cluster pair remains"
-      )
-    }
-    labels[labels == merge$right] <- merge$left
-    labels <- .exact_k_relabel(labels)
-    current_k <- current_k - 1L
+  if (current_k > K_target) {
+    labels <- .exact_k_merge_to_target(
+      labels, feature_mat, K_target, graph_info$edges, minimum_k, n_voxels
+    )
+    current_k <- max(labels)
   }
 
   while (current_k < K_target) {
     split <- .exact_k_select_split(
-      labels, feature_mat, graph_info$neighbors
+      labels, feature_mat, graph_info$neighbor_ptr, graph_info$neighbor_idx
     )
     if (is.null(split)) {
       .exact_k_abort(

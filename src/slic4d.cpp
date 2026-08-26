@@ -530,8 +530,8 @@ Rcpp::List slic4d_core(NumericMatrix feats,
   for (R_xlen_t i = 0; i < grad_masked.size(); ++i) {
     if (!std::isfinite(grad_masked[i])) stop("grad_masked values must be finite");
   }
-  // Note: removed setThreadOptions as it doesn't exist in RcppParallel
-  // Threading is handled automatically by parallelFor
+  // Thread count is supplied per parallelFor call below; the R wrapper must
+  // not mutate RcppParallel's process-wide thread environment.
 
   // bbox & step
   double minx = coords(0,0), maxx = coords(0,0);
@@ -612,6 +612,7 @@ Rcpp::List slic4d_core(NumericMatrix feats,
   // request a bounded parallel backend. Small problems stay serial regardless.
   const bool parallel_requested = (n_threads != 1);
   const bool serial_assign = !parallel_requested || (N < 2000);
+  const int parallel_threads = (n_threads > 1) ? n_threads : -1;
   NumericMatrix prev_center_coords = clone(center_coords);
   NumericMatrix prev_center_feats  = clone(center_feats);
   for (int it=0; it<max_iter; ++it) {
@@ -631,7 +632,7 @@ Rcpp::List slic4d_core(NumericMatrix feats,
     if (serial_assign) {
       worker(0, (size_t)N);
     } else {
-      parallelFor(0, (size_t)N, worker, 2000);
+      parallelFor(0, (size_t)N, worker, 2000, parallel_threads);
     }
 
     // Update
@@ -665,7 +666,7 @@ Rcpp::List slic4d_core(NumericMatrix feats,
   const bool connectivity_required = enforce_connectivity || strict_connectivity;
   double connectivity_elapsed_ms = 0.0;
   IntegerVector labels_before_connectivity = clone(labels);
-  if (connectivity_required) {
+  if (connectivity_required && preserve_k) {
     const auto connectivity_started = std::chrono::steady_clock::now();
     std::vector<std::array<int,3>> offsets = (connectivity==6) ? make_offsets6() : make_offsets26();
     enforce_strict_connectivity(labels, mask_lin_idx, dims, offsets);
@@ -733,7 +734,7 @@ Rcpp::List slic4d_core(NumericMatrix feats,
         if (serial_assign) {
           w2(0, (size_t)N);
         } else {
-          parallelFor(0, (size_t)N, w2, 2000);
+          parallelFor(0, (size_t)N, w2, 2000, parallel_threads);
         }
         std::fill(cnt.begin(), cnt.end(), 0);
         std::vector<double> sumf2((size_t)K*F, 0.0);

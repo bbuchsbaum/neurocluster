@@ -3,12 +3,6 @@ library(neurocluster)
 library(neuroim2)
 
 test_that("method-specific parameters are properly passed through", {
-  # Avoid rare hangs on some systems by forcing single-threaded RcppParallel
-  # for this tiny synthetic dataset.
-  if (requireNamespace("RcppParallel", quietly = TRUE)) {
-    tryCatch(RcppParallel::setThreadOptions(numThreads = 1L), error = function(e) NULL)
-  }
-
   # Guard against indefinite hangs: fail fast with a useful stack trace.
   with_time_limit <- function(expr, elapsed = 20) {
     setTimeLimit(elapsed = elapsed, transient = TRUE)

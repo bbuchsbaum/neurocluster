@@ -1,3 +1,16 @@
+#' Evaluate a randomized decomposition under a fixed seed.
+#'
+#' Randomized SVD backends draw their projections from the session RNG, which
+#' makes an otherwise deterministic clustering pipeline irreproducible. Pin the
+#' seed for the call and put the caller's stream back exactly as it was.
+#'
+#' @keywords internal
+#' @noRd
+.svd_with_fixed_seed <- function(expr, seed = 20090601L) {
+  .cluster4d_with_fixed_seed(expr, seed)
+}
+
+
 #' Compress High-Dimensional Features via Randomized SVD
 #'
 #' Reduces the dimensionality of fMRI time series data using Singular Value
@@ -15,8 +28,16 @@
 #' @param use_irlba Logical; if TRUE and the irlba package is available, use
 #'   fast randomized SVD for large datasets (>10,000 voxels). Default: TRUE.
 #' @param use_rsvd Logical; if TRUE and the rsvd package is available, prefer the
-#'   randomized SVD implementation from \pkg{rsvd}. This can outperform irlba on
-#'   tall-and-skinny matrices. Default: TRUE.
+#'   randomized SVD implementation from \pkg{rsvd} for large datasets
+#'   (>10,000 voxels). This can outperform irlba on tall-and-skinny matrices.
+#'   Default: TRUE.
+#'
+#' @section Reproducibility:
+#' Both randomized backends draw random projections. They are run under a fixed
+#' internal seed and the caller's RNG state is restored afterwards, so repeated
+#' calls on the same data return the same decomposition and the function never
+#' perturbs the surrounding stream. Without that, two identical
+#' \code{\link{cluster4d_g3s}} runs could disagree on half their voxel labels.
 #'
 #' @return A list with components:
 #'   \item{features}{Compressed feature matrix (N x M), starting from the
@@ -136,41 +157,61 @@ compress_features_svd <- function(feature_mat,
     stop("variance_threshold must be between 0 and 1")
   }
 
-  # Step 1: Center and scale
-  # Use base::scale pattern from supervoxels.R for consistency
+  # Step 1: Center and scale.
+  # Column statistics come from colMeans plus one pass over the centred matrix.
+  # apply(feature_mat, 2, sd) splits the matrix into a list of columns and runs
+  # an R-level loop over timepoints, which is the slowest step here on real
+  # 4D data.
+  observed <- is.finite(feature_mat)
+  all_observed <- all(observed)
+  n_observed <- if (all_observed) {
+    rep.int(n_voxels, n_timepoints)
+  } else {
+    .colSums(observed, n_voxels, n_timepoints)
+  }
   col_means <- colMeans(feature_mat, na.rm = TRUE)
-  col_sds <- apply(feature_mat, 2, sd, na.rm = TRUE)
-
-  # Replace zero SDs with 1 to avoid division by zero
   col_means[!is.finite(col_means)] <- 0
-  col_sds[!is.finite(col_sds) | col_sds == 0] <- 1
 
-  feature_mat_scaled <- base::scale(feature_mat, center = col_means, scale = col_sds)
-
-  # Handle any remaining NAs
+  feature_mat_scaled <- base::scale(feature_mat, center = col_means,
+                                    scale = FALSE)
   if (any(!is.finite(feature_mat_scaled))) {
     warning("Non-finite values detected after scaling. Replacing with 0.")
     feature_mat_scaled[!is.finite(feature_mat_scaled)] <- 0
   }
+  col_sds <- sqrt(
+    .colSums(feature_mat_scaled * feature_mat_scaled, n_voxels, n_timepoints) /
+      pmax(n_observed - 1, 1)
+  )
+  col_sds[!is.finite(col_sds) | col_sds == 0] <- 1
+  feature_mat_scaled <- feature_mat_scaled /
+    rep(col_sds, each = n_voxels)
+  attr(feature_mat_scaled, "scaled:center") <- col_means
+  attr(feature_mat_scaled, "scaled:scale") <- col_sds
 
+  randomized_min_voxels <- 10000L
   rsvd_available <- isTRUE(use_rsvd) && requireNamespace("rsvd", quietly = TRUE)
-  use_rsvd_backend <- rsvd_available
+  use_rsvd_backend <- rsvd_available && n_voxels > randomized_min_voxels
   irlba_available <- isTRUE(use_irlba) && requireNamespace("irlba", quietly = TRUE)
-  use_irlba_backend <- isTRUE(use_irlba) && n_voxels > 10000 && irlba_available
+  use_irlba_backend <- isTRUE(use_irlba) &&
+    n_voxels > randomized_min_voxels && irlba_available
 
   compute_svd <- function(k, announce = TRUE) {
     if (use_rsvd_backend && k < max_possible) {
       if (announce) {
         message("Using randomized SVD (rsvd) with k=", k)
       }
-      return(rsvd::rsvd(feature_mat_scaled, k = k, nu = k, nv = k))
+      return(.svd_with_fixed_seed(
+        rsvd::rsvd(feature_mat_scaled, k = k, nu = k, nv = k)
+      ))
     }
 
     if (use_irlba_backend && k < max_possible) {
       if (announce) {
         message("Using fast randomized SVD (irlba) for large dataset")
       }
-      return(irlba::irlba(feature_mat_scaled, nu = k, nv = k))
+      return(.svd_with_fixed_seed(
+        irlba::irlba(feature_mat_scaled, nu = k, nv = k)
+      ))
     }
 
     svd_full <- base::svd(feature_mat_scaled, nu = k, nv = k)

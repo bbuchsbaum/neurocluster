@@ -41,7 +41,9 @@
 #' `alpha = 0`, feature-neighbor selection is bypassed entirely, so the graph
 #' topology and weights depend only on spatial adjacency. Optional DCT or random
 #' projection changes feature-neighbor candidate selection, but edge weights are
-#' always recomputed using the declared metric.
+#' always recomputed using the declared metric. Louvain calls use a fixed
+#' internal seed and restore the caller's RNG state, so identical ACSC inputs
+#' produce the same partition independently of the surrounding random stream.
 #'
 #' Boundary refinement uses the same metric representation as graph building.
 #' Pearson uses centered unit vectors, Spearman uses centered average ranks, and
@@ -214,7 +216,7 @@ acsc <- function(bvec, mask,
   if (!is.null(K)) {
     voxel_labels <- force_exact_k(
       voxel_labels, feature_mat, K,
-      mask = mask, connectivity = 6L
+      mask = mask, connectivity = 6L, graph_info = graph_info
     )
   }
 
@@ -556,24 +558,12 @@ build_acsc_graph <- function(block_summary,
         search_space <- representation %*% basis
       } else if (identical(knn_proj_method, "rp")) {
         # Deterministic projection without perturbing the caller's RNG stream.
-      seed_state <- if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-        get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
-      } else {
-        NULL
-      }
-      on.exit({
-        if (is.null(seed_state)) {
-          if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-            rm(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
-          }
-        } else {
-          assign(".Random.seed", seed_state, envir = .GlobalEnv)
-        }
-      }, add = TRUE)
-      set.seed(as.integer(knn_proj_seed))
-        projection <- matrix(
-          stats::rnorm(ncol(representation) * knn_proj_dim),
-          nrow = ncol(representation), ncol = knn_proj_dim
+        projection <- .cluster4d_with_fixed_seed(
+          matrix(
+            stats::rnorm(ncol(representation) * knn_proj_dim),
+            nrow = ncol(representation), ncol = knn_proj_dim
+          ),
+          knn_proj_seed
         )
         search_space <- (representation %*% projection) / sqrt(knn_proj_dim)
       }
@@ -663,20 +653,23 @@ build_acsc_graph <- function(block_summary,
 
 #' Run Louvain clustering
 #' @keywords internal
-run_louvain_clustering <- function(graph, resolution = NULL) {
+run_louvain_clustering <- function(graph, resolution = NULL,
+                                   seed = 20090601L) {
   # Some igraph versions do not support a 'resolution' param in cluster_louvain.
   # If supported, it works. If not, user must rely on default or a different method.
-  if (!is.null(resolution)) {
-    # Try to pass resolution:
-    igraph::cluster_louvain(graph, resolution = resolution)
-  } else {
-    igraph::cluster_louvain(graph)
-  }
+  .cluster4d_with_fixed_seed(
+    if (!is.null(resolution)) {
+      igraph::cluster_louvain(graph, resolution = resolution)
+    } else {
+      igraph::cluster_louvain(graph)
+    },
+    seed
+  )
 }
 
 #' Estimate Louvain resolution parameter
 #' @keywords internal
-estimate_resolution <- function(K, graph) {
+estimate_resolution <- function(K, graph, seed = 20090601L) {
   stopifnot(is.numeric(K), length(K) == 1, K > 0)
 
   tolerance <- 0.05
@@ -688,7 +681,7 @@ estimate_resolution <- function(K, graph) {
   resolution_upper <- 1.0
 
   count_at <- function(res) {
-    clustering <- igraph::cluster_louvain(graph, resolution = res)
+    clustering <- run_louvain_clustering(graph, resolution = res, seed = seed)
     length(igraph::communities(clustering))
   }
 
@@ -918,7 +911,11 @@ compute_cluster_centroids <- function(voxel_labels, feature_mat) {
   unique_lbls <- sort(unique(lbls))
 
   grp <- factor(lbls, levels = unique_lbls)
-  sums <- rowsum(mat, grp, reorder = FALSE)
+  # reorder = TRUE is required: with reorder = FALSE rowsum() returns rows in
+  # first-appearance order while counts and the output names below are both in
+  # sorted-label order, so the means and the label mapping would be scrambled
+  # whenever labels do not first appear in ascending order.
+  sums <- rowsum(mat, grp, reorder = TRUE)
   counts <- as.numeric(tabulate(as.integer(grp), nbins = length(unique_lbls)))
   counts[counts == 0] <- NA_real_
   centers <- sums / counts

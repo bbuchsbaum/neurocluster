@@ -48,6 +48,24 @@ ensure_neurovec <- function(vec) {
   isTRUE(x)
 }
 
+# Evaluate a randomized internal operation under a reproducible seed without
+# creating, advancing, or otherwise changing the caller's RNG stream.
+.cluster4d_with_fixed_seed <- function(expr, seed = 20090601L) {
+  had_seed <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  if (had_seed) {
+    previous <- get(".Random.seed", envir = globalenv(), inherits = FALSE)
+    on.exit(assign(".Random.seed", previous, envir = globalenv()), add = TRUE)
+  } else {
+    on.exit({
+      if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+        rm(".Random.seed", envir = globalenv())
+      }
+    }, add = TRUE)
+  }
+  set.seed(as.integer(seed))
+  force(expr)
+}
+
 # A voxel is included exactly when its mask value is finite and strictly
 # positive. Non-finite mask values are rejected rather than silently changing
 # the declared voxel set; negative and zero values are valid exclusions.
@@ -174,7 +192,22 @@ validate_cluster4d_inputs <- function(vec, mask, n_clusters, method = "cluster4d
     )
   }
 
+  # neuroim2 drops the matrix shape whenever one side is length 1 -- a
+  # single-frame NeuroVec collapses to N values and a single-voxel mask to T
+  # values -- so restore the documented T x N shape from the known voxel count
+  # rather than guessing which side collapsed.
   feature_values <- neuroim2::series(vec, mask_idx)
+  if (!is.matrix(feature_values)) {
+    n_time <- length(feature_values) %/% length(mask_idx)
+    if (n_time * length(mask_idx) != length(feature_values)) {
+      stop(method, ": series() returned an unusable length for this mask",
+           call. = FALSE)
+    }
+    feature_values <- matrix(
+      as.numeric(feature_values), nrow = n_time, ncol = length(mask_idx)
+    )
+  }
+  dimnames(feature_values) <- NULL
   bad_features <- !is.finite(feature_values)
   if (bad_data_policy == "error" && any(bad_features)) {
     stop(
@@ -191,29 +224,59 @@ validate_cluster4d_inputs <- function(vec, mask, n_clusters, method = "cluster4d
       n_voxels = length(mask_idx),
       n_clusters = n_clusters,
       geometry = mask_geometry,
-      bad_data_policy = bad_data_policy
+      bad_data_policy = bad_data_policy,
+      # Exposed so callers can reuse this extraction instead of pulling the
+      # whole T x N series out of `vec` again.
+      features = feature_values
     ),
     class = "cluster4d_input_contract"
   )
 }
 
-prepare_cluster4d_data <- function(vec, mask, 
-                                  scale_features = TRUE,
-                                  scale_coords = FALSE) {
-  
-  # Get mask indices
-  mask_idx <- which(cluster4d_mask_array(mask))
-  n_voxels <- length(mask_idx)
-  
-  # Extract time series - series returns T x N
-  features <- series(vec, mask_idx)
-  if (!is.matrix(features)) {
-    # A single-frame NeuroVec is simplified to a length-N vector by neuroim2.
-    # Restore the documented T x N shape before transposing to voxel rows.
-    features <- matrix(features, nrow = 1L)
+.cluster4d_resolve_input_contract <- function(input_contract, vec, mask,
+                                              n_clusters, method) {
+  if (is.null(input_contract)) {
+    return(validate_cluster4d_inputs(vec, mask, n_clusters, method))
   }
-  # Transpose to N x T for consistency
-  features <- t(as.matrix(features))
+  if (!inherits(input_contract, "cluster4d_input_contract") ||
+      !is.matrix(input_contract$features) ||
+      length(input_contract$mask_idx) != input_contract$n_voxels ||
+      ncol(input_contract$features) != input_contract$n_voxels ||
+      !identical(as.integer(input_contract$n_clusters), as.integer(n_clusters))) {
+    stop(method, ": invalid prevalidated input contract", call. = FALSE)
+  }
+  input_contract
+}
+
+prepare_cluster4d_data <- function(vec, mask,
+                                  scale_features = TRUE,
+                                  scale_coords = FALSE,
+                                  input_contract = NULL) {
+
+  if (is.null(input_contract)) {
+    # Direct callers without a receipt retain the original extraction path.
+    mask_idx <- which(cluster4d_mask_array(mask))
+    n_voxels <- length(mask_idx)
+    features <- series(vec, mask_idx)
+    if (!is.matrix(features)) {
+      # A single-frame NeuroVec is simplified to a length-N vector by neuroim2.
+      features <- matrix(features, nrow = 1L)
+    }
+    features <- t(as.matrix(features))
+    geometry <- .cluster4d_geometry(mask)
+  } else {
+    if (!inherits(input_contract, "cluster4d_input_contract") ||
+        !is.matrix(input_contract$features) ||
+        ncol(input_contract$features) != input_contract$n_voxels) {
+      stop("prepare_cluster4d_data: invalid prevalidated input contract",
+           call. = FALSE)
+    }
+    mask_idx <- input_contract$mask_idx
+    n_voxels <- input_contract$n_voxels
+    # Validation owns the only T x N extraction; materialize its N x T view once.
+    features <- t(input_contract$features)
+    geometry <- input_contract$geometry
+  }
   
   # Scale features if requested
   if (scale_features) {
@@ -237,7 +300,8 @@ prepare_cluster4d_data <- function(vec, mask,
     mask_idx = mask_idx,
     n_voxels = n_voxels,
     dims = dim(mask),
-    spacing = spacing(mask)
+    spacing = spacing(mask),
+    geometry = geometry
   )
 }
 
@@ -315,23 +379,20 @@ compute_cluster_centers <- function(labels, features, coords, method = "mean") {
   )
 }
 
-.cluster4d_original_data <- function(vec, mask, method = "cluster4d") {
-  input <- validate_cluster4d_inputs(vec, mask, 1L, method)
-  feature_values <- neuroim2::series(vec, input$mask_idx)
-  features <- if (is.matrix(feature_values)) {
-    t(as.matrix(feature_values))
-  } else {
-    matrix(as.numeric(feature_values), nrow = length(input$mask_idx))
+.cluster4d_original_data <- function(vec, mask, method = "cluster4d",
+                                     input_contract = NULL) {
+  if (is.null(input_contract)) {
+    input_contract <- validate_cluster4d_inputs(vec, mask, 1L, method)
   }
-  coords <- .cluster4d_index_to_coord(mask, input$mask_idx)
-  dimnames(features) <- NULL
-  dimnames(coords) <- NULL
-  list(
-    features = features,
-    coords = coords,
-    mask_idx = input$mask_idx,
-    geometry = input$geometry
+  data <- prepare_cluster4d_data(
+    vec, mask,
+    scale_features = FALSE,
+    scale_coords = FALSE,
+    input_contract = input_contract
   )
+  dimnames(data$features) <- NULL
+  dimnames(data$coords) <- NULL
+  data
 }
 
 .cluster4d_merge_parameters <- function(existing, canonical) {
@@ -347,10 +408,20 @@ compute_cluster_centers <- function(labels, features, coords, method = "mean") {
 # centers are retained only in metadata; the public centers are always means of
 # final labels in the original feature space.
 finalize_cluster4d_result <- function(result, vec, mask, method,
-                                      parameters = list()) {
-  data <- .cluster4d_original_data(
-    vec, mask, paste0("cluster4d:", method, ":result")
-  )
+                                      parameters = list(),
+                                      input_contract = NULL,
+                                      data = NULL) {
+  if (is.null(data)) {
+    data <- .cluster4d_original_data(
+      vec, mask, paste0("cluster4d:", method, ":result"),
+      input_contract = input_contract
+    )
+  }
+  if (!is.matrix(data$features) || !is.matrix(data$coords) ||
+      nrow(data$features) != nrow(data$coords) || ncol(data$coords) != 3L ||
+      is.null(data$geometry)) {
+    stop("cluster4d:", method, ": invalid prepared result data", call. = FALSE)
+  }
 
   raw_labels <- if (!is.null(result$labels)) result$labels else result$cluster
   if (!is.numeric(raw_labels) || length(raw_labels) != nrow(data$features) ||

@@ -53,6 +53,8 @@
 #'   the final connectivity and exact-K repair (default 2).
 #' @param min_size Minimum component size (voxels) to keep before relabel (default 0).
 #' @param verbose Logical.
+#' @param .input_contract Internal prevalidated input receipt used by
+#'   `cluster4d()`; direct callers should leave this as `NULL`.
 #'
 #' @return A \code{cluster4d_result} (also inheriting from
 #' \code{cluster_result}) with elements:
@@ -93,7 +95,8 @@ slic4d_supervoxels <- function(bvec, mask,
                               preserve_k = FALSE,
                               topup_iters = 2L,
                               min_size = 0L,
-                              verbose = FALSE) {
+                              verbose = FALSE,
+                              .input_contract = NULL) {
   
   # Allow single-volume NeuroVol by wrapping to NeuroVec
   bvec <- ensure_neurovec(bvec)
@@ -103,7 +106,9 @@ slic4d_supervoxels <- function(bvec, mask,
   seed_method <- match.arg(seed_method)
   seed_relocate <- match.arg(seed_relocate)
 
-  input <- validate_cluster4d_inputs(bvec, mask, K, method)
+  input <- .cluster4d_resolve_input_contract(
+    .input_contract, bvec, mask, K, method
+  )
   K <- input$n_clusters
   compactness <- .cluster4d_scalar_number(compactness, "compactness", method)
   max_iter <- .cluster4d_scalar_number(
@@ -160,7 +165,7 @@ slic4d_supervoxels <- function(bvec, mask,
     if (step_mm <= 0) stop(method, ": step_mm must be positive", call. = FALSE)
   }
 
-  n_timepoints <- if (length(dim(bvec)) >= 4) dim(bvec)[4] else 1L
+  n_timepoints <- nrow(input$features)
   if (n_timepoints <= 1 && seed_relocate == "correlation") {
     if (verbose) {
       message("slic4d_supervoxels: correlation relocation not applicable for single timepoint; using intensity gradient instead")
@@ -168,65 +173,33 @@ slic4d_supervoxels <- function(bvec, mask,
     seed_relocate <- "intensity"
   }
   
-  # Use the package-wide mask inclusion rule.
-  mask_arr <- cluster4d_mask_array(mask, "slic4d_supervoxels")
+  # Reuse the validated extraction and materialize its N x T view once.
+  data_prep <- prepare_cluster4d_data(
+    bvec, mask,
+    scale_features = FALSE,
+    scale_coords = FALSE,
+    input_contract = input
+  )
+  mask_arr <- input$mask
   sp <- neuroim2::space(mask)
-  
-  mask_idx <- which(mask_arr)
-  if (length(mask_idx) == 0) stop("Mask is empty")
+
+  mask_idx <- data_prep$mask_idx
   
   # Get dimensions and voxel sizes
   dims <- dim(mask_arr)
   voxmm <- neuroim2::spacing(sp)
   
   # Spatial coordinates in mm for masked voxels
-  coords <- neuroim2::index_to_coord(sp, mask_idx)
-  coords <- as.matrix(coords)  # N x 3
-  
-  # Feature matrix: voxel time series (N x T)
-  # series() returns T x N, so we need to transpose
-  # Note: series() returns a vector for single-timepoint data
-  feat <- neuroim2::series(bvec, mask_idx)
-  if (!is.matrix(feat)) {
-    feat <- matrix(feat, nrow = 1)  # 1 x N for single timepoint
-  }
-  feat <- t(as.matrix(feat))  # Now N x T
-  if (any(!is.finite(feat))) {
-    stop(method, ": included voxel features must be finite", call. = FALSE)
-  }
+  coords <- data_prep$coords
+  feat <- data_prep$features
 
-  # Thread control for RcppParallel (used inside `slic4d_core`).
-  # For very small problems, forcing single-threaded execution avoids thread
-  # startup overhead and reduces the chance of test hangs on some systems.
+  # Thread selection is passed to each native parallelFor invocation. Never
+  # mutate RcppParallel's process-wide environment from a clustering call.
   n_threads_requested <- as.integer(n_threads)
   parallel_requested <- n_threads_requested != 1L
   n_threads_eff <- n_threads_requested
   if (n_threads_eff == 0L && length(mask_idx) < 2000L) {
     n_threads_eff <- 1L
-  }
-  if (requireNamespace("RcppParallel", quietly = TRUE) && n_threads_eff > 0L) {
-    old_opts <- RcppParallel::setThreadOptions(numThreads = n_threads_eff)
-    on.exit({
-      tryCatch({
-        # setThreadOptions() return type varies across RcppParallel versions:
-        # - list(numThreads=..., stackSize=...)
-        # - atomic scalar / NULL (meaning "default"/"auto" in some versions)
-        if (is.list(old_opts) && !is.null(old_opts$numThreads)) {
-          if (!is.null(old_opts$stackSize)) {
-            RcppParallel::setThreadOptions(numThreads = old_opts$numThreads, stackSize = old_opts$stackSize)
-          } else {
-            RcppParallel::setThreadOptions(numThreads = old_opts$numThreads)
-          }
-        } else if (is.null(old_opts)) {
-          # Some versions return NULL for the prior state.
-          tryCatch(RcppParallel::setThreadOptions(numThreads = "auto"), error = function(e) NULL)
-        } else if (is.character(old_opts)) {
-          tryCatch(RcppParallel::setThreadOptions(numThreads = old_opts), error = function(e) NULL)
-        } else {
-          RcppParallel::setThreadOptions(numThreads = as.integer(old_opts)[1])
-        }
-      }, error = function(e) NULL)
-    }, add = TRUE)
   }
   
   # Optional feature normalization
@@ -339,13 +312,12 @@ slic4d_supervoxels <- function(bvec, mask,
   if (preserve_k) {
     if (connectivity_required) {
       graph_info <- .exact_k_graph(mask, connectivity)
-      minimum_k <- length(unique(
-        as.integer(igraph::components(graph_info$graph)$membership)
-      ))
+      minimum_k <- length(unique(as.integer(graph_info$components)))
       repair_target <- max(K, minimum_k)
       preserve_k_feasible <- K >= minimum_k
       final_labels <- force_exact_k(
-        final_labels, feat, repair_target, mask, connectivity
+        final_labels, feat, repair_target, mask, connectivity,
+        graph_info = graph_info
       )
       if (!preserve_k_feasible) {
         warning(
@@ -361,24 +333,13 @@ slic4d_supervoxels <- function(bvec, mask,
     }
   }
   
-  # Build ClusteredNeuroVol consistent with supervoxels.R
-  # Prepare data for standardized result
-  data_prep <- list(
-    features = feat,
-    coords = coords,
-    mask_idx = mask_idx,
-    n_voxels = length(mask_idx),
-    dims = dims,
-    spacing = voxmm
-  )
-  
-  # Create standardized result
-  result <- create_cluster4d_result(
-    labels = final_labels,
-    mask = mask,
-    data_prep = data_prep,
-    method = "slic",
-    parameters = list(
+  # Finalize once in the original feature space. Native centers remain typed
+  # metadata because they summarize the normalized/projected working space.
+  result <- structure(
+    list(
+      labels = final_labels,
+      method = "slic",
+      parameters = list(
       K = K,
       compactness = compactness,
       max_iter = max_iter,
@@ -394,24 +355,29 @@ slic4d_supervoxels <- function(bvec, mask,
       enforce_connectivity = enforce_connectivity,
       preserve_k = preserve_k,
       topup_iters = topup_iters,
-      min_size = min_size
+        min_size = min_size
+      ),
+      metadata = list(
+        native_centers = core$center_feats,
+        native_coord_centers = core$center_coords,
+        native_actual_k = core$actual_k,
+        assignment_parallel_requested = parallel_requested,
+        assignment_parallel_used = isTRUE(core$assignment_parallel_used),
+        native_n_threads = as.integer(n_threads_eff),
+        native_connectivity_changed = core$connectivity_changed,
+        native_connectivity_elapsed_ms = core$connectivity_elapsed_ms,
+        native_center_recompute_elapsed_ms = core$center_recompute_elapsed_ms,
+        preserve_k_feasible = preserve_k_feasible
+      )
     ),
-    metadata = list(
-      native_centers = core$center_feats,
-      native_coord_centers = core$center_coords,
-      native_actual_k = core$actual_k,
-      assignment_parallel_requested = parallel_requested,
-      assignment_parallel_used = isTRUE(core$assignment_parallel_used),
-      native_n_threads = as.integer(n_threads_eff),
-      native_connectivity_changed = core$connectivity_changed,
-      native_connectivity_elapsed_ms = core$connectivity_elapsed_ms,
-      native_center_recompute_elapsed_ms = core$center_recompute_elapsed_ms,
-      preserve_k_feasible = preserve_k_feasible
-    ),
-    compute_centers = TRUE
+    class = c("cluster4d_result", "cluster_result", "list")
   )
 
-  finalize_cluster4d_result(result, bvec, mask, "slic", result$parameters)
+  finalize_cluster4d_result(
+    result, bvec, mask, "slic", result$parameters,
+    input_contract = input,
+    data = data_prep
+  )
 }
 
 .slic_force_exact_k_unconstrained <- function(labels, features, coords, K) {

@@ -1,3 +1,7 @@
 CXX_STD = CXX17
+# ARMA_64BIT_WORD lifts Armadillo's 32-bit uword cap on n_rows * n_cols. Without
+# it, build_grid_adjacency_cpp()'s N-by-N sp_mat fails for any mask with 65536
+# or more voxels ("SpMat::init(): requested size is too large").
+PKG_CPPFLAGS = -DARMA_64BIT_WORD=1
 PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS)
 PKG_LIBS = $(SHLIB_OPENMP_CXXFLAGS) `${R_HOME}/bin/Rscript -e "cat(RcppParallel::RcppParallelLibs())"` $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)

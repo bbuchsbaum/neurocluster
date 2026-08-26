@@ -214,6 +214,68 @@ test_that("exact-K repair is deterministic and does not touch RNG state", {
   expect_identical(after, before)
 })
 
+slow_merge_to_target <- function(labels, features, target, edges) {
+  while (max(labels) > target) {
+    merge <- .exact_k_select_merge(labels, features, edges)
+    labels[labels == merge$right] <- merge$left
+    labels <- .exact_k_relabel(labels)
+  }
+  labels
+}
+
+test_that("incremental exact-K merging matches the rebuilding oracle", {
+  set.seed(2112)
+  for (trial in seq_len(60L)) {
+    dims <- sample(2:5, 3L, replace = TRUE)
+    included <- sample(c(FALSE, TRUE), prod(dims), replace = TRUE,
+                       prob = c(0.35, 0.65))
+    if (sum(included) < 2L) included[seq_len(2L)] <- TRUE
+    mask <- exact_k_mask(array(as.integer(included), dims))
+    connectivity <- sample(c(6L, 18L, 26L), 1L)
+    graph <- .exact_k_graph(mask, connectivity)
+    n <- length(graph$mask_idx)
+    features <- matrix(rnorm(n * 4L), n, 4L)
+    initial <- sample(seq_len(min(n, 8L)), n, replace = TRUE)
+    labels <- .exact_k_connected_labels(initial, graph$graph, graph$edges)
+    minimum <- length(unique(graph$components))
+    target <- sample(seq.int(minimum, max(labels)), 1L)
+
+    expected <- slow_merge_to_target(labels, features, target, graph$edges)
+    actual <- .exact_k_merge_to_target(
+      labels, features, target, graph$edges, minimum, n
+    )
+    expect_identical(actual, expected, info = paste("trial", trial))
+  }
+})
+
+test_that("prebuilt exact-K graphs are bound to mask identity", {
+  dims <- c(4L, 1L, 1L)
+  space <- neuroim2::NeuroSpace(dims)
+  connected <- exact_k_mask(array(c(1, 1, 0, 0), dims))
+  disconnected <- neuroim2::NeuroVol(array(c(1, 0, 0, 1), dims), space)
+  receipt <- .exact_k_graph(connected, 6L)
+
+  expect_error(
+    force_exact_k(
+      c(1L, 1L), matrix(c(0, 1), ncol = 1L), 1L,
+      disconnected, 6L, graph_info = receipt
+    ),
+    "graph_info mask does not match"
+  )
+
+  reshaped <- neuroim2::NeuroVol(
+    array(c(1, 1, 0, 0), c(2L, 2L, 1L)),
+    neuroim2::NeuroSpace(c(2L, 2L, 1L))
+  )
+  expect_error(
+    force_exact_k(
+      c(1L, 1L), matrix(c(0, 1), ncol = 1L), 1L,
+      reshaped, 6L, graph_info = receipt
+    ),
+    "graph_info dimensions do not match"
+  )
+})
+
 test_that("ACSC, MCL, and ReNA exact-K callers preserve topology", {
   set.seed(7)
   dims <- c(4L, 4L, 2L)

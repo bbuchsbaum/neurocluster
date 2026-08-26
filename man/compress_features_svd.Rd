@@ -27,8 +27,9 @@ will be retained. Default: 0.95 (95\% variance).}
 fast randomized SVD for large datasets (>10,000 voxels). Default: TRUE.}
 
 \item{use_rsvd}{Logical; if TRUE and the rsvd package is available, prefer the
-randomized SVD implementation from \pkg{rsvd}. This can outperform irlba on
-tall-and-skinny matrices. Default: TRUE.}
+randomized SVD implementation from \pkg{rsvd} for large datasets
+(>10,000 voxels). This can outperform irlba on tall-and-skinny matrices.
+Default: TRUE.}
 }
 \value{
 A list with components:
@@ -91,6 +92,15 @@ variance_threshold. If that requires the full available rank, the exact
 full-rank decomposition is used.
 }
 }
+\section{Reproducibility}{
+
+Both randomized backends draw random projections. They are run under a fixed
+internal seed and the caller's RNG state is restored afterwards, so repeated
+calls on the same data return the same decomposition and the function never
+perturbs the surrounding stream. Without that, two identical
+\code{\link{cluster4d_g3s}} runs could disagree on half their voxel labels.
+}
+
 \examples{
 # Simulate fMRI time series data
 n_voxels <- 1000

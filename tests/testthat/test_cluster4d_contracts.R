@@ -87,6 +87,37 @@ test_that("every unified method shares the same pre-dispatch input contract", {
   }
 })
 
+test_that("unified SLIC methods reuse the pre-dispatch input receipt", {
+  fixture <- contract_fixture()
+  original_validate <- neurocluster:::validate_cluster4d_inputs
+  validation_calls <- 0L
+  testthat::local_mocked_bindings(
+    validate_cluster4d_inputs = function(...) {
+      validation_calls <<- validation_calls + 1L
+      original_validate(...)
+    },
+    .package = "neurocluster"
+  )
+
+  slic <- cluster4d(
+    fixture$vec, fixture$mask, n_clusters = 2L, method = "slic",
+    max_iterations = 1L, connectivity = 6L, parallel = FALSE,
+    seed_method = "mask_grid", seed_relocate = "none",
+    strict_connectivity = FALSE, enforce_connectivity = FALSE
+  )
+  expect_s3_class(slic, "cluster4d_result")
+  expect_identical(validation_calls, 1L)
+
+  validation_calls <- 0L
+  corr <- cluster4d(
+    fixture$vec, fixture$mask, n_clusters = 2L, method = "corr_slic",
+    max_iterations = 1L, connectivity = 6L, parallel = FALSE,
+    embedding_dim = 8L, seed = 7L
+  )
+  expect_s3_class(corr, "cluster4d_result")
+  expect_identical(validation_calls, 1L)
+})
+
 test_that("geometry equality includes spacing and affine, not dimensions alone", {
   spacing_bad <- contract_fixture(mask_spacing = c(2, 1, 1))
   origin_bad <- contract_fixture(mask_origin = c(5, 0, 0))
@@ -140,6 +171,35 @@ test_that("non-finite feature data inside the declared mask fail closed", {
       )
     }
   }
+})
+
+test_that("the shared contract restores dropped one-frame and one-voxel shapes", {
+  dims <- c(3L, 2L, 1L)
+  space <- neuroim2::NeuroSpace(dims)
+  mask <- neuroim2::NeuroVol(array(1, dims), space)
+  one_frame <- neuroim2::NeuroVec(
+    array(seq_len(prod(dims)), c(dims, 1L)),
+    neuroim2::NeuroSpace(c(dims, 1L))
+  )
+  frame_contract <- validate_cluster4d_inputs(one_frame, mask, 2L)
+  expect_identical(
+    dim(frame_contract$features), c(1L, as.integer(prod(dims)))
+  )
+  fit <- suppressWarnings(cluster4d_g3s(
+    one_frame, mask, K = 2L, n_components = 1L,
+    max_refinement_iter = 1L, connectivity = 6L
+  ))
+  expect_identical(fit$parameters$feature_metric, "euclidean")
+
+  one_voxel_values <- array(0, dims)
+  one_voxel_values[2L] <- 1
+  one_voxel_mask <- neuroim2::NeuroVol(one_voxel_values, space)
+  frames <- lapply(seq_len(4L), function(i) {
+    neuroim2::NeuroVol(array(seq_len(prod(dims)) * i, dims), space)
+  })
+  multi_frame <- do.call(neuroim2::concat, frames)
+  voxel_contract <- validate_cluster4d_inputs(multi_frame, one_voxel_mask, 1L)
+  expect_identical(dim(voxel_contract$features), c(4L, 1L))
 })
 
 test_that("common parameter capabilities and endpoints are fail-closed", {

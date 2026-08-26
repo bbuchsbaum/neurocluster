@@ -199,3 +199,53 @@ test_that("ACSC fails closed when exact K violates mask components", {
     class = "cluster4d_exact_k_infeasible"
   )
 })
+
+test_that("ACSC centroids retain the sorted label mapping", {
+  labels <- c(2L, 2L, 1L, 1L)
+  features <- rbind(c(10, 0), c(10, 0), c(0, 10), c(0, 10))
+  centroids <- compute_cluster_centroids(labels, features)
+
+  expect_identical(names(centroids), c("1", "2"))
+  expect_equal(centroids[["1"]], c(0, 1), tolerance = 1e-12)
+  expect_equal(centroids[["2"]], c(1, 0), tolerance = 1e-12)
+})
+
+test_that("ACSC Louvain is deterministic and preserves caller RNG state", {
+  graph <- igraph::make_ring(24L)
+  graph <- igraph::set_edge_attr(graph, "weight", value = rep(1, 24L))
+
+  set.seed(2105)
+  before <- .Random.seed
+  first <- run_louvain_clustering(graph)
+  expect_true(identical(.Random.seed, before))
+
+  set.seed(9999)
+  second_before <- .Random.seed
+  second <- run_louvain_clustering(graph)
+  expect_true(identical(.Random.seed, second_before))
+  expect_identical(igraph::membership(first), igraph::membership(second))
+})
+
+test_that("full ACSC results do not depend on incoming RNG state", {
+  set.seed(2106)
+  dims <- c(6L, 4L, 1L)
+  features <- matrix(rnorm(prod(dims) * 16L), prod(dims), 16L)
+  fixture <- acsc_contract_neuro(features, dims)
+
+  set.seed(1)
+  before_first <- .Random.seed
+  first <- suppressWarnings(acsc(
+    fixture$vec, fixture$mask, K = 4L, block_size = 2L,
+    ann_k = 3L, refine = FALSE
+  ))
+  expect_true(identical(.Random.seed, before_first))
+
+  set.seed(999)
+  before_second <- .Random.seed
+  second <- suppressWarnings(acsc(
+    fixture$vec, fixture$mask, K = 4L, block_size = 2L,
+    ann_k = 3L, refine = FALSE
+  ))
+  expect_true(identical(.Random.seed, before_second))
+  expect_identical(first$labels, second$labels)
+})

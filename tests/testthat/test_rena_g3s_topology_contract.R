@@ -17,6 +17,18 @@ topology_oracle_edges <- function(mask_values, connectivity) {
   t(pairs[, keep, drop = FALSE])
 }
 
+topology_oracle_component_count <- function(mask_values, connectivity) {
+  n_voxels <- sum(mask_values > 0L)
+  if (n_voxels == 0L) return(0L)
+
+  edges <- topology_oracle_edges(mask_values, connectivity)
+  graph <- igraph::make_empty_graph(n_voxels, directed = FALSE)
+  if (nrow(edges)) {
+    graph <- igraph::add_edges(graph, as.vector(t(edges)))
+  }
+  as.integer(igraph::components(graph)$no)
+}
+
 topology_native_edges <- function(mask, connectivity) {
   idx <- which(as.array(mask) > 0)
   adjacency <- neurocluster:::build_grid_adjacency(mask, idx, connectivity)
@@ -113,10 +125,26 @@ test_that("masked grid adjacency matches an exhaustive independent oracle", {
       mask_values, neuroim2::NeuroSpace(dims)
     )
     for (connectivity in c(6L, 18L, 26L)) {
+      graph_info <- neurocluster:::.exact_k_graph(mask, connectivity)
+      native_edges <- graph_info$edges
+      if (nrow(native_edges)) {
+        native_edges <- native_edges[
+          order(native_edges[, 1L], native_edges[, 2L]), , drop = FALSE
+        ]
+      }
       expect_equal(
         topology_native_edges(mask, connectivity),
         topology_oracle_edges(mask_values, connectivity),
         info = paste("mask", bits, "connectivity", connectivity)
+      )
+      expect_equal(
+        native_edges,
+        topology_oracle_edges(mask_values, connectivity),
+        info = paste("direct graph mask", bits, "connectivity", connectivity)
+      )
+      expect_identical(
+        length(unique(graph_info$components)),
+        topology_oracle_component_count(mask_values, connectivity)
       )
     }
   }
@@ -128,6 +156,15 @@ test_that("masked grid adjacency matches an exhaustive independent oracle", {
   expect_equal(sum(neurocluster:::rena_build_connectivity(
     gap, which(as.array(gap) > 0), 26
   )), 0)
+})
+
+test_that("direct grid graph crosses the former 65536-voxel boundary", {
+  for (n in c(65535L, 65536L)) {
+    graph <- build_grid_edges_cpp(seq_len(n), c(n, 1L, 1L), 6L)
+    expect_identical(nrow(graph$edges), n - 1L, info = paste("n", n))
+    expect_identical(graph$neighbor_ptr[[n + 1L]], 2L * (n - 1L))
+    expect_identical(unique(graph$components), 1L)
+  }
 })
 
 test_that("G3S native propagation equals a slow multi-source Dijkstra oracle", {
@@ -203,6 +240,33 @@ test_that("G3S compression expands rank until its retained-variance contract hol
   ))
   expect_equal(zero_variance$variance_explained, 1)
   expect_true(all(is.finite(zero_variance$features)))
+})
+
+test_that("randomized G3S compression is deterministic and RNG-neutral", {
+  skip_if_not_installed("rsvd")
+  set.seed(2087)
+  feature_mat <- matrix(rnorm(10001L * 12L), 10001L, 12L)
+  before <- .Random.seed
+  first <- suppressMessages(compress_features_svd(
+    feature_mat, n_components = 4L, variance_threshold = 0,
+    use_irlba = FALSE, use_rsvd = TRUE
+  ))
+  expect_identical(.Random.seed, before)
+  second <- suppressMessages(compress_features_svd(
+    feature_mat, n_components = 4L, variance_threshold = 0,
+    use_irlba = FALSE, use_rsvd = TRUE
+  ))
+  expect_identical(second$features, first$features)
+  expect_identical(.Random.seed, before)
+
+  saved <- .Random.seed
+  on.exit(assign(".Random.seed", saved, envir = .GlobalEnv), add = TRUE)
+  rm(".Random.seed", envir = .GlobalEnv)
+  invisible(suppressMessages(compress_features_svd(
+    feature_mat, n_components = 4L, variance_threshold = 0,
+    use_irlba = FALSE, use_rsvd = TRUE
+  )))
+  expect_false(exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE))
 })
 
 test_that("G3S out-of-sample projection reproduces its training scores", {
@@ -344,6 +408,44 @@ test_that("G3S refinement retains the declared spatial term", {
   )
   expect_identical(as.integer(spatial), labels)
   expect_false(identical(as.integer(spatial), as.integer(feature_only)))
+})
+
+test_that("G3S connectivity repair absorbs fragmented labels as units", {
+  dims <- c(7L, 1L, 1L)
+  mask <- neuroim2::NeuroVol(array(1, dims), neuroim2::NeuroSpace(dims))
+  graph <- build_grid_neighbors_g3s(mask, seq_len(prod(dims)), 6L)
+  labels <- c(1L, 1L, 2L, 1L, 2L, 2L, 2L)
+  features <- rbind(c(0, 0, 0.2, 0.8, 1, 1, 1))
+
+  repaired <- enforce_label_connectivity_cpp(
+    labels, features, graph$coords, graph$nn.index,
+    alpha = 1, compactness = 1
+  )
+  normalized <- .exact_k_connected_labels(
+    repaired, graph$graph, graph$edges
+  )
+
+  expect_identical(length(unique(repaired)), 2L)
+  expect_identical(length(unique(normalized)), 2L)
+  expect_identical(as.integer(repaired), c(1L, 1L, 1L, 2L, 2L, 2L, 2L))
+})
+
+test_that("G3S tied-gradient seeds cover equal distant lobes", {
+  n_each <- 1000L
+  coords <- cbind(
+    c(seq_len(n_each), 3000L + seq_len(n_each)),
+    0,
+    0
+  )
+  features <- matrix(1, nrow = 2L * n_each, ncol = 1L)
+  seeds <- find_gradient_seeds_g3s(
+    features, coords, K = 60L, k_neighbors = 26L,
+    distance = "euclidean", spatial_scale = 2L * n_each / 60L
+  )
+  per_lobe <- tabulate(1L + (seeds > n_each), nbins = 2L)
+
+  expect_identical(length(seeds), 60L)
+  expect_true(all(per_lobe >= 20L), info = paste(per_lobe, collapse = "/"))
 })
 
 test_that("final ReNA and refined G3S parcels are flood-fill connected", {

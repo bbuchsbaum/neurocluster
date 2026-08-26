@@ -273,7 +273,8 @@ slice_msf <- function(vec, mask,
   if (target_k_global > 0L) {
     cluster_ids <- force_exact_k(
       cluster_ids, original$features, target_k_global,
-      mask = mask, connectivity = if (nbhd == 4L) 6L else 26L
+      mask = mask, connectivity = if (nbhd == 4L) 6L else 26L,
+      graph_info = graph_info
     )
   }
   labels[] <- 0L

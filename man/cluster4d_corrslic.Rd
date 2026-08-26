@@ -27,7 +27,8 @@ cluster4d_corrslic(
   refine_alpha = NULL,
   seed = 1L,
   min_size = NULL,
-  ...
+  ...,
+  .input_contract = NULL
 )
 }
 \arguments{
@@ -115,6 +116,9 @@ Values > 1 speed up refinement by computing correlations on every
 \item{min_size}{Minimum component size for connectivity enforcement.}
 
 \item{...}{Additional arguments (currently unused; reserved for forward compatibility).}
+
+\item{.input_contract}{Internal prevalidated input receipt used by
+\code{cluster4d()}; direct callers should leave this as \code{NULL}.}
 }
 \value{
 A cluster4d_result object

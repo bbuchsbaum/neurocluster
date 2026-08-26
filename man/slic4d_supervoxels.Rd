@@ -23,7 +23,8 @@ slic4d_supervoxels(
   preserve_k = FALSE,
   topup_iters = 2L,
   min_size = 0L,
-  verbose = FALSE
+  verbose = FALSE,
+  .input_contract = NULL
 )
 }
 \arguments{
@@ -81,6 +82,9 @@ the final connectivity and exact-K repair (default 2).}
 \item{min_size}{Minimum component size (voxels) to keep before relabel (default 0).}
 
 \item{verbose}{Logical.}
+
+\item{.input_contract}{Internal prevalidated input receipt used by
+\code{cluster4d()}; direct callers should leave this as \code{NULL}.}
 }
 \value{
 A \code{cluster4d_result} (also inheriting from

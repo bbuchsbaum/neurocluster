@@ -200,8 +200,18 @@ test_that("large unified SLIC activates auto parallelism with exact serial parit
     topup_iters = 0L
   )
 
+  thread_env <- Sys.getenv("RCPP_PARALLEL_NUM_THREADS", unset = NA_character_)
+
   sequential <- do.call(cluster4d_slic, c(common, parallel = FALSE))
+  expect_identical(
+    Sys.getenv("RCPP_PARALLEL_NUM_THREADS", unset = NA_character_),
+    thread_env
+  )
   automatic <- do.call(cluster4d_slic, c(common, parallel = TRUE))
+  expect_identical(
+    Sys.getenv("RCPP_PARALLEL_NUM_THREADS", unset = NA_character_),
+    thread_env
+  )
 
   expect_false(sequential$metadata$assignment_parallel_requested)
   expect_false(sequential$metadata$assignment_parallel_used)
@@ -212,4 +222,37 @@ test_that("large unified SLIC activates auto parallelism with exact serial parit
   expect_identical(automatic$labels, sequential$labels)
   expect_equal(automatic$centers, sequential$centers, tolerance = 0)
   expect_equal(automatic$coord_centers, sequential$coord_centers, tolerance = 0)
+})
+
+test_that("SLIC thread selection never mutates the caller's thread environment", {
+  fixture <- slic_contract_fixture(c(5L, 5L, 2L), 3L, seed = 20260826L)
+  old_threads <- Sys.getenv("RCPP_PARALLEL_NUM_THREADS", unset = NA_character_)
+  on.exit({
+    if (is.na(old_threads)) {
+      Sys.unsetenv("RCPP_PARALLEL_NUM_THREADS")
+    } else {
+      Sys.setenv(RCPP_PARALLEL_NUM_THREADS = old_threads)
+    }
+  }, add = TRUE)
+
+  for (initial in list(NA_character_, "3")) {
+    if (is.na(initial)) {
+      Sys.unsetenv("RCPP_PARALLEL_NUM_THREADS")
+    } else {
+      Sys.setenv(RCPP_PARALLEL_NUM_THREADS = initial)
+    }
+    before <- Sys.getenv("RCPP_PARALLEL_NUM_THREADS", unset = NA_character_)
+
+    invisible(slic4d_supervoxels(
+      fixture$vec, fixture$mask, K = 5L, compactness = 2,
+      max_iter = 1L, n_threads = 1L, seed_method = "mask_grid",
+      seed_relocate = "none", strict_connectivity = FALSE,
+      enforce_connectivity = FALSE
+    ))
+
+    expect_identical(
+      Sys.getenv("RCPP_PARALLEL_NUM_THREADS", unset = NA_character_),
+      before
+    )
+  }
 })

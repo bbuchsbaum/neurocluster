@@ -335,10 +335,16 @@ cluster4d <- function(vec, mask,
       vec, mask, n_clusters, spatial_weight,
       verbose = verbose, ...
     ),
-    slic = cluster4d_slic(vec, mask, n_clusters, spatial_weight,
-                         max_iterations, connectivity, parallel, verbose, ...),
-    corr_slic = cluster4d_corrslic(vec, mask, n_clusters, spatial_weight,
-                                   max_iterations, connectivity, parallel, verbose, ...),
+    slic = cluster4d_slic(
+      vec, mask, n_clusters, spatial_weight,
+      max_iterations, connectivity, parallel, verbose, ...,
+      .input_contract = contract
+    ),
+    corr_slic = cluster4d_corrslic(
+      vec, mask, n_clusters, spatial_weight,
+      max_iterations, connectivity, parallel, verbose, ...,
+      .input_contract = contract
+    ),
     brs_slic = cluster4d_brsslic(vec, mask, n_clusters, spatial_weight,
                                  max_iterations, connectivity, parallel, verbose, ...),
     slice_msf = cluster4d_slice_msf(
@@ -400,7 +406,8 @@ cluster4d <- function(vec, mask,
       vec = vec,
       mask = mask,
       method = method,
-      parameters = orig_params
+      parameters = orig_params,
+      input_contract = contract
     )
   }
 }
@@ -613,6 +620,8 @@ cluster4d_snic <- function(vec, mask, n_clusters = 100,
 #'   feasible cluster count is returned with a warning.
 #' @param seed_relocate Seed relocation method
 #' @param ... Additional parameters passed to slic4d_supervoxels
+#' @param .input_contract Internal prevalidated input receipt used by
+#'   `cluster4d()`; direct callers should leave this as `NULL`.
 #'
 #' @return A cluster4d_result object
 #' @export
@@ -624,9 +633,13 @@ cluster4d_slic <- function(vec, mask, n_clusters = 100,
                           verbose = FALSE,
                           preserve_k = FALSE,
                           seed_relocate = "none",
-                          ...) {
+                          ...,
+                          .input_contract = NULL) {
 
-  validate_cluster4d_inputs(vec, mask, n_clusters, "cluster4d_slic")
+  input_contract <- .cluster4d_resolve_input_contract(
+    .input_contract, vec, mask, n_clusters, "cluster4d_slic"
+  )
+  n_clusters <- input_contract$n_clusters
   
   # Convert spatial_weight to compactness
   # SLIC uses larger compactness values (1-20 typical)
@@ -647,7 +660,8 @@ cluster4d_slic <- function(vec, mask, n_clusters = 100,
     verbose = verbose,
     preserve_k = preserve_k,
     seed_relocate = seed_relocate,
-    ...
+    ...,
+    .input_contract = input_contract
   )
   
   # Standardize result structure
@@ -675,7 +689,7 @@ cluster4d_slic <- function(vec, mask, n_clusters = 100,
     dots  # Include any additional parameters passed through
   )
   
-  finalize_cluster4d_result(result, vec, mask, "slic", result$parameters)
+  result
 }
 
 #' Cluster4d using correlation-embedded SLIC method
@@ -711,6 +725,8 @@ cluster4d_slic <- function(vec, mask, n_clusters = 100,
 #' @param seed Random seed for embedding hash and seed initialization.
 #' @param min_size Minimum component size for connectivity enforcement.
 #' @param ... Additional arguments (currently unused; reserved for forward compatibility).
+#' @param .input_contract Internal prevalidated input receipt used by
+#'   `cluster4d()`; direct callers should leave this as `NULL`.
 #'
 #' @details `spatial_weight` (or its alias `alpha`) is a convex blend:
 #' `(1 - w) * correlation_distance + w * scaled_spatial_distance`.
@@ -742,11 +758,12 @@ cluster4d_corrslic <- function(vec, mask, n_clusters = 100,
                                refine_alpha = NULL,
                                seed = 1L,
                                min_size = NULL,
-                               ...) {
+                               ...,
+                               .input_contract = NULL) {
 
   spatial_weight_missing <- missing(spatial_weight)
-  input_contract <- validate_cluster4d_inputs(
-    vec, mask, n_clusters, "cluster4d_corrslic"
+  input_contract <- .cluster4d_resolve_input_contract(
+    .input_contract, vec, mask, n_clusters, "cluster4d_corrslic"
   )
   n_clusters <- input_contract$n_clusters
   spatial_weight <- .cluster4d_scalar_number(
@@ -849,7 +866,8 @@ cluster4d_corrslic <- function(vec, mask, n_clusters = 100,
     vec = vec,
     mask = mask,
     scale_features = FALSE,
-    scale_coords = FALSE
+    scale_coords = FALSE,
+    input_contract = input_contract
   )
   n_time <- ncol(data_prep$features)
   n_vox <- nrow(data_prep$features)
@@ -906,23 +924,12 @@ cluster4d_corrslic <- function(vec, mask, n_clusters = 100,
     stop("cluster4d_corrslic: C++ core returned a non-contiguous final label map")
   }
 
-  grp <- factor(labels, levels = label_values)
-  counts <- as.numeric(tabulate(as.integer(grp), nbins = length(label_values)))
-  counts[counts == 0] <- NA_real_
-  coord_sum <- rowsum(data_prep$coords, grp, reorder = TRUE)
-  coord_centers <- coord_sum / counts
-  dimnames(coord_centers) <- NULL
-
   centers <- unname(as.matrix(core$original_centers))
   centers_xyz_voxel <- unname(as.matrix(core$centers_xyz))
 
   result <- structure(
     list(
-      clusvol = ClusteredNeuroVol(mask > 0, clusters = labels),
-      cluster = labels,
-      centers = centers,
-      coord_centers = coord_centers,
-      n_clusters = length(label_values),
+      labels = labels,
       method = "corr_slic",
       parameters = list(
         n_clusters_requested = n_clusters,
@@ -984,7 +991,11 @@ cluster4d_corrslic <- function(vec, mask, n_clusters = 100,
     class = c("cluster4d_result", "cluster_result", "list")
   )
 
-  finalize_cluster4d_result(result, vec, mask, "corr_slic", result$parameters)
+  finalize_cluster4d_result(
+    result, vec, mask, "corr_slic", result$parameters,
+    input_contract = input_contract,
+    data = data_prep
+  )
 }
 
 #' Cluster4d using boundary-refined sketch SLIC

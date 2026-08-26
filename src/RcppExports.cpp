@@ -469,9 +469,25 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// enforce_label_connectivity_cpp
+IntegerVector enforce_label_connectivity_cpp(IntegerVector labels, const NumericMatrix& feature_mat, const NumericMatrix& coords, const IntegerMatrix& neighbor_indices, double alpha, double compactness);
+RcppExport SEXP _neurocluster_enforce_label_connectivity_cpp(SEXP labelsSEXP, SEXP feature_matSEXP, SEXP coordsSEXP, SEXP neighbor_indicesSEXP, SEXP alphaSEXP, SEXP compactnessSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerVector >::type labels(labelsSEXP);
+    Rcpp::traits::input_parameter< const NumericMatrix& >::type feature_mat(feature_matSEXP);
+    Rcpp::traits::input_parameter< const NumericMatrix& >::type coords(coordsSEXP);
+    Rcpp::traits::input_parameter< const IntegerMatrix& >::type neighbor_indices(neighbor_indicesSEXP);
+    Rcpp::traits::input_parameter< double >::type alpha(alphaSEXP);
+    Rcpp::traits::input_parameter< double >::type compactness(compactnessSEXP);
+    rcpp_result_gen = Rcpp::wrap(enforce_label_connectivity_cpp(labels, feature_mat, coords, neighbor_indices, alpha, compactness));
+    return rcpp_result_gen;
+END_RCPP
+}
 // refine_boundaries_g3s_cpp
-IntegerVector refine_boundaries_g3s_cpp(IntegerVector labels, const NumericMatrix& feature_mat, const NumericMatrix& coords, const IntegerMatrix& neighbor_indices, double alpha, double compactness, int max_iter);
-RcppExport SEXP _neurocluster_refine_boundaries_g3s_cpp(SEXP labelsSEXP, SEXP feature_matSEXP, SEXP coordsSEXP, SEXP neighbor_indicesSEXP, SEXP alphaSEXP, SEXP compactnessSEXP, SEXP max_iterSEXP) {
+IntegerVector refine_boundaries_g3s_cpp(IntegerVector labels, const NumericMatrix& feature_mat, const NumericMatrix& coords, const IntegerMatrix& neighbor_indices, double alpha, double compactness, int max_iter, bool enforce_connectivity);
+RcppExport SEXP _neurocluster_refine_boundaries_g3s_cpp(SEXP labelsSEXP, SEXP feature_matSEXP, SEXP coordsSEXP, SEXP neighbor_indicesSEXP, SEXP alphaSEXP, SEXP compactnessSEXP, SEXP max_iterSEXP, SEXP enforce_connectivitySEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -482,7 +498,49 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< double >::type alpha(alphaSEXP);
     Rcpp::traits::input_parameter< double >::type compactness(compactnessSEXP);
     Rcpp::traits::input_parameter< int >::type max_iter(max_iterSEXP);
-    rcpp_result_gen = Rcpp::wrap(refine_boundaries_g3s_cpp(labels, feature_mat, coords, neighbor_indices, alpha, compactness, max_iter));
+    Rcpp::traits::input_parameter< bool >::type enforce_connectivity(enforce_connectivitySEXP);
+    rcpp_result_gen = Rcpp::wrap(refine_boundaries_g3s_cpp(labels, feature_mat, coords, neighbor_indices, alpha, compactness, max_iter, enforce_connectivity));
+    return rcpp_result_gen;
+END_RCPP
+}
+// g3s_select_seeds_cpp
+List g3s_select_seeds_cpp(const NumericMatrix& coords, const IntegerVector& candidates, int K, double radius, double decay, int max_rounds);
+RcppExport SEXP _neurocluster_g3s_select_seeds_cpp(SEXP coordsSEXP, SEXP candidatesSEXP, SEXP KSEXP, SEXP radiusSEXP, SEXP decaySEXP, SEXP max_roundsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const NumericMatrix& >::type coords(coordsSEXP);
+    Rcpp::traits::input_parameter< const IntegerVector& >::type candidates(candidatesSEXP);
+    Rcpp::traits::input_parameter< int >::type K(KSEXP);
+    Rcpp::traits::input_parameter< double >::type radius(radiusSEXP);
+    Rcpp::traits::input_parameter< double >::type decay(decaySEXP);
+    Rcpp::traits::input_parameter< int >::type max_rounds(max_roundsSEXP);
+    rcpp_result_gen = Rcpp::wrap(g3s_select_seeds_cpp(coords, candidates, K, radius, decay, max_rounds));
+    return rcpp_result_gen;
+END_RCPP
+}
+// build_grid_edges_cpp
+List build_grid_edges_cpp(const IntegerVector& mask_idx, const IntegerVector& dims, const int connectivity);
+RcppExport SEXP _neurocluster_build_grid_edges_cpp(SEXP mask_idxSEXP, SEXP dimsSEXP, SEXP connectivitySEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const IntegerVector& >::type mask_idx(mask_idxSEXP);
+    Rcpp::traits::input_parameter< const IntegerVector& >::type dims(dimsSEXP);
+    Rcpp::traits::input_parameter< const int >::type connectivity(connectivitySEXP);
+    rcpp_result_gen = Rcpp::wrap(build_grid_edges_cpp(mask_idx, dims, connectivity));
+    return rcpp_result_gen;
+END_RCPP
+}
+// edge_label_components_cpp
+IntegerVector edge_label_components_cpp(const IntegerVector& labels, const IntegerMatrix& edges);
+RcppExport SEXP _neurocluster_edge_label_components_cpp(SEXP labelsSEXP, SEXP edgesSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const IntegerVector& >::type labels(labelsSEXP);
+    Rcpp::traits::input_parameter< const IntegerMatrix& >::type edges(edgesSEXP);
+    rcpp_result_gen = Rcpp::wrap(edge_label_components_cpp(labels, edges));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -887,7 +945,11 @@ static const R_CallMethodDef CallEntries[] = {
     {"_neurocluster_fused_assignment_binned", (DL_FUNC) &_neurocluster_fused_assignment_binned, 14},
     {"_neurocluster_calculate_local_gradient", (DL_FUNC) &_neurocluster_calculate_local_gradient, 2},
     {"_neurocluster_g3s_propagate_cpp", (DL_FUNC) &_neurocluster_g3s_propagate_cpp, 6},
-    {"_neurocluster_refine_boundaries_g3s_cpp", (DL_FUNC) &_neurocluster_refine_boundaries_g3s_cpp, 7},
+    {"_neurocluster_enforce_label_connectivity_cpp", (DL_FUNC) &_neurocluster_enforce_label_connectivity_cpp, 6},
+    {"_neurocluster_refine_boundaries_g3s_cpp", (DL_FUNC) &_neurocluster_refine_boundaries_g3s_cpp, 8},
+    {"_neurocluster_g3s_select_seeds_cpp", (DL_FUNC) &_neurocluster_g3s_select_seeds_cpp, 6},
+    {"_neurocluster_build_grid_edges_cpp", (DL_FUNC) &_neurocluster_build_grid_edges_cpp, 3},
+    {"_neurocluster_edge_label_components_cpp", (DL_FUNC) &_neurocluster_edge_label_components_cpp, 2},
     {"_neurocluster_mcl_prune_sparse_cpp", (DL_FUNC) &_neurocluster_mcl_prune_sparse_cpp, 6},
     {"_neurocluster_normalize_volumes_cpp", (DL_FUNC) &_neurocluster_normalize_volumes_cpp, 1},
     {"_neurocluster_detrend_time_cpp", (DL_FUNC) &_neurocluster_detrend_time_cpp, 1},

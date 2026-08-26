@@ -124,8 +124,26 @@ g3s_propagate_cpp <- function(feature_mat, seed_indices, neighbor_indices, neigh
     .Call('_neurocluster_g3s_propagate_cpp', PACKAGE = 'neurocluster', feature_mat, seed_indices, neighbor_indices, neighbor_dists, alpha, compactness)
 }
 
-refine_boundaries_g3s_cpp <- function(labels, feature_mat, coords, neighbor_indices, alpha, compactness, max_iter) {
-    .Call('_neurocluster_refine_boundaries_g3s_cpp', PACKAGE = 'neurocluster', labels, feature_mat, coords, neighbor_indices, alpha, compactness, max_iter)
+#' @keywords internal
+#' @noRd
+enforce_label_connectivity_cpp <- function(labels, feature_mat, coords, neighbor_indices, alpha, compactness) {
+    .Call('_neurocluster_enforce_label_connectivity_cpp', PACKAGE = 'neurocluster', labels, feature_mat, coords, neighbor_indices, alpha, compactness)
+}
+
+refine_boundaries_g3s_cpp <- function(labels, feature_mat, coords, neighbor_indices, alpha, compactness, max_iter, enforce_connectivity = TRUE) {
+    .Call('_neurocluster_refine_boundaries_g3s_cpp', PACKAGE = 'neurocluster', labels, feature_mat, coords, neighbor_indices, alpha, compactness, max_iter, enforce_connectivity)
+}
+
+g3s_select_seeds_cpp <- function(coords, candidates, K, radius, decay, max_rounds) {
+    .Call('_neurocluster_g3s_select_seeds_cpp', PACKAGE = 'neurocluster', coords, candidates, K, radius, decay, max_rounds)
+}
+
+build_grid_edges_cpp <- function(mask_idx, dims, connectivity) {
+    .Call('_neurocluster_build_grid_edges_cpp', PACKAGE = 'neurocluster', mask_idx, dims, connectivity)
+}
+
+edge_label_components_cpp <- function(labels, edges) {
+    .Call('_neurocluster_edge_label_components_cpp', PACKAGE = 'neurocluster', labels, edges)
 }
 
 mcl_prune_sparse_cpp <- function(p, i, x, ncol, max_per_col, min_value) {

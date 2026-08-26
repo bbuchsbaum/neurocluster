@@ -12,7 +12,8 @@ find_gradient_seeds_g3s(
   oversample_ratio = 3,
   min_separation_factor = 0.5,
   distance = c("cosine", "euclidean"),
-  knn = NULL
+  knn = NULL,
+  spatial_scale = NULL
 )
 }
 \arguments{
@@ -42,11 +43,15 @@ One of \code{"cosine"} (default) or \code{"euclidean"}.}
 
 \item{knn}{Optional pre-computed k-nearest-neighbor object. If NULL (default),
 KNN is computed internally.}
+
+\item{spatial_scale}{Optional positive physical length scale for the seed
+inhibition radius, normally the masked-volume scale used for compactness.
+When NULL the radius is estimated from the coordinate bounding box, which
+can overestimate it on non-convex masks.}
 }
 \value{
-Integer vector of length <= K containing the row indices of selected
-seed voxels in the feature_mat/coords matrices. If fewer than K spatially
-separated seeds can be found, a warning is issued.
+Integer vector of length K containing the row indices of selected
+seed voxels in the feature_mat/coords matrices.
 }
 \description{
 Identifies optimal seed locations for G3S clustering by finding local minima
@@ -66,7 +71,9 @@ where \eqn{dist(f_i, f_j) = 1 - f_i \cdot f_j} (cosine distance).
 K * oversample_ratio voxels with lowest gradient (most stable regions).
 \item \strong{Spatial Separation}: Starting with the lowest-gradient candidate, greedily
 select seeds that maintain minimum spatial separation from all previously
-selected seeds.
+selected seeds. If that pool cannot provide K seeds at the physical
+inhibition radius, deterministic farthest-point sampling over the full
+mask fills the shortfall.
 }
 }
 
