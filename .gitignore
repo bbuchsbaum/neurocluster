@@ -20,3 +20,20 @@ inst/benchmarks/*_raw.csv
 inst/benchmarks/*_summary.csv
 inst/benchmarks/*_best_by_family.csv
 inst/benchmarks/*_ab*.csv
+
+# Editor / OS junk
+.DS_Store
+**/.DS_Store
+
+# Local Claude settings (personal, not shared)
+.claude/settings.local.json
+
+# Locally installed copy of the package used for dev checks
+.Rlib/
+
+# albersdown vignette backups
+.albersdown.bak/
+
+# Archived one-off notes, patches, and verification scripts kept out of the
+# package root. Retained locally; history has them if they are ever needed.
+archive/
