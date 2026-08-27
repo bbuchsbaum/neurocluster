@@ -6,8 +6,21 @@
 # gamma behavior. It deliberately uses the same fixed spherical fixture as the
 # regression test.
 
-suppressPackageStartupMessages(
-  devtools::load_all(quiet = TRUE, recompile = FALSE)
+package_mode <- Sys.getenv("NEUROCLUSTER_DIAG_MODE", "source")
+if (identical(package_mode, "installed")) {
+  suppressPackageStartupMessages(library(neurocluster))
+} else if (identical(package_mode, "source")) {
+  suppressPackageStartupMessages(
+    devtools::load_all(quiet = TRUE, recompile = FALSE)
+  )
+} else {
+  stop("NEUROCLUSTER_DIAG_MODE must be 'source' or 'installed'")
+}
+package_receipt <- data.frame(
+  mode = package_mode,
+  version = as.character(utils::packageVersion("neurocluster")),
+  library_path = normalizePath(find.package("neurocluster")),
+  stringsAsFactors = FALSE
 )
 source("tests/testthat/helper-slice-msf-oracle.R", local = TRUE)
 
@@ -159,6 +172,8 @@ rownames(edge_summary) <- NULL
 edge_summary <- edge_summary[, c("edge_type", setdiff(names(edge_summary), "edge_type"))]
 
 report <- capture.output({
+  cat("\nPACKAGE\n")
+  print(package_receipt, row.names = FALSE)
   cat("\nPARTITIONS\n")
   print(partitions, row.names = FALSE, digits = 6)
   cat("\nREPAIR\n")
@@ -194,6 +209,7 @@ saveRDS(
   list(
     git_sha = system2("git", c("rev-parse", "HEAD"), stdout = TRUE),
     dirty = length(system2("git", c("status", "--porcelain"), stdout = TRUE)) > 0L,
+    package = package_receipt,
     partitions = partitions,
     partition_size_vectors = partition_size_vectors,
     repair = repair,
