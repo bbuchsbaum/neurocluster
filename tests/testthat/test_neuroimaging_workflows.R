@@ -65,9 +65,10 @@ test_that("resting state network parcellation workflow", {
   vec <- do.call(concat, vec_list)
   
   # Test resting-state parcellation workflow
+  minimum_parcel_size <- 20L
   expect_silent(rs_result <- slice_msf(vec, mask, 
                                       r = 12,  # Higher rank for resting-state
-                                      min_size = 20,
+                                      min_size = minimum_parcel_size,
                                       compactness = 2,  # Allow more irregular shapes
                                       num_runs = 3,
                                       consensus = TRUE))
@@ -75,10 +76,21 @@ test_that("resting state network parcellation workflow", {
   expect_true(!is.null(rs_result))
   expect_true(length(rs_result$cluster) == nvox)
   
-  # Should find reasonable number of networks (3-10)
-  n_networks <- length(unique(rs_result$cluster))
-  expect_true(n_networks >= 3 && n_networks <= 10,
-              info = sprintf("Should find 3-10 networks, found %d", n_networks))
+  # Natural-K output is a connected parcellation, not a recovery of the three
+  # potentially disconnected latent network IDs. Check structural constraints
+  # here; the correlation estimand below checks functional separation.
+  n_parcels <- length(unique(rs_result$cluster))
+  parcel_sizes <- tabulate(rs_result$cluster)
+  expect_gte(n_parcels, length(network_seeds))
+  expect_lte(n_parcels, floor(nvox / minimum_parcel_size))
+  expect_true(all(parcel_sizes >= minimum_parcel_size))
+  graph <- neurocluster:::.exact_k_graph(mask, 26L)
+  connected_labels <- neurocluster:::.exact_k_connected_labels(
+    rs_result$cluster, graph$graph, graph$edges
+  )
+  expect_identical(
+    length(unique(connected_labels)), length(unique(rs_result$cluster))
+  )
   
   # Test network connectivity analysis
   cluster_vol <- array(0, dims)
