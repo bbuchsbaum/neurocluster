@@ -1,0 +1,90 @@
+# ReNA++: Edge-aware Reciprocal Multi-Level ReNA with Ward refinement
+
+Two-stage pipeline:
+
+1.  Edge-aware reciprocal-nearest-neighbor ReNA coarsening toward K' =
+    ceiling(r \* K) super-voxels.
+
+2.  Spatially-constrained Ward refinement on the super-graph to reach
+    exactly K clusters.
+
+## Usage
+
+``` r
+rena_plus(
+  bvec,
+  mask,
+  K = 100,
+  r = 2,
+  lambda = 1,
+  grad_img = NULL,
+  connectivity = 26,
+  max_iterations = 50,
+  verbose = FALSE,
+  ...
+)
+```
+
+## Arguments
+
+- bvec:
+
+  A `NeuroVec` providing voxel time-series.
+
+- mask:
+
+  A `NeuroVol` mask; finite positive voxels are included.
+
+- K:
+
+  Target number of clusters.
+
+- r:
+
+  Finite over-clustering factor at least 1. Coarsening approaches K' =
+  ceiling(r \* K) without applying a level that would overshoot below
+  K'. Default 2.
+
+- lambda:
+
+  Gradient penalty strength (\>=0). 0 disables edge weighting.
+
+- grad_img:
+
+  Optional numeric vector: gradient/intensity per voxel. Either length =
+  prod(dim(mask)) (in which case values are subset by mask) or length =
+  number of masked voxels. If NULL, no gradient.
+
+- connectivity:
+
+  Neighborhood connectivity (6, 18, or 26). Default 26.
+
+- max_iterations:
+
+  Max iterations for coarsening stage.
+
+- verbose:
+
+  Logical for progress messages.
+
+- ...:
+
+  Reserved for future options.
+
+## Value
+
+A `cluster4d_result` with additional class `rena_plus_cluster_result`.
+
+## Details
+
+A reciprocal-neighbor level is retained only when applying the complete
+level would leave at least K' super-voxels. This prevents the coarsening
+stage from overshooting below K and leaves the remaining one-at-a-time
+adjacent merges to Ward refinement. Ward costs are recomputed from the
+current size-weighted means before every accepted merge; equal-cost
+edges are resolved by ascending super-voxel identifiers. Because the
+adjacency constraint can expose a new edge after a merge, individual
+Ward deltas need not be ordered, although every delta is non-negative
+and the cumulative objective is non-decreasing. When Ward refinement is
+needed, its complete trace and queue diagnostics are available in
+`result$metadata$ward`.

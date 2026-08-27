@@ -1,0 +1,23 @@
+pandoc: 3.8.3
+pkgdown: 2.2.1
+pkgdown_sha: ~
+articles:
+  api-overview: api-overview.html
+  benchmarks: benchmarks.html
+  choose-parameters: choose-parameters.html
+  compare-methods: compare-methods.html
+  consensus-stitch: consensus-stitch.html
+  end-to-end-export: end-to-end-export.html
+  getting-started: getting-started.html
+  legacy-apis: legacy-apis.html
+  method-deep-dives: method-deep-dives.html
+  objects-results: objects-results.html
+  performance-memory: performance-memory.html
+  spatially-constrained-clustering: spatially-constrained-clustering.html
+  speed-parallel: speed-parallel.html
+  validate-compare: validate-compare.html
+  visualize-export: visualize-export.html
+last_built: 2026-08-27T02:19Z
+urls:
+  reference: https://bbuchsbaum.github.io/neurocluster/reference
+  article: https://bbuchsbaum.github.io/neurocluster/articles

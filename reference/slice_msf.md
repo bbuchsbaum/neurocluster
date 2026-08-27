@@ -1,0 +1,126 @@
+# Volumetric DCT minimum-spanning-forest clustering
+
+Compresses each voxel time series into a non-DC DCT sketch, weights
+feature distances by split-half reliability, and applies
+Felzenszwalb-Huttenlocher segmentation on a masked 3-D neighborhood
+graph. Multi-run fits use seeded DCT subspace and mode-weight resampling
+followed by consensus segmentation.
+
+## Usage
+
+``` r
+slice_msf(
+  vec,
+  mask,
+  target_k_global = -1,
+  r = 12,
+  compactness = 5,
+  min_size = 80,
+  num_runs = 3,
+  consensus = TRUE,
+  stitch_z = TRUE,
+  nbhd = 8,
+  gamma = 1.5,
+  k_fuse = NULL,
+  min_size_fuse = NULL,
+  use_features = FALSE,
+  lambda = 0.7,
+  z_mult = 0,
+  seed = 1L,
+  ensemble_fraction = 0.8
+)
+```
+
+## Arguments
+
+- vec:
+
+  A `NeuroVec` or `SparseNeuroVec` containing the time series.
+
+- mask:
+
+  A `NeuroVol`; exactly finite values greater than zero are included.
+
+- target_k_global:
+
+  `-1` for the natural segmentation or a positive exact cluster count.
+  Exact K uses the shared adjacency-preserving split/merge engine.
+
+- r:
+
+  Requested number of non-DC DCT modes. It is capped at `T - 1`.
+
+- compactness:
+
+  Finite value in `[0, 10]` controlling FH scale. Larger values use a
+  smaller scale and generally produce finer components.
+
+- min_size:
+
+  Positive minimum component size for each run.
+
+- num_runs:
+
+  Positive number of runs. Values above one require consensus.
+
+- consensus:
+
+  Whether to fuse a multi-run ensemble.
+
+- stitch_z:
+
+  Whether graph edges may cross axial slices. When `FALSE`, slices are
+  independent and a global exact-K target is unavailable.
+
+- nbhd:
+
+  `4`, `6`, or `8`. Values `4` and `6` select axial neighbors; `8`
+  selects the full diagonal neighborhood.
+
+- gamma:
+
+  Non-negative exponent applied to positive split-half reliability; it
+  directly scales feature edge distances.
+
+- k_fuse:
+
+  Positive FH scale for consensus; defaults to the run scale.
+
+- min_size_fuse:
+
+  Positive minimum consensus component size; defaults to `min_size`.
+
+- use_features:
+
+  Include sketch similarity as well as label agreement in multi-run
+  consensus.
+
+- lambda:
+
+  Consensus mixture in `[0, 1]`; one uses label agreement only, zero
+  uses feature similarity only. Active only when `use_features = TRUE`.
+
+- z_mult:
+
+  DCT-sketch smoothing fraction in `[0, 1]` across axial slices.
+
+- seed:
+
+  Integer seed used to construct multi-run DCT subspaces.
+
+- ensemble_fraction:
+
+  Fraction in `(0, 1]` controlling the candidate DCT frequency pool for
+  a multi-run ensemble.
+
+## Value
+
+A `slice_msf_cluster_result` and `cluster4d_result`. `cluster` is in
+mask order, `centers` is K by T, and `coord_centers` is K by 3.
+Multi-run results also contain native `runs` and complete ensemble
+provenance in `metadata`.
+
+## References
+
+Felzenszwalb, P. F., & Huttenlocher, D. P. (2004). Efficient graph-based
+image segmentation. IJCV, 59(2), 167-181.

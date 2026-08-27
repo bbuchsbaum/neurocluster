@@ -1,0 +1,148 @@
+# Compare clustering methods
+
+## Goal
+
+Run several methods with the same `n_clusters` and compare basic
+characteristics.
+
+We use a simple, scikit-learn-style synthetic (three vertical bands with
+distinct time courses plus light noise). It’s small, deterministic, and
+spatially local, so all methods have a fair shot.
+
+## Ground truth bands (for reference)
+
+``` r
+
+# Display the ground truth as a simple image
+truth_array <- array(toy$truth, dim = toy$dims)
+image(truth_array[,,1], col = rainbow(6),
+      main = "Ground Truth: 3 bands", axes = FALSE)
+```
+
+![Axial slice showing three colored vertical
+bands.](compare-methods_files/figure-html/fig-toy-ground-truth-1.png)
+
+Ground truth bands (3 clusters) on the toy axial slice.
+
+## Run methods (same K)
+
+``` r
+
+methods <- c("snic", "slice_msf", "supervoxels")
+run_one <- function(m) {
+  args <- list(vec = toy$vec, mask = toy$mask, n_clusters = 3, method = m)
+  if (m == "snic") {
+    args$compactness <- 3
+  } else if (m == "slice_msf") {
+    args$r <- 8
+    args$min_size <- 5
+    args$compactness <- 3
+    args$num_runs <- 1
+    args$stitch_z <- TRUE
+  } else if (m == "supervoxels") {
+    args$alpha <- 0.6
+    args$connectivity <- 6
+  }
+  out <- try(do.call(cluster4d, args), silent = TRUE)
+  if (inherits(out, "try-error")) NULL else out
+}
+results <- setNames(lapply(methods, run_one), methods)
+results_ok <- Filter(Negate(is.null), results)
+```
+
+## Axial slices by method
+
+``` r
+
+# Fallback in case prior chunk failed in a different environment
+if (!exists("results_ok", inherits = TRUE)) {
+  methods <- c("snic", "slice_msf", "supervoxels")
+  run_one <- function(m) {
+    args <- list(
+      vec = toy$vec, mask = toy$mask, n_clusters = 3, method = m
+    )
+    if (m == "slice_msf") {
+      args$num_runs <- 1
+      args$stitch_z <- TRUE
+    } else if (m == "supervoxels") {
+      args$max_iterations <- 5
+    }
+    out <- try(do.call(cluster4d, args), silent = TRUE)
+    if (inherits(out, "try-error")) NULL else out
+  }
+  results <- setNames(lapply(methods, run_one), methods)
+  results_ok <- Filter(Negate(is.null), results)
+}
+n <- length(results_ok); if (n == 0) n <- 1
+par(mfrow = c(1, n))
+for (nm in names(results_ok)) {
+  plot(results_ok[[nm]], slice = c(1, 1, 1), view = "axial")
+  title(nm)
+}
+```
+
+![Panels showing axial slices for available methods with arbitrary
+cluster colors.](compare-methods_files/figure-html/fig-methods-1.png)
+
+Toy axial view clustered by available methods (K=3). Colors indicate
+cluster IDs (arbitrary).
+
+![Panels showing axial slices for available methods with arbitrary
+cluster colors.](compare-methods_files/figure-html/fig-methods-2.png)
+
+Toy axial view clustered by available methods (K=3). Colors indicate
+cluster IDs (arbitrary).
+
+![Panels showing axial slices for available methods with arbitrary
+cluster colors.](compare-methods_files/figure-html/fig-methods-3.png)
+
+Toy axial view clustered by available methods (K=3). Colors indicate
+cluster IDs (arbitrary).
+
+``` r
+
+par(mfrow = c(1, 1))
+```
+
+## Compare
+
+``` r
+
+if (length(results_ok) >= 1) {
+  comparison <- do.call(compare_cluster4d, results_ok)
+  comparison
+}
+comparison
+
+# Summarize basic facts from outputs
+if (length(results_ok) >= 1) {
+  sizes <- lapply(results_ok, function(x) table(x$cluster))
+  data.frame(
+    method = names(sizes),
+    n_clusters = sapply(results_ok, function(x) x$n_clusters),
+    min_size = sapply(sizes, min),
+    max_size = sapply(sizes, max),
+    mean_size = sapply(sizes, function(t) round(mean(t), 1))
+  )
+}
+```
+
+## Notes
+
+- SNIC assigns voxels in a single pass via a priority queue (see
+  [`snic()`](https://bbuchsbaum.github.io/neurocluster/reference/snic.md));
+  clusters are connected by construction. Runtime depends on input size
+  and queue operations.
+- Supervoxels uses iterative reassignment with spatial/feature kernels
+  (see
+  [`supervoxels()`](https://bbuchsbaum.github.io/neurocluster/reference/supervoxels.md));
+  more iterations can change results and runtime.
+- SLIC uses local search windows and can preserve the requested K when
+  `preserve_k = TRUE` (see
+  [`cluster4d_slic()`](https://bbuchsbaum.github.io/neurocluster/reference/cluster4d_slic.md)).
+
+## See also
+
+- Validate & compare: articles/validate-compare.html#checks
+- Method deep dives: articles/method-deep-dives.html#slic
+- Performance & memory: articles/performance-memory.html#scaling
