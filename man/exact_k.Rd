@@ -11,7 +11,9 @@ force_exact_k(
   K_target,
   mask,
   connectivity = 6L,
-  graph_info = NULL
+  graph_info = NULL,
+  min_cluster_size = 1L,
+  record_operations = FALSE
 )
 }
 \arguments{
@@ -30,6 +32,13 @@ mask and connectivity. Supplying it avoids rebuilding the masked-grid
 graph, which callers that already hold one would otherwise pay for twice.
 The receipt is rejected if its dimensions, included voxels, or connectivity
 do not match \code{mask}.}
+
+\item{min_cluster_size}{Positive minimum size of every output cluster.
+The compatibility default is one. A target that cannot satisfy this bound
+within each disconnected mask component fails with a structured condition.}
+
+\item{record_operations}{Whether to attach an \code{exact_k_repair} metadata
+attribute containing pre/post sizes and deterministic repair operations.}
 }
 \value{
 Contiguous positive integer labels with exactly \code{K_target}
@@ -38,8 +47,8 @@ connected components, or a \code{cluster4d_exact_k_infeasible} condition.
 \description{
 Internal machinery for converting a masked-voxel partition to exactly K
 connected labels. Over-target partitions use only adjacent Ward merges;
-under-target partitions split deterministic non-articulation leaves from a
-spanning tree. Disconnected pieces of an input label are normalized before
-either operation.
+under-target partitions use deterministic feature-weighted spanning-tree
+bisections chosen by Ward SSE reduction. Disconnected pieces of an input
+label are normalized before either operation.
 }
 \keyword{internal}

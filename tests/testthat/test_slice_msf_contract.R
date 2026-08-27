@@ -122,6 +122,25 @@ test_that("Slice-MSF exact K splits, merges, and preserves 3-D connectivity", {
   expect_gt(length(unique(natural$cluster)), 3L)
   expect_equal(length(unique(merged$cluster)), 3L)
   expect_true(slice_msf_all_connected(merged$cluster_map, 26L))
+  natural_trace <- natural$metadata$exact_k_repair
+  merged_trace <- merged$metadata$exact_k_repair
+  expect_null(natural_trace$requested_k)
+  expect_identical(natural_trace$natural_k,
+                   as.integer(length(unique(natural$cluster))))
+  expect_identical(natural_trace$direction, "none")
+  expect_false(natural_trace$ran)
+  expect_identical(natural_trace$pre_sizes,
+                   as.integer(tabulate(natural$cluster)))
+  expect_identical(natural_trace$post_sizes,
+                   as.integer(tabulate(natural$cluster)))
+  expect_identical(merged_trace$natural_k, natural_trace$natural_k)
+  expect_identical(merged_trace$requested_k, 3L)
+  expect_identical(merged_trace$direction, "merge")
+  expect_true(merged_trace$ran)
+  expect_identical(merged_trace$pre_sizes,
+                   as.integer(tabulate(natural$cluster)))
+  expect_identical(merged_trace$post_sizes,
+                   as.integer(tabulate(merged$cluster)))
 
   dims <- c(6L, 6L, 1L)
   n_time <- 16L
@@ -146,6 +165,57 @@ test_that("Slice-MSF exact K splits, merges, and preserves 3-D connectivity", {
   expect_lt(length(unique(under$cluster)), 5L)
   expect_equal(length(unique(split$cluster)), 5L)
   expect_true(slice_msf_all_connected(split$cluster_map, 26L))
+  split_trace <- split$metadata$exact_k_repair
+  expect_identical(split_trace$natural_k,
+                   as.integer(length(unique(under$cluster))))
+  expect_identical(split_trace$requested_k, 5L)
+  expect_identical(split_trace$direction, "split")
+  expect_true(split_trace$ran)
+  expect_identical(split_trace$pre_sizes,
+                   as.integer(tabulate(under$cluster)))
+  expect_identical(split_trace$post_sizes,
+                   as.integer(tabulate(split$cluster)))
+})
+
+test_that("Slice-MSF exposes effective controls and structured feasibility errors", {
+  fixture <- slice_msf_contract_fixture()
+  fit <- slice_msf(
+    fixture$vec, fixture$mask, target_k_global = 7L,
+    r = 6L, compactness = 4, min_size = 2L,
+    num_runs = 3L, consensus = TRUE, use_features = TRUE,
+    stitch_z = TRUE, nbhd = 8L, gamma = 0, z_mult = 0.25,
+    seed = 29L, ensemble_fraction = 0.6
+  )
+  trace <- fit$metadata$exact_k_repair
+  expect_identical(trace$effective_gamma, 0)
+  expect_identical(trace$effective_z_mult, 0.25)
+  expect_identical(trace$seed, 29L)
+  expect_identical(trace$num_runs, 3L)
+  expect_true(trace$consensus)
+  expect_identical(trace$connectivity, 26L)
+  expect_identical(trace$min_cluster_size, 2L)
+
+  dims <- c(3L, 1L, 1L)
+  n_time <- 8L
+  mask <- neuroim2::NeuroVol(
+    array(c(1, 0, 1), dims), neuroim2::NeuroSpace(dims)
+  )
+  vec <- neuroim2::NeuroVec(
+    array(seq_len(prod(dims) * n_time), c(dims, n_time)),
+    neuroim2::NeuroSpace(c(dims, n_time))
+  )
+  condition <- tryCatch(
+    slice_msf(
+      vec, mask, target_k_global = 1L, r = 4L, min_size = 1L,
+      num_runs = 1L, consensus = FALSE, stitch_z = TRUE, nbhd = 4L
+    ),
+    cluster4d_exact_k_infeasible = identity
+  )
+  expect_s3_class(condition, "cluster4d_exact_k_infeasible")
+  expect_identical(condition$reason, "disconnected_mask_components")
+  expect_identical(condition$target_k, 1L)
+  expect_identical(condition$minimum_k, 2L)
+  expect_identical(condition$min_cluster_size, 1L)
 })
 
 test_that("Slice-MSF applies mask and result contracts to consensus", {

@@ -17,16 +17,19 @@
 #'     \item \code{"snic"}: Simple Non-Iterative Clustering
 #'     \item \code{"slic"}: SLIC superpixels extended to 4D
 #'     \item \code{"brs_slic"}: Boundary-Refined Sketch SLIC (coarse sketch + boundary exact-correlation refinement)
-#'     \item \code{"slice_msf"}: Slice-wise Minimum Spanning Forest (fast but may show z-artifacts)
+#'     \item \code{"slice_msf"}: Experimental Slice-wise Minimum Spanning
+#'       Forest, available for explicit evaluation but not recommended
 #'     \item \code{"flash3d"}: Fast Low-rank Approximate Superclusters
 #'     \item \code{"g3s"}: Gradient-Guided Geodesic Supervoxels (NEW - recommended for best quality/speed)
 #'     \item \code{"rena"}: Recursive Nearest Agglomeration (fast, balanced, topology-aware)
 #'     \item \code{"mcl"}: Sparse Markov Cluster Algorithm on a weighted voxel graph
 #'     \item \code{"acsc"}: Adaptive Correlation Superclustering (graph-based with boundary refinement)
 #'   }
-#' @param spatial_weight Balance between spatial and feature similarity (0-1).
-#'   Both endpoints are supported: 0 disables the spatial term and 1 disables
-#'   the feature term. Higher values emphasize spatial compactness. Default 0.5.
+#' @param spatial_weight Method-specific spatial control in `[0, 1]`. For methods
+#'   that define a convex feature/spatial blend, zero disables the spatial term
+#'   and one disables the feature term. Other methods use the value as a bounded
+#'   mapping to a native scale; their endpoints do not have that blend meaning.
+#'   Default 0.5.
 #'   This parameter is inactive for \code{"rena"} and \code{"rena_plus"};
 #'   supplying it explicitly for either method is an error.
 #'   Maps to method-specific parameters:
@@ -36,7 +39,9 @@
 #'     \item slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
 #'     \item corr_slic/brs_slic: direct convex blend between correlation and
 #'       scaled spatial distance
-#'     \item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
+#'     \item slice_msf: \code{compactness = spatial_weight * 10}, followed by
+#'       FH component scale \code{2 / (compactness + 1)}. This changes the
+#'       graph-segmentation scale; it is not a convex spatial/feature blend.
 #'     \item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
 #'     \item mcl: direct blend between feature and spatial edge similarities
 #'   }
@@ -79,7 +84,7 @@
 #'   supervoxels \tab Slow \tab Excellent \tab High \tab Yes \tab Small-medium data, smooth parcels \cr
 #'   snic \tab Fast \tab Good \tab Low \tab No \tab Large data, non-iterative \cr
 #'   slic \tab Fast \tab Good \tab Medium \tab Yes \tab Balanced speed/quality \cr
-#'   slice_msf \tab Very Fast \tab Moderate \tab Low \tab No \tab High-res data, accept z-artifacts \cr
+#'   slice_msf \tab Experimental \tab 3-D when stitched \tab Low \tab No \tab Explicit evaluation only \cr
 #'   flash3d \tab Fast \tab Good \tab Medium \tab No \tab Large data, hash-based \cr
 #'   rena \tab Fast \tab Excellent \tab Low \tab No \tab Balanced clusters, topology-aware \cr
 #'   mcl \tab Fast \tab Good \tab Medium \tab No \tab Sparse graph clustering with tunable granularity \cr
@@ -103,7 +108,7 @@
 #' 
 #' \strong{For high-resolution data (< 2mm):}
 #' \itemize{
-#'   \item method: "slice_msf" or "flash3d" for speed
+#'   \item method: "flash3d" for speed; Slice-MSF remains experimental
 #'   \item n_clusters: Scale with voxel count (roughly n_voxels/200)
 #' }
 #'
@@ -135,7 +140,7 @@
 #' # Emphasize spatial compactness
 #' result <- cluster4d(vec, mask, n_clusters = 100, spatial_weight = 0.8)
 #' 
-#' # Use specific method with custom parameters
+#' # Explicitly evaluate the experimental Slice-MSF method
 #' result <- cluster4d(vec, mask, n_clusters = 100, 
 #'                    method = "slice_msf",
 #'                    num_runs = 3,  # slice_msf-specific parameter
@@ -1247,6 +1252,8 @@ cluster4d_brsslic <- function(vec, mask, n_clusters = 100,
 #' Cluster4d using slice_msf method
 #'
 #' Wrapper for slice_msf algorithm with standardized interface.
+#' Slice-MSF is experimental and is deliberately excluded from
+#' [suggest_cluster4d_params()] recommendations pending release recertification.
 #'
 #' @inheritParams cluster4d
 #' @param num_runs Number of independent runs
@@ -1254,13 +1261,22 @@ cluster4d_brsslic <- function(vec, mask, n_clusters = 100,
 #' @param stitch_z Whether graph edges may cross axial slices.
 #' @param r Number of non-DC DCT modes.
 #' @param gamma Reserved compatibility parameter; must be zero.
-#' @param z_mult Optional axial sketch-smoothing fraction in `[0, 1]`.
+#' @param z_mult Axial DCT-sketch smoothing fraction in `[0, 1]`; zero leaves
+#'   sketches unsmoothed.
 #' @param min_size Minimum component size after connectivity enforcement. Default NULL (auto).
 #' @param seed Integer seed for multi-run DCT subspaces.
 #' @param ensemble_fraction Candidate-pool fraction for multi-run DCT subspaces.
 #' @param ... Additional parameters passed to slice_msf
 #'
-#' @return A cluster4d_result object
+#' @details Unlike direct [slice_msf()], this wrapper always requests exactly
+#'   `n_clusters`, defaults to one non-consensus run, and chooses a conservative
+#'   automatic `min_size`. `spatial_weight` maps to `compactness =
+#'   spatial_weight * 10` and then to FH scale `2 / (compactness + 1)`; it is not
+#'   a convex spatial/feature blend. Positive `gamma` values fail with class
+#'   `slice_msf_unsupported_gamma`.
+#'
+#' @return A cluster4d_result object with natural/exact-K and effective-control
+#'   provenance in `metadata$exact_k_repair`; see [slice_msf()].
 #' @export
 cluster4d_slice_msf <- function(vec, mask, n_clusters = 100,
                                spatial_weight = 0.2,

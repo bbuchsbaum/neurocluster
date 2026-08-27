@@ -54,6 +54,11 @@ for compatibility, but new code should use the unified interface or its typed
 wrappers. Equivalence should never be assumed unless mapped parameters are
 identical.
 
+`slice_msf()` and `cluster4d_slice_msf()` are additionally experimental. The
+typed wrapper standardizes the result and requests exact K, but neither entry
+point is currently recommended automatically or for production use. See the
+[Slice-MSF evaluation contract](slice-msf.html) before evaluating either one.
+
 ## What does the unified interface map?
 
 | Unified method | Legacy entry point | Preferred typed wrapper | Important mapping |
@@ -61,7 +66,7 @@ identical.
 | `"supervoxels"` | `supervoxels()` | `cluster4d_supervoxels()` | `alpha = 1 - spatial_weight` |
 | `"snic"` | `snic()` | `cluster4d_snic()` | `compactness = 10 * spatial_weight` |
 | `"slic"` | `slic4d_supervoxels()` | `cluster4d_slic()` | `compactness = 20 * spatial_weight` |
-| `"slice_msf"` | `slice_msf()` | `cluster4d_slice_msf()` | target K, connectivity, and weight are translated |
+| `"slice_msf"` (experimental) | `slice_msf()` | `cluster4d_slice_msf()` | natural versus exact K, connectivity, and FH scale are translated; positive `gamma` is rejected |
 | `"flash3d"` | `supervoxels_flash3d()` | `cluster4d_flash3d()` | `lambda_s = spatial_weight`; temporal weight is complementary unless supplied |
 | `"g3s"` | none (`g3s()` does not exist) | `cluster4d_g3s()` | `alpha = 1 - spatial_weight` |
 

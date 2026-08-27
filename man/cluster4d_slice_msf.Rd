@@ -16,8 +16,8 @@ cluster4d_slice_msf(
   consensus = FALSE,
   stitch_z = TRUE,
   r = 12,
-  gamma = 1,
-  z_mult = 0.5,
+  gamma = 0,
+  z_mult = 0,
   min_size = NULL,
   seed = 1L,
   ensemble_fraction = 0.8,
@@ -35,9 +35,11 @@ strictly greater than zero; zero and negative values are excluded.}
 one through the number of included mask voxels. Note that some methods
 may produce slightly different numbers of clusters due to algorithmic constraints.}
 
-\item{spatial_weight}{Balance between spatial and feature similarity (0-1).
-Both endpoints are supported: 0 disables the spatial term and 1 disables
-the feature term. Higher values emphasize spatial compactness. Default 0.5.
+\item{spatial_weight}{Method-specific spatial control in \verb{[0, 1]}. For methods
+that define a convex feature/spatial blend, zero disables the spatial term
+and one disables the feature term. Other methods use the value as a bounded
+mapping to a native scale; their endpoints do not have that blend meaning.
+Default 0.5.
 This parameter is inactive for \code{"rena"} and \code{"rena_plus"};
 supplying it explicitly for either method is an error.
 Maps to method-specific parameters:
@@ -47,7 +49,9 @@ Maps to method-specific parameters:
 \item slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
 \item corr_slic/brs_slic: direct convex blend between correlation and
 scaled spatial distance
-\item slice_msf: \code{compactness = spatial_weight * 10} (typical range 1-10)
+\item slice_msf: \code{compactness = spatial_weight * 10}, followed by
+FH component scale \code{2 / (compactness + 1)}. This changes the
+graph-segmentation scale; it is not a convex spatial/feature blend.
 \item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
 \item mcl: direct blend between feature and spatial edge similarities
 }}
@@ -72,9 +76,10 @@ methods.}
 
 \item{r}{Number of non-DC DCT modes.}
 
-\item{gamma}{Reliability exponent used in feature edge distances.}
+\item{gamma}{Reserved compatibility parameter; must be zero.}
 
-\item{z_mult}{Optional axial sketch-smoothing fraction in \verb{[0, 1]}.}
+\item{z_mult}{Axial DCT-sketch smoothing fraction in \verb{[0, 1]}; zero leaves
+sketches unsmoothed.}
 
 \item{min_size}{Minimum component size after connectivity enforcement. Default NULL (auto).}
 
@@ -85,8 +90,18 @@ methods.}
 \item{...}{Additional parameters passed to slice_msf}
 }
 \value{
-A cluster4d_result object
+A cluster4d_result object with natural/exact-K and effective-control
+provenance in \code{metadata$exact_k_repair}; see \code{\link[=slice_msf]{slice_msf()}}.
 }
 \description{
 Wrapper for slice_msf algorithm with standardized interface.
+Slice-MSF is experimental and is deliberately excluded from
+\code{\link[=suggest_cluster4d_params]{suggest_cluster4d_params()}} recommendations pending release recertification.
+}
+\details{
+Unlike direct \code{\link[=slice_msf]{slice_msf()}}, this wrapper always requests exactly
+\code{n_clusters}, defaults to one non-consensus run, and chooses a conservative
+automatic \code{min_size}. \code{spatial_weight} maps to \code{compactness = spatial_weight * 10} and then to FH scale \code{2 / (compactness + 1)}; it is not
+a convex spatial/feature blend. Positive \code{gamma} values fail with class
+\code{slice_msf_unsupported_gamma}.
 }

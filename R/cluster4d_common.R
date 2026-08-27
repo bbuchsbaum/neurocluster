@@ -666,12 +666,16 @@ map_cluster4d_params <- function(method, ...) {
 #' Suggest cluster4d parameters based on data characteristics
 #'
 #' Provides parameter recommendations based on data size and user priorities.
+#' Experimental methods are reported separately and are never returned as the
+#' recommended method.
 #'
 #' @param n_voxels Number of voxels in mask
 #' @param n_timepoints Number of time points
 #' @param priority What to optimize for: "speed", "quality", "memory", or "balanced"
 #'
-#' @return A list with suggested parameters for each method
+#' @return A list with suggested parameters for supported methods plus
+#'   `experimental_methods` and an `experimental_note`. Experimental methods
+#'   are not recommended or assigned suggested parameter sets.
 #' 
 #' @examples
 #' # Get parameter suggestions for a typical fMRI dataset
@@ -697,19 +701,20 @@ suggest_cluster4d_params <- function(n_voxels, n_timepoints,
   priority <- match.arg(priority)
   
   # Base recommendations
-  suggestions <- list()
+  suggestions <- list(
+    experimental_methods = "slice_msf",
+    experimental_note = paste(
+      "Slice-MSF is available only for explicit evaluation while its repaired",
+      "similarity and exact-K paths await release-level recertification."
+    )
+  )
   
   # Estimate reasonable cluster count (roughly 1 cluster per 100-500 voxels)
   base_k <- max(10, min(1000, n_voxels / 250))
   
   if (priority == "speed") {
-    suggestions$recommended_method <- if (n_voxels > 50000) "slice_msf" else "flash3d"
+    suggestions$recommended_method <- "flash3d"
     suggestions$n_clusters <- round(base_k * 0.7)  # Fewer clusters for speed
-    suggestions$slice_msf <- list(
-      num_runs = 1,
-      r = 8,
-      min_size = 120
-    )
     suggestions$flash3d <- list(
       rounds = 1,
       bits = 64,
@@ -731,20 +736,11 @@ suggest_cluster4d_params <- function(n_voxels, n_timepoints,
       preserve_k = TRUE,
       seed_relocate = "correlation"
     )
-    suggestions$slice_msf <- list(
-      num_runs = 5,
-      consensus = TRUE,
-      use_features = TRUE
-    )
   } else if (priority == "memory") {
     suggestions$recommended_method <- "snic"  # Non-iterative, low memory
     suggestions$n_clusters <- round(base_k * 0.8)
     suggestions$snic <- list(
       compactness = 5
-    )
-    suggestions$slice_msf <- list(
-      num_runs = 1,
-      r = 6  # Fewer DCT components
     )
   } else {  # balanced
     suggestions$recommended_method <- if (n_voxels > 30000) "flash3d" else "slic"

@@ -144,7 +144,7 @@ test_that("suggest_cluster4d_params provides reasonable suggestions", {
   
   # Large data with speed priority
   params_fast <- suggest_cluster4d_params(100000, 200, priority = "speed")
-  expect_true(params_fast$recommended_method %in% c("slice_msf", "flash3d"))
+  expect_equal(params_fast$recommended_method, "flash3d")
   
   # Quality priority
   params_quality <- suggest_cluster4d_params(5000, 150, priority = "quality")
@@ -153,6 +153,17 @@ test_that("suggest_cluster4d_params provides reasonable suggestions", {
   # Memory priority
   params_memory <- suggest_cluster4d_params(50000, 300, priority = "memory")
   expect_equal(params_memory$recommended_method, "snic")
+
+  suggestions <- lapply(
+    c("balanced", "speed", "quality", "memory"),
+    function(priority) suggest_cluster4d_params(50000, 200, priority)
+  )
+  for (suggestion in suggestions) {
+    expect_false(identical(suggestion$recommended_method, "slice_msf"))
+    expect_false("slice_msf" %in% names(suggestion))
+    expect_identical(suggestion$experimental_methods, "slice_msf")
+    expect_match(suggestion$experimental_note, "explicit evaluation")
+  }
 })
 
 test_that("cluster4d S3 methods work", {

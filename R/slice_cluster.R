@@ -63,6 +63,16 @@
 #' dissimilarity on a masked 3-D neighborhood graph, and applies
 #' Felzenszwalb-Huttenlocher segmentation. Multi-run fits use seeded DCT
 #' subspace and mode-weight resampling followed by uniformly weighted consensus.
+#' Nonzero sketches are normalized to unit length. A zero-information sketch
+#' remains zero and therefore has edge dissimilarity one to every neighbor.
+#'
+#' @section Experimental status:
+#' `slice_msf()` is available for explicit evaluation but is not a recommended
+#' production method. A previous reliability-weighting path collapsed distinct
+#' feature vectors to zero-distance edges, and the former exact-K repair could
+#' create singleton-dominated partitions. Those paths are now rejected or
+#' replaced and covered by regression tests, but release-level recertification
+#' is still pending. See `vignette("slice-msf")` for the evaluation contract.
 #'
 #' @param vec A `NeuroVec` or `SparseNeuroVec` containing the time series.
 #' @param mask A `NeuroVol`; exactly finite values greater than zero are included.
@@ -95,8 +105,10 @@
 #'
 #' @return A `slice_msf_cluster_result` and `cluster4d_result`. `cluster` is in
 #'   mask order, `centers` is K by T, and `coord_centers` is K by 3. Multi-run
-#'   results also contain native `runs` and complete ensemble provenance in
-#'   `metadata`.
+#'   results also contain native `runs`. `metadata$exact_k_repair` records the
+#'   natural and requested K, pre/post sizes, whether and how repair ran,
+#'   connectivity, minimum size, and effective gamma, z smoothing, seed, run
+#'   count, and consensus controls for both natural and exact-K calls.
 #'
 #' @references Felzenszwalb, P. F., & Huttenlocher, D. P. (2004). Efficient
 #'   graph-based image segmentation. IJCV, 59(2), 167-181.
@@ -291,7 +303,10 @@ slice_msf <- function(vec, mask,
   cluster_ids <- .exact_k_connected_labels(
     cluster_ids, graph_info$graph, graph_info$edges
   )
-  exact_k_repair <- NULL
+  natural_cluster_ids <- as.integer(cluster_ids)
+  natural_k <- as.integer(length(unique(natural_cluster_ids)))
+  natural_sizes <- as.integer(tabulate(natural_cluster_ids, nbins = natural_k))
+  exact_k_engine <- NULL
   if (target_k_global > 0L) {
     cluster_ids <- force_exact_k(
       cluster_ids, original$features, target_k_global,
@@ -299,9 +314,37 @@ slice_msf <- function(vec, mask,
       graph_info = graph_info, min_cluster_size = min_size,
       record_operations = TRUE
     )
-    exact_k_repair <- attr(cluster_ids, "exact_k_repair", exact = TRUE)
+    exact_k_engine <- attr(cluster_ids, "exact_k_repair", exact = TRUE)
     cluster_ids <- as.integer(cluster_ids)
   }
+  post_k <- as.integer(length(unique(cluster_ids)))
+  post_sizes <- as.integer(tabulate(cluster_ids, nbins = post_k))
+  exact_k_repair <- if (is.null(exact_k_engine)) {
+    list(
+      requested_k = NULL,
+      min_cluster_size = as.integer(min_size),
+      connectivity = as.integer(if (nbhd == 4L) 6L else 26L),
+      input_k = natural_k,
+      input_sizes = natural_sizes,
+      normalized_k = natural_k,
+      normalized_sizes = natural_sizes,
+      final_k = natural_k,
+      final_sizes = natural_sizes,
+      direction = "none",
+      operations = list()
+    )
+  } else {
+    exact_k_engine
+  }
+  exact_k_repair$natural_k <- natural_k
+  exact_k_repair$ran <- length(exact_k_repair$operations) > 0L
+  exact_k_repair$pre_sizes <- natural_sizes
+  exact_k_repair$post_sizes <- post_sizes
+  exact_k_repair$effective_gamma <- gamma
+  exact_k_repair$effective_z_mult <- z_mult
+  exact_k_repair$seed <- as.integer(seed)
+  exact_k_repair$num_runs <- as.integer(num_runs)
+  exact_k_repair$consensus <- consensus
   labels[] <- 0L
   labels[mask.idx] <- cluster_ids
 

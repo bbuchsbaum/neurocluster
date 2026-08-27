@@ -214,14 +214,10 @@ slice_msf_quality_diagnostic <- function(fit, truth, threshold, fixture,
   observed <- clustering_accuracy(fit$cluster, truth)$ari
   sizes <- sort(tabulate(fit$cluster))
   repair <- fit$metadata$exact_k_repair
-  natural_k <- if (is.null(repair)) {
+  natural_k <- if (is.null(repair$natural_k)) {
     length(unique(fit$cluster))
-  } else {
-    repair$normalized_k
-  }
-  requested_k <- if (is.null(repair)) {
-    NA_integer_
-  } else {
+  } else repair$natural_k
+  requested_k <- if (is.null(repair$requested_k)) NA_integer_ else {
     repair$requested_k
   }
   min_size <- fit$parameters$min_size

@@ -18,10 +18,14 @@ suggest_cluster4d_params(
 \item{priority}{What to optimize for: "speed", "quality", "memory", or "balanced"}
 }
 \value{
-A list with suggested parameters for each method
+A list with suggested parameters for supported methods plus
+\code{experimental_methods} and an \code{experimental_note}. Experimental methods
+are not recommended or assigned suggested parameter sets.
 }
 \description{
 Provides parameter recommendations based on data size and user priorities.
+Experimental methods are reported separately and are never returned as the
+recommended method.
 }
 \examples{
 # Get parameter suggestions for a typical fMRI dataset

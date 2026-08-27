@@ -29,6 +29,8 @@ navbar:
         href: articles/visualize-export.html
       - text: Consensus & Stitching
         href: articles/consensus-stitch.html
+      - text: Evaluate Slice-MSF (Experimental)
+        href: articles/slice-msf.html
       - text: Validate & Compare
         href: articles/validate-compare.html
       - text: Legacy APIs
@@ -59,6 +61,7 @@ articles:
   - speed-parallel
   - visualize-export
   - consensus-stitch
+  - slice-msf
   - validate-compare
   - legacy-apis
 - title: Explanations

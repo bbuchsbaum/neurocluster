@@ -12,7 +12,8 @@ slice_msf_consensus(
   min_size_fuse = 80,
   use_features = FALSE,
   lambda = 0.7,
-  stitch_z = TRUE
+  stitch_z = TRUE,
+  gamma = 0
 )
 }
 \arguments{
@@ -31,6 +32,8 @@ slice_msf_consensus(
 \item{lambda}{Mixture in \verb{[0, 1]}; active when \code{use_features = TRUE}.}
 
 \item{stitch_z}{Whether consensus edges may cross axial slices.}
+
+\item{gamma}{Reserved compatibility parameter. It must be zero.}
 }
 \value{
 A list with full-volume consensus \code{labels} and complete \code{params}.

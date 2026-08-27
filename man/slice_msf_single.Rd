@@ -12,7 +12,7 @@ slice_msf_single(
   min_size = 80,
   nbhd = 8,
   stitch_z = TRUE,
-  gamma = 1.5,
+  gamma = 0,
   z_mult = 0,
   dct_frequencies = NULL,
   dct_weights = NULL
@@ -35,8 +35,9 @@ slice_msf_single(
 \item{stitch_z}{Whether graph edges may cross axial slices. When \code{FALSE},
 slices are independent and a global exact-K target is unavailable.}
 
-\item{gamma}{Non-negative exponent applied to positive split-half reliability;
-it directly scales feature edge distances.}
+\item{gamma}{Reserved compatibility parameter. It must be zero; positive
+reliability weighting is rejected because it can collapse non-identical
+feature vectors to zero-distance edges.}
 
 \item{z_mult}{DCT-sketch smoothing fraction in \verb{[0, 1]} across axial slices.}
 
@@ -45,9 +46,11 @@ it directly scales feature edge distances.}
 \item{dct_weights}{Optional positive weights paired with \code{dct_frequencies}.}
 }
 \value{
-A list with full-volume \code{labels}, \code{weights}, \code{sketch}, and \code{params}.
+A list with full-volume \code{labels}, \code{temporal_smoothness}, \code{sketch}, and
+\code{params}.
 }
 \description{
-Low-level diagnostic interface returning native full-volume labels, split-half
-reliability weights, and an \code{r_used} by voxel DCT sketch.
+Low-level diagnostic interface returning native full-volume labels, a signed
+adjacent-pair temporal-smoothness diagnostic, and an \code{r_used} by voxel DCT
+sketch. Temporal smoothness does not affect segmentation.
 }

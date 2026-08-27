@@ -46,6 +46,18 @@ inline int enforce_connectivity(IntegerVector &labels, const IntegerVector &mask
     // in-plane diagonals
     offs.push_back({1,1,0}); offs.push_back({-1,-1,0});
     offs.push_back({1,-1,0}); offs.push_back({-1,1,0});
+    if (allow_vertical) {
+      // Match build_3d_edges(): nbhd=8 with stitching is the full 26-neighbor
+      // graph, including cross-slice edge and corner diagonals.
+      for (int dz = -1; dz <= 1; dz += 2) {
+        for (int dy = -1; dy <= 1; ++dy) {
+          for (int dx = -1; dx <= 1; ++dx) {
+            if (dx == 0 && dy == 0) continue; // axial edge already present
+            offs.push_back({dx, dy, dz});
+          }
+        }
+      }
+    }
   }
 
   std::vector<int> queue;
@@ -304,6 +316,31 @@ struct ZSmoothWorker : public Worker {
           }
         }
       }
+    }
+  }
+};
+
+// Axial smoothing mixes neighboring unit sketches, so restore unit length
+// before any dot product is interpreted as cosine similarity.
+struct NormalizeSketchWorker : public Worker {
+  std::vector<double> &U_flat; // N x r
+  const IntegerVector mask;
+  const int r;
+
+  NormalizeSketchWorker(std::vector<double> &U_flat_,
+                        const IntegerVector &mask_, int r_)
+    : U_flat(U_flat_), mask(mask_), r(r_) {}
+
+  void operator()(std::size_t begin, std::size_t end) {
+    for (std::size_t g = begin; g < end; ++g) {
+      if (!mask[g]) continue;
+      double norm2 = 0.0;
+      for (int k = 0; k < r; ++k) {
+        double value = U_flat[g * r + k];
+        norm2 += value * value;
+      }
+      double norm = std::sqrt(std::max(1e-12, norm2));
+      for (int k = 0; k < r; ++k) U_flat[g * r + k] /= norm;
     }
   }
 };
@@ -876,6 +913,8 @@ Rcpp::List slice_msf_runwise(
     double f = std::max(0.0, std::min(1.0, z_mult));
     ZSmoothWorker zsw(U_flat, mask, nx, ny, nz, r_work, f);
     parallelFor(0, r_work, zsw);
+    NormalizeSketchWorker nsw(U_flat, mask, r_work);
+    parallelFor(0, (std::size_t)N, nsw);
   }
 
   // Temporal smoothness is deliberately not used for masking or edge costs.

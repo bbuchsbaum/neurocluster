@@ -118,7 +118,7 @@ not benchmark rankings.
 | `slic` | Local Euclidean SLIC assignment and refinement | Local search and optional connected exact-K repair fit the data model |
 | `corr_slic` | Correlation-aware SLIC using a compact embedding, with optional exact refinement | Correlation is the relevant temporal similarity and the series is long |
 | `brs_slic` | Sketched coarse SLIC followed by exact-correlation boundary refinement | You want to spend exact-correlation work mainly near parcel boundaries |
-| `slice_msf` | Slice-wise minimum spanning forests with optional consensus and z stitching | You need explicit control over within-slice construction and cross-slice stitching |
+| `slice_msf` | Experimental DCT/cosine minimum-spanning forest with optional consensus and z stitching | Explicit evaluation only; it is not currently recommended for production use |
 | `flash3d` | Low-DCT temporal hashing and 3D jump-flood propagation | A compressed temporal signature is appropriate and hash length is a useful control |
 | `g3s` | Low-gradient seeds and multi-source geodesic propagation on the masked grid | Grid connectivity and a feature/spatial path objective should drive the parcels |
 | `rena` | Recursive 1-nearest-neighbor graph agglomeration | You want deterministic, topology-constrained aggregation and exact K when feasible |
@@ -126,6 +126,14 @@ not benchmark rankings.
 | `mcl` | Sparse Markov flow expansion and inflation | Graph-flow communities are the model; choose natural-K search or request exact-K repair |
 | `acsc` | Correlation block graph, Louvain communities, and optional boundary refinement | You need Pearson, Spearman, or robust correlation with graph-community structure |
 | `commute` | Physical k-nearest-neighbor graph, commute-time embedding, and k-means | A spectral graph embedding is appropriate for a data size that permits dense eigendecomposition |
+
+**Slice-MSF status.** Earlier reliability weighting could collapse distinct
+features to zero-distance edges, and its former exact-K repair could peel off
+singletons. Those paths have been rejected or replaced, but release-level
+recertification remains pending. The parameter suggester will not recommend the
+method. If you are evaluating it explicitly, begin with the
+[experimental contract](https://bbuchsbaum.github.io/neurocluster/articles/slice-msf.html)
+and retain its natural/exact-K provenance.
 
 Start with the [method comparison](https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.html), then use
 [parameter guidance](https://bbuchsbaum.github.io/neurocluster/articles/choose-parameters.html) to translate a scientific
@@ -164,6 +172,8 @@ Keep these boundaries visible:
   export a first result.
 - [Spatially constrained clustering](https://bbuchsbaum.github.io/neurocluster/articles/spatially-constrained-clustering.html)
   — understand the feature-versus-space objective.
+- [Evaluate Slice-MSF](https://bbuchsbaum.github.io/neurocluster/articles/slice-msf.html)
+  — inspect the experimental similarity, exact-K, feasibility, and metadata contract.
 - [Compare methods](https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.html) and
   [choose parameters](https://bbuchsbaum.github.io/neurocluster/articles/choose-parameters.html) — make a method choice
   from evidence rather than labels such as “fast” or “best.”

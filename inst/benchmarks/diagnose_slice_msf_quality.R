@@ -15,6 +15,13 @@ fixture <- slice_msf_make_spherical_fixture()
 truth <- fixture$truth
 mask_index <- which(as.vector(as.array(fixture$mask)) > 0)
 
+preview_sizes <- function(sizes, limit = 16L) {
+  shown <- paste(utils::head(sizes, limit), collapse = ",")
+  if (length(sizes) > limit) {
+    paste0(shown, ",... (+", length(sizes) - limit, " clusters)")
+  } else shown
+}
+
 partition_row <- function(name, labels) {
   sizes <- sort(tabulate(as.integer(factor(labels))), decreasing = TRUE)
   data.frame(
@@ -24,7 +31,7 @@ partition_row <- function(name, labels) {
     largest = sizes[[1L]],
     smallest = sizes[[length(sizes)]],
     singleton_count = sum(sizes == 1L),
-    sizes = paste(sizes, collapse = ","),
+    size_preview = preview_sizes(sizes),
     stringsAsFactors = FALSE
   )
 }
@@ -53,14 +60,29 @@ partitions <- do.call(rbind, list(
   partition_row("public_exact_k", public_exact$cluster),
   partition_row("explicit_gamma_0_z_0_exact_k", explicit_safe_exact$cluster)
 ))
+partition_size_vectors <- list(
+  public_natural = sort(tabulate(natural$cluster), decreasing = TRUE),
+  public_exact_k = sort(tabulate(public_exact$cluster), decreasing = TRUE),
+  explicit_gamma_0_z_0_exact_k = sort(
+    tabulate(explicit_safe_exact$cluster), decreasing = TRUE
+  )
+)
 
+repair_trace <- public_exact$metadata$exact_k_repair
 repair <- data.frame(
-  natural_k = length(unique(natural$cluster)),
-  requested_k = 8L,
-  repair_direction = if (length(unique(natural$cluster)) > 8L) "merge" else "split",
-  repair_ran = TRUE,
-  pre_sizes = paste(sort(tabulate(natural$cluster), decreasing = TRUE), collapse = ","),
-  post_sizes = paste(sort(tabulate(public_exact$cluster), decreasing = TRUE), collapse = ","),
+  natural_k = repair_trace$natural_k,
+  requested_k = repair_trace$requested_k,
+  repair_direction = repair_trace$direction,
+  repair_ran = repair_trace$ran,
+  pre_size_preview = preview_sizes(sort(repair_trace$pre_sizes, decreasing = TRUE)),
+  post_size_preview = preview_sizes(sort(repair_trace$post_sizes, decreasing = TRUE)),
+  min_cluster_size = repair_trace$min_cluster_size,
+  connectivity = repair_trace$connectivity,
+  effective_gamma = repair_trace$effective_gamma,
+  effective_z_mult = repair_trace$effective_z_mult,
+  seed = repair_trace$seed,
+  num_runs = repair_trace$num_runs,
+  consensus = repair_trace$consensus,
   public_default_matches_explicit_safe = identical(
     as.integer(public_exact$cluster), as.integer(explicit_safe_exact$cluster)
   ),
@@ -160,6 +182,8 @@ dir.create(artifact_dir, recursive = TRUE, showWarnings = FALSE)
 writeLines(report, file.path(artifact_dir, "diagnosis.txt"))
 utils::write.csv(partitions, file.path(artifact_dir, "partitions.csv"), row.names = FALSE)
 utils::write.csv(repair, file.path(artifact_dir, "repair.csv"), row.names = FALSE)
+saveRDS(partition_size_vectors, file.path(artifact_dir, "partition-sizes.rds"))
+saveRDS(repair_trace, file.path(artifact_dir, "exact-k-repair.rds"))
 utils::write.csv(gamma_contract, file.path(artifact_dir, "gamma-contract.csv"), row.names = FALSE)
 utils::write.csv(
   temporal_smoothness, file.path(artifact_dir, "temporal-smoothness.csv"),
@@ -171,7 +195,9 @@ saveRDS(
     git_sha = system2("git", c("rev-parse", "HEAD"), stdout = TRUE),
     dirty = length(system2("git", c("status", "--porcelain"), stdout = TRUE)) > 0L,
     partitions = partitions,
+    partition_size_vectors = partition_size_vectors,
     repair = repair,
+    exact_k_repair = repair_trace,
     gamma_contract = gamma_contract,
     temporal_smoothness = temporal_smoothness,
     edge_summary = edge_summary,

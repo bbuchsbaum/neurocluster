@@ -139,8 +139,11 @@ accuracy.
   correlation refinement at parcel boundaries.
 - **Supervoxels** iteratively combines feature and spatial heat-kernel
   similarities. It exposes bandwidths and convergence controls.
-- **Slice-MSF** builds DCT sketches and segments a masked spatial graph; it can
-  stitch across axial slices and combine seeded ensemble runs.
+- **Slice-MSF (experimental)** builds normalized DCT sketches and segments a
+  masked spatial graph with cosine dissimilarity; it can stitch across axial
+  slices and combine seeded ensemble runs. It is excluded from automatic
+  recommendations pending release recertification; see the [evaluation
+  contract](slice-msf.html).
 - **FLASH-3D** uses compact temporal signatures and iterative refinement. Hash
   length and DCT dimension are approximation controls, not generic quality
   scores.

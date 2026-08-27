@@ -90,9 +90,11 @@ stopifnot(
 
 The list above is read from the installed function, so it cannot silently
 drift from the current API. Method names select implementations; they are not
-a performance ranking. See [Compare clustering methods](compare-methods.html)
-for a scoped comparison and [Method deep dives](method-deep-dives.html) for
-algorithmic distinctions.
+a performance ranking or endorsement. In particular, `slice_msf` remains
+experimental, is excluded from automatic recommendations, and should only be
+used for explicit evaluation under its [documented contract](slice-msf.html).
+See [Compare clustering methods](compare-methods.html) for a scoped comparison
+and [Method deep dives](method-deep-dives.html) for algorithmic distinctions.
 
 ## When should you use a direct function?
 

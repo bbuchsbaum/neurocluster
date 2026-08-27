@@ -160,6 +160,82 @@ test_that("exact-K repair preserves spherical and gradient parcel structure", {
   }
 })
 
+test_that("axially smoothed sketches are renormalized before cosine distance", {
+  fixture <- slice_msf_make_block_fixture()
+  fraction <- 0.25
+  raw <- slice_msf_single(
+    fixture$vec, fixture$mask,
+    r = 8L, k = 0.4, min_size = 2L,
+    nbhd = 8L, stitch_z = TRUE, gamma = 0, z_mult = 0
+  )
+  observed <- slice_msf_single(
+    fixture$vec, fixture$mask,
+    r = 8L, k = 0.4, min_size = 2L,
+    nbhd = 8L, stitch_z = TRUE, gamma = 0, z_mult = fraction
+  )
+
+  dims <- dim(fixture$mask)
+  included <- as.vector(as.array(fixture$mask)) > 0
+  expected <- raw$sketch
+  for (mode in seq_len(nrow(expected))) {
+    for (y in seq_len(dims[[2L]])) {
+      for (x in seq_len(dims[[1L]])) {
+        global <- x + dims[[1L]] * (y - 1L) +
+          dims[[1L]] * dims[[2L]] * (seq_len(dims[[3L]]) - 1L)
+        column <- ifelse(included[global], expected[mode, global], 0)
+        for (z in seq_len(dims[[3L]])) {
+          if (!included[[global[[z]]]]) next
+          left <- if (z > 1L) column[[z - 1L]] else column[[z]]
+          right <- if (z < dims[[3L]]) column[[z + 1L]] else column[[z]]
+          expected[mode, global[[z]]] <-
+            (1 - fraction) * column[[z]] + 0.5 * fraction * (left + right)
+        }
+      }
+    }
+  }
+  expected_norms <- sqrt(colSums(expected[, included, drop = FALSE]^2))
+  expected[, included] <- sweep(
+    expected[, included, drop = FALSE], 2L,
+    pmax(1e-6, expected_norms), `/`
+  )
+  observed_norms <- sqrt(colSums(observed$sketch[, included, drop = FALSE]^2))
+
+  expect_equal(observed$sketch, expected, tolerance = 1e-12)
+  expect_equal(observed_norms, rep(1, sum(included)), tolerance = 1e-12)
+  expect_identical(observed$params$feature_distance, "1-cosine")
+})
+
+test_that("stitched nbhd 8 uses the same 26-neighbor topology throughout", {
+  dims <- c(2L, 2L, 2L)
+  n_time <- 12L
+  mask_values <- array(0, dims)
+  mask_values[1L, 1L, 1L] <- 1
+  mask_values[2L, 2L, 2L] <- 1
+  signal <- sin(seq(0, 2 * pi, length.out = n_time))
+  values <- array(0, c(dims, n_time))
+  values[1L, 1L, 1L, ] <- signal
+  values[2L, 2L, 2L, ] <- signal
+  mask <- neuroim2::NeuroVol(mask_values, neuroim2::NeuroSpace(dims))
+  vec <- neuroim2::NeuroVec(values, neuroim2::NeuroSpace(c(dims, n_time)))
+
+  diagonal <- slice_msf(
+    vec, mask, target_k_global = -1L,
+    r = 4L, compactness = 0, min_size = 1L,
+    num_runs = 1L, consensus = FALSE, stitch_z = TRUE, nbhd = 8L
+  )
+  axial <- slice_msf(
+    vec, mask, target_k_global = -1L,
+    r = 4L, compactness = 0, min_size = 1L,
+    num_runs = 1L, consensus = FALSE, stitch_z = TRUE, nbhd = 4L
+  )
+
+  expect_identical(diagonal$actual_k, 1L)
+  expect_identical(diagonal$metadata$native$n_components_fh, 1L)
+  expect_identical(diagonal$metadata$native$n_components_final, 1L)
+  expect_identical(diagonal$metadata$exact_k_repair$natural_k, 1L)
+  expect_identical(axial$actual_k, 2L)
+})
+
 test_that("adjacent-correlation diagnostics cannot define feature distance", {
   alternating <- rep(c(-1, 1), 8L)
   shifted <- c(alternating[-1L], alternating[[1L]])
