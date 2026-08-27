@@ -25,7 +25,7 @@ LinkingTo: Rcpp, RcppParallel, RcppArmadillo
 RoxygenNote: 7.3.3
 Roxygen: list(markdown = TRUE)
 Suggests: testthat, knitr, rmarkdown, pkgdown, ggplot2, rsvd, neurosurf,
-    irlba, robustbase, mclust, albersdown
+    irlba, robustbase, mclust, albersdown, processx
 VignetteBuilder: knitr
 Remotes: bbuchsbaum/neurosurf
 Config/Needs/website: albersdown

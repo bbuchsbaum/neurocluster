@@ -132,7 +132,7 @@ features to zero-distance edges, and its former exact-K repair could peel off
 singletons. Those paths have been rejected or replaced, but release-level
 recertification remains pending. The parameter suggester will not recommend the
 method. If you are evaluating it explicitly, begin with the
-[experimental contract](https://bbuchsbaum.github.io/neurocluster/articles/slice-msf.html)
+[experimental contract](vignettes/slice-msf.Rmd)
 and retain its natural/exact-K provenance.
 
 Start with the [method comparison](https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.html), then use
@@ -172,7 +172,7 @@ Keep these boundaries visible:
   export a first result.
 - [Spatially constrained clustering](https://bbuchsbaum.github.io/neurocluster/articles/spatially-constrained-clustering.html)
   — understand the feature-versus-space objective.
-- [Evaluate Slice-MSF](https://bbuchsbaum.github.io/neurocluster/articles/slice-msf.html)
+- [Evaluate Slice-MSF](vignettes/slice-msf.Rmd)
   — inspect the experimental similarity, exact-K, feasibility, and metadata contract.
 - [Compare methods](https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.html) and
   [choose parameters](https://bbuchsbaum.github.io/neurocluster/articles/choose-parameters.html) — make a method choice
