@@ -261,7 +261,8 @@ cluster4d_g3s <- function(vec, mask, K = 100,
     mask_idx = mask.idx,
     n_voxels = n_voxels,
     dims = dim(mask),
-    spacing = spacing(mask)
+    spacing = spacing(mask),
+    geometry = input_contract$geometry
   )
 
   # Create standardized result
@@ -317,7 +318,9 @@ cluster4d_g3s <- function(vec, mask, K = 100,
     message("G3S complete: ", result$n_clusters, " clusters formed")
   }
 
-  finalize_cluster4d_result(result, vec, mask, "g3s", result$parameters)
+  finalize_cluster4d_result(
+    result, vec, mask, "g3s", result$parameters, data = data_prep
+  )
 }
 
 #' Build exact masked-grid neighbors for G3S.

@@ -10,7 +10,7 @@ find_gradient_seeds_g3s(
   K,
   k_neighbors = 26,
   oversample_ratio = 3,
-  min_separation_factor = 0.5,
+  min_separation_factor = 1,
   distance = c("cosine", "euclidean"),
   knn = NULL,
   spatial_scale = NULL
@@ -30,13 +30,17 @@ fewer seeds if spatial separation constraints cannot be satisfied.}
 \item{k_neighbors}{Integer; number of nearest neighbors to use for gradient
 computation. Default: 26 (full 3D connectivity).}
 
-\item{oversample_ratio}{Numeric; ratio of candidates to K for initial gradient
-ranking. Default: 3 (considers top 3*K candidates before applying spatial
-separation).}
+\item{oversample_ratio}{Numeric; ratio of candidates to K considered before
+spatial separation is applied. Default: 3. Candidates are the
+lowest-gradient voxels \emph{within each spatial cell} rather than the globally
+lowest, so a flat or heavily tied gradient field cannot concentrate the
+whole pool in one part of the mask.}
 
-\item{min_separation_factor}{Numeric; minimum spatial separation between seeds
-as a multiple of the expected grid spacing. Default: 0.5 (ensures seeds are
-not immediate neighbors).}
+\item{min_separation_factor}{Numeric; starting minimum separation between
+seeds, as a multiple of the expected supervoxel scale. Default: 1. This is
+a starting point only: the radius decays until K seeds fit, so the outcome
+is the widest separation the mask actually admits and is insensitive to the
+exact starting value.}
 
 \item{distance}{Character; distance metric for gradient computation.
 One of \code{"cosine"} (default) or \code{"euclidean"}.}

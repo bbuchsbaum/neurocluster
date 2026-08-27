@@ -174,7 +174,10 @@ compress_features_svd <- function(feature_mat,
 
   feature_mat_scaled <- base::scale(feature_mat, center = col_means,
                                     scale = FALSE)
-  if (any(!is.finite(feature_mat_scaled))) {
+  # Centering a finite matrix by finite means cannot introduce a non-finite
+  # value, so re-scanning the whole N x T copy is only needed when the input
+  # itself had gaps.
+  if (!all_observed && any(!is.finite(feature_mat_scaled))) {
     warning("Non-finite values detected after scaling. Replacing with 0.")
     feature_mat_scaled[!is.finite(feature_mat_scaled)] <- 0
   }
@@ -194,6 +197,17 @@ compress_features_svd <- function(feature_mat,
   irlba_available <- isTRUE(use_irlba) && requireNamespace("irlba", quietly = TRUE)
   use_irlba_backend <- isTRUE(use_irlba) &&
     n_voxels > randomized_min_voxels && irlba_available
+
+  # Gram route for tall-and-skinny data (4D imaging is always N >> T): the
+  # T x T cross-product is tiny, its eigendecomposition yields the *entire*
+  # spectrum in one shot, and the scores are one GEMM away. That is several
+  # times faster than a full SVD of the N x T matrix, and because the whole
+  # spectrum is visible the rank needed to satisfy variance_threshold is read
+  # off directly instead of being searched for by repeated decomposition.
+  # Skipped when T is large enough that the T x T product dominates, where the
+  # randomized backends win instead.
+  gram_max_dim <- 512L
+  use_gram <- n_voxels >= n_timepoints && n_timepoints <= gram_max_dim
 
   compute_svd <- function(k, announce = TRUE) {
     if (use_rsvd_backend && k < max_possible) {
@@ -227,38 +241,90 @@ compress_features_svd <- function(feature_mat,
   # requested rank until the observed retained energy meets the contract. The
   # full-rank endpoint is computed with base SVD to make the terminal check
   # exact rather than dependent on a randomized backend's truncation behavior.
-  total_variance <- sum(feature_mat_scaled^2)
   threshold_tolerance <- 100 * .Machine$double.eps
   initial_variance_ratio <- NA_real_
   announce <- TRUE
 
-  repeat {
-    svd_result <- compute_svd(n_components, announce = announce)
-    announce <- FALSE
-    explained_variance <- sum(svd_result$d^2)
-    variance_ratio <- if (total_variance == 0) {
-      1
+  if (use_gram) {
+    gram <- crossprod(feature_mat_scaled)
+    spectrum <- eigen(gram, symmetric = TRUE)
+    eigenvalues <- pmax(spectrum$values, 0)
+    total_variance <- sum(eigenvalues)
+    prefix <- if (total_variance == 0) {
+      rep(1, length(eigenvalues))
     } else {
-      min(1, max(0, explained_variance / total_variance))
+      cumsum(eigenvalues) / total_variance
     }
-    if (is.na(initial_variance_ratio)) {
-      initial_variance_ratio <- variance_ratio
+    feasible <- which(prefix + threshold_tolerance >= variance_threshold)
+    retained <- if (length(feasible)) feasible[[1L]] else length(eigenvalues)
+    initial_variance_ratio <- min(1, prefix[[min(n_components, length(prefix))]])
+    n_components <- as.integer(min(max_possible, max(n_components, retained)))
+    variance_ratio <- min(1, prefix[[n_components]])
+    keep <- seq_len(n_components)
+    rotation <- spectrum$vectors[, keep, drop = FALSE]
+    # Scores are U * D; forming them directly avoids ever materialising U.
+    compressed <- feature_mat_scaled %*% rotation
+    svd_result <- list(
+      u = NULL,
+      d = sqrt(eigenvalues[keep]),
+      v = rotation
+    )
+  } else {
+
+    total_variance <- sum(feature_mat_scaled^2)
+
+    repeat {
+      svd_result <- compute_svd(n_components, announce = announce)
+      announce <- FALSE
+      explained_variance <- sum(svd_result$d^2)
+      variance_ratio <- if (total_variance == 0) {
+        1
+      } else {
+        min(1, max(0, explained_variance / total_variance))
+      }
+      if (is.na(initial_variance_ratio)) {
+        initial_variance_ratio <- variance_ratio
+      }
+
+      if (variance_ratio + threshold_tolerance >= variance_threshold ||
+          n_components >= max_possible) {
+        break
+      }
+
+      ratio_estimate <- if (variance_ratio > 0) {
+        min(max_possible, ceiling(n_components * variance_threshold / variance_ratio))
+      } else {
+        max_possible
+      }
+      n_components <- as.integer(min(
+        max_possible,
+        max(n_components + 10L, ceiling(1.5 * n_components), ratio_estimate)
+      ))
     }
 
-    if (variance_ratio + threshold_tolerance >= variance_threshold ||
-        n_components >= max_possible) {
-      break
+    # A growth step may deliberately overshoot the first feasible rank. Retain
+    # the smallest available prefix that satisfies the threshold (but never less
+    # than the user's requested dimensionality) so the accuracy contract does
+    # not silently defeat the purpose of compression by retaining extra noise.
+    if (total_variance > 0) {
+      prefix_ratio <- cumsum(svd_result$d^2) / total_variance
+      feasible <- which(prefix_ratio + threshold_tolerance >= variance_threshold)
+      if (length(feasible)) {
+        retained_components <- max(requested_components, feasible[[1L]])
+        if (retained_components < n_components) {
+          keep <- seq_len(retained_components)
+          svd_result$u <- svd_result$u[, keep, drop = FALSE]
+          svd_result$d <- svd_result$d[keep]
+          svd_result$v <- svd_result$v[, keep, drop = FALSE]
+          n_components <- as.integer(retained_components)
+          variance_ratio <- min(1, prefix_ratio[[retained_components]])
+        }
+      }
     }
 
-    ratio_estimate <- if (variance_ratio > 0) {
-      min(max_possible, ceiling(n_components * variance_threshold / variance_ratio))
-    } else {
-      max_possible
-    }
-    n_components <- as.integer(min(
-      max_possible,
-      max(n_components + 10L, ceiling(1.5 * n_components), ratio_estimate)
-    ))
+    # Step 4: compressed features = U * diag(d)
+    compressed <- sweep(svd_result$u, 2, svd_result$d, `*`)
+
   }
 
   if (variance_ratio + threshold_tolerance < variance_threshold) {
@@ -269,26 +335,6 @@ compress_features_svd <- function(feature_mat,
     )
   }
 
-  # A growth step may deliberately overshoot the first feasible rank. Retain
-  # the smallest available prefix that satisfies the threshold (but never less
-  # than the user's requested dimensionality) so the accuracy contract does
-  # not silently defeat the purpose of compression by retaining extra noise.
-  if (total_variance > 0) {
-    prefix_ratio <- cumsum(svd_result$d^2) / total_variance
-    feasible <- which(prefix_ratio + threshold_tolerance >= variance_threshold)
-    if (length(feasible)) {
-      retained_components <- max(requested_components, feasible[[1L]])
-      if (retained_components < n_components) {
-        keep <- seq_len(retained_components)
-        svd_result$u <- svd_result$u[, keep, drop = FALSE]
-        svd_result$d <- svd_result$d[keep]
-        svd_result$v <- svd_result$v[, keep, drop = FALSE]
-        n_components <- as.integer(retained_components)
-        variance_ratio <- min(1, prefix_ratio[[retained_components]])
-      }
-    }
-  }
-
   if (n_components > requested_components) {
     message(
       "Requested n_components (", requested_components, ") explained ",
@@ -297,11 +343,6 @@ compress_features_svd <- function(feature_mat,
       round(variance_ratio * 100, 1), "%."
     )
   }
-
-  # Step 4: Create compressed features = U * diag(d)
-  # This gives us the projection of each voxel onto the principal components
-  # Avoid allocating an explicit diagonal matrix: multiply each column of U by d.
-  compressed <- sweep(svd_result$u, 2, svd_result$d, `*`)
 
   # Step 5: Normalize each row to unit length for cosine similarity
   # For normalized vectors: cor(x, y) approx dot(x, y) when x and y are unit length
