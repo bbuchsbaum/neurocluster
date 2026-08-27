@@ -87,8 +87,9 @@ candidate_fixture <- function(fx) {
 slice_fixture <- function(fx) {
   native("slice_msf_runwise")(
     fx$ts, as.integer(fx$mask), fx$dims,
-    r = 2L, fh_scale = 0.32, min_size = 1L, nbhd = 4L,
-    rows_are_time = TRUE, gamma = 1.5, voxel_dim = c(1, 1, 1)
+    r = 2L, fh_scale = 0.32, min_size = 1L, nbhd = 8L,
+    stitch_z = TRUE, rows_are_time = TRUE, gamma = 0,
+    voxel_dim = c(1, 1, 1), z_mult = 0.25
   )
 }
 
@@ -315,12 +316,32 @@ cases <- list(
     )
     list(standard = standard, one_cluster = one_cluster, fragmented = fragmented)
   },
-  slice_msf_runwise = function(fx) slice_fixture(fx),
+  slice_msf_runwise = function(fx) {
+    native_result <- slice_fixture(fx)
+    space <- neuroim2::NeuroSpace(fx$dims)
+    mask <- neuroim2::NeuroVol(array(1, fx$dims), space)
+    graph <- neurocluster:::.exact_k_graph(mask, 26L)
+    exact_labels <- neurocluster:::force_exact_k(
+      rep(1L, fx$n), fx$features, 4L,
+      mask = mask, connectivity = 26L, graph_info = graph,
+      min_cluster_size = 1L
+    )
+    connected <- neurocluster:::.exact_k_connected_labels(
+      exact_labels, graph$graph, graph$edges
+    )
+    stopifnot(
+      length(unique(exact_labels)) == 4L,
+      length(unique(connected)) == 4L,
+      all(is.finite(native_result$sketch))
+    )
+    list(native = native_result, exact_labels = exact_labels)
+  },
   slice_fuse_consensus = function(fx) {
     run <- slice_fixture(fx)
     native("slice_fuse_consensus")(
-      list(run, run), fx$dims, nbhd = 4L, fh_scale = 0.3,
-      min_size = 1L, use_features = FALSE, voxel_dim = c(1, 1, 1)
+      list(run, run), fx$dims, nbhd = 8L, fh_scale = 0.3,
+      min_size = 1L, use_features = FALSE, voxel_dim = c(1, 1, 1),
+      stitch_z = TRUE
     )
   },
   update_centroid_online = function(fx) {
