@@ -80,8 +80,11 @@ spatial_space <- neuroim2::NeuroSpace(
 series_space <- neuroim2::NeuroSpace(
   c(dims, 40L), spacing = c(2, 2.5, 3), origin = c(-18, 7, 11)
 )
+series_values <- array(
+  as.numeric(base_source$vec), dim = dim(base_source$vec)
+)
 source_data <- list(
-  vec = neuroim2::NeuroVec(as.array(base_source$vec), series_space),
+  vec = neuroim2::NeuroVec(series_values, series_space),
   mask = neuroim2::NeuroVol(mask_array, spatial_space),
   truth = base_source$truth[inside], dims = dims
 )
