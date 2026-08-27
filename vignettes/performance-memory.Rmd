@@ -1,68 +1,109 @@
 ---
-title: Performance and memory tradeoffs
+title: "Reason about performance and memory"
 name: performance-memory
-description: Scaling rules, memory estimates, and method choices.
+description: Define what can be estimated before measuring method-specific runtime and memory.
 output:
   rmarkdown::html_vignette:
     toc: yes
     toc_depth: 2
+    css: albers.css
+    includes:
+      in_header: albers-header.html
 params:
-  family: green
+  family: red
   base_size: 13
   content_width: 72
-vignette: >
-  %\VignetteIndexEntry{Performance and memory tradeoffs}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
-css: albers.css
+  preset: homage
 resource_files:
 - albers.css
 - albers.js
-includes:
-  in_header: |-
-    <script src="albers.js"></script>
-    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
-
+- albers-header.html
+- fonts
+vignette: |
+  %\VignetteIndexEntry{Reason about performance and memory}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
 
-# Scaling {#scaling}
 ```{r setup, include=FALSE}
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
 knitr::opts_chunk$set(
-  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
-  out.width = "100%", fig.width = 7, fig.asp = 0.618,
-  message = FALSE, warning = FALSE
+  collapse = TRUE, comment = "#>", message = FALSE, warning = FALSE,
+  fig.align = "center", fig.retina = 2, out.width = "100%",
+  fig.width = 7, fig.asp = 0.62
 )
-set.seed(123); options(pillar.sigfig = 7, width = 80)
-if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
-  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+if (requireNamespace("albersdown", quietly = TRUE) &&
+    requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(family = params$family, preset = params$preset))
 }
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
 ```
 
-```{r albers_inject, echo=FALSE, results='asis'}
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```{r albers-classes, echo=FALSE, results='asis'}
+cat(sprintf(
+  paste0('<script>document.addEventListener("DOMContentLoaded",function(){',
+         'document.body.classList.add("palette-%s","preset-%s");',
+         '});</script><style>:root{--content:%sch}</style>'),
+  params$family, params$preset, params$content_width
+))
 ```
-- Complexity grows with voxels × clusters × iterations; prefer slice-wise or hashing methods as N grows.
 
-# Memory {#memory}
-- Rough estimate: `n_vox * n_time * 8 bytes` for raw doubles.
+There is no universal fastest or smallest-memory method. Runtime depends on
+mask topology, time points, requested K, parameter values, thread backend, and
+hardware. Memory depends on implementation intermediates as well as the input.
+This article gives one exact lower-level quantity you can estimate, then shows
+how to produce evidence for your own workload.
 
-# Rules of thumb {#rules-of-thumb}
-- Small (<10k vox): supervoxels or SNIC
-- Medium (10k–100k): SLIC or slice-MSF
-- Large (>100k): slice-MSF or FLASH-3D
-includes:
-  in_header: |-
-    <link rel="stylesheet" href="albers.css" />
-    <script src="albers.js"></script>
+## What can be estimated before a run?
+
+If the masked feature matrix is materialized as dense R doubles with `N`
+voxels and `T` features, its payload is exactly `8 * N * T` bytes. This is one
+matrix, not peak process memory: coordinates, labels, graphs, sketches,
+centroids, temporary copies, and allocator overhead are additional.
+
+```{r memory-estimate}
+dense_feature_mb <- function(n_voxels, n_features) {
+  8 * n_voxels * n_features / 1e6
+}
+dense_feature_mb(100000, 200)
+```
+
+```{r memory-check, include=FALSE}
+stopifnot(identical(dense_feature_mb(100000, 200), 160))
+grid_n <- c(10000, 30000, 100000, 300000)
+grid_t <- c(50, 100, 200, 400)
+memory_grid <- outer(grid_n, grid_t, dense_feature_mb)
+stopifnot(all(is.finite(memory_grid)), all(memory_grid > 0))
+stopifnot(all(diff(memory_grid[, 3]) > 0), all(diff(memory_grid[3, ]) > 0))
+```
+
+```{r memory-figure, echo=FALSE, fig.cap='Payload size of one dense double feature matrix. This is not an estimate of peak process memory.', fig.alt='Heat map showing memory rising linearly with voxel count and number of features.'}
+palette_cb <- colorRampPalette(c("#F0F0F0", "#56B4E9", "#0072B2"))(32)
+image(
+  x = seq_along(grid_n), y = seq_along(grid_t), z = log10(memory_grid),
+  col = palette_cb, axes = FALSE, xlab = "masked voxels (N)",
+  ylab = "features / time points (T)"
+)
+axis(1, at = seq_along(grid_n), labels = format(grid_n, big.mark = ","))
+axis(2, at = seq_along(grid_t), labels = grid_t, las = 1)
+text(
+  rep(seq_along(grid_n), times = length(grid_t)),
+  rep(seq_along(grid_t), each = length(grid_n)),
+  labels = paste0(round(as.vector(memory_grid)), " MB")
+)
+box()
+```
+
+**What to notice.** Doubling either axis doubles this matrix’s payload. It does
+not predict which algorithm will allocate copies or graph structures, so do
+not turn the heat map into a method ranking.
+
+## How should performance be measured?
+
+Define the workload first: package version and commit, dimensions, included
+voxels, features, K, method arguments, thread setting, machine, operating
+system, and number of repetitions. Warm up compiled code, retain every repeat,
+and report a distribution rather than the single best time. Check the fitted
+result after each run so a fast failure or changed cluster count cannot win.
+
+[Benchmark with a reproducible receipt](benchmarks.html) provides an executable
+micro-benchmark and receipt template. [Parallel execution](speed-parallel.html)
+explains thread controls without changing global thread state.

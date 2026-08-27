@@ -1,117 +1,183 @@
 ---
-title: Speed up and parallelize
+title: "Use parallel execution responsibly"
 name: speed-parallel
-description: Threads, grain size, and method choices for big data.
+description: Select per-call parallel controls and verify what the method actually used.
 output:
   rmarkdown::html_vignette:
     toc: yes
     toc_depth: 2
+    css: albers.css
+    includes:
+      in_header: albers-header.html
 params:
-  family: green
+  family: red
   base_size: 13
   content_width: 72
-vignette: >
-  %\VignetteIndexEntry{Speed up and parallelize}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
-css: albers.css
+  preset: homage
 resource_files:
 - albers.css
 - albers.js
-includes:
-  in_header: |-
-    <script src="albers.js"></script>
-    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
-
+- albers-header.html
+- fonts
+vignette: |
+  %\VignetteIndexEntry{Use parallel execution responsibly}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
 
 ```{r setup, include=FALSE}
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
 knitr::opts_chunk$set(
-  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
-  out.width = "100%", fig.width = 7, fig.asp = 0.618,
-  message = FALSE, warning = FALSE
+  collapse = TRUE, comment = "#>", message = FALSE, warning = FALSE,
+  fig.align = "center", fig.retina = 2, out.width = "100%"
 )
-set.seed(123); options(pillar.sigfig = 7, width = 80)
-suppressWarnings(suppressPackageStartupMessages({
-  library(neurocluster)
-  library(neuroim2)
-}))
-if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
-  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+if (requireNamespace("albersdown", quietly = TRUE) &&
+    requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(family = params$family, preset = params$preset))
 }
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+library(neurocluster)
 ```
 
-```{r albers_inject, echo=FALSE, results='asis'}
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```{r albers-classes, echo=FALSE, results='asis'}
+cat(sprintf(
+  paste0('<script>document.addEventListener("DOMContentLoaded",function(){',
+         'document.body.classList.add("palette-%s","preset-%s");',
+         '});</script><style>:root{--content:%sch}</style>'),
+  params$family, params$preset, params$content_width
+))
 ```
 
-# Threads {#threads}
-```r
-RcppParallel::setThreadOptions(numThreads = 2)
-```
+Parallel execution is a property of a particular method path, input size, and
+backend. More threads can lose to scheduling overhead on small masks, and a
+method that accepts `parallel = TRUE` may still choose a serial path for a tiny
+job. Treat thread settings as part of the benchmark receipt, not as a universal
+speed switch.
 
-# Method choices {#method-choices}
-- Large N: `slice_msf` (slice-wise MSF) or `flash3d` (hash/DCT); both avoid global iteration over all voxels.
-- Preserve K: `cluster4d_slic()` with `preserve_k = TRUE`.
-- Iterative refinement: `supervoxels()` performs multiple reassignment iterations; uses RcppParallel for updates.
+## Which unified methods accept `parallel`?
 
-# Grain size {#grain-size}
-- For `supervoxels`, a practical start is `grain_size = max(100, nvox / (threads * 10))`. Smaller values improve balancing at some overhead.
+In the current `cluster4d()` contract, `parallel` is supported for
+`method = "supervoxels"` and `method = "slic"`. An explicit `parallel = TRUE`
+is rejected for methods without a parallel unified path. This fail-closed
+behaviour prevents a script from appearing parallel while silently ignoring
+the request.
 
-# Memory tips {#memory-tips}
-- `snic()` is single-pass with low memory overhead.
-- Reduce time points or compress features if memory-bound.
-
-# Toy runtime illustration (small N) {#fig-runtime}
-Illustrative timing on a small, deterministic dataset (3-band synthetic). Absolute times are not representative of large datasets but show relative ordering on the same volume.
-
-```{r fig-runtime, fig.cap='Illustrative runtimes on a 3-band synthetic (small N).', fig.alt='Bar plot of elapsed seconds for several methods on tiny data.'}
-toy <- make_block_synthetic(dims = c(14, 14, 2), ntime = 40, noise = 0.1, seed = 321)
-
-run_and_time <- function(tag, fn) {
-  t <- system.time(fn())
-  unname(t["elapsed"])
-}
-
-elapsed <- c(
-  snic = run_and_time("snic", function() snic(
-    toy$vec, toy$mask, K = 3, compactness = 3
-  )),
-  slice_msf = run_and_time("slice_msf", function() slice_msf(toy$vec, toy$mask,
-                                                            target_k_global = 3,
-                                                            r = 8, min_size = 6,
-                                                            compactness = 3,
-                                                            num_runs = 1,
-                                                            stitch_z = TRUE)),
-  supervoxels = run_and_time("supervoxels", function() supervoxels(toy$vec, toy$mask,
-                                                                  K = 3,
-                                                                  alpha = 0.6,
-                                                                  connectivity = 6,
-                                                                  iterations = 5)),
-  slic = run_and_time("slic", function() cluster4d(toy$vec, toy$mask,
-                                                  n_clusters = 3,
-                                                  method = "slic",
-                                                  spatial_weight = 0.5,
-                                                  connectivity = 26,
-                                                  max_iterations = 5,
-                                                  preserve_k = TRUE))
+```{r parallel-data, include=FALSE}
+small_syn <- generate_synthetic_volume(
+  scenario = "gaussian_blobs", dims = c(14, 14, 3),
+  n_clusters = 4, n_time = 12, seed = 650
 )
-
-barplot(elapsed, ylab = "seconds", main = "Toy runtimes (small N)")
+large_syn <- generate_synthetic_volume(
+  scenario = "gaussian_blobs", dims = c(18, 18, 8),
+  n_clusters = 4, n_time = 12, seed = 650
+)
 ```
-includes:
-  in_header: |-
-    <link rel="stylesheet" href="albers.css" />
-    <script src="albers.js"></script>
+
+```{r execution-mode-fits}
+small_requested <- cluster4d(
+  small_syn$vec, small_syn$mask, n_clusters = 4,
+  method = "slic", parallel = TRUE,
+  preserve_k = TRUE, max_iterations = 3
+)
+large_serial <- cluster4d(
+  large_syn$vec, large_syn$mask, n_clusters = 4,
+  method = "slic", parallel = FALSE,
+  preserve_k = TRUE, max_iterations = 3
+)
+large_parallel <- cluster4d(
+  large_syn$vec, large_syn$mask, n_clusters = 4,
+  method = "slic", parallel = TRUE,
+  preserve_k = TRUE, max_iterations = 3
+)
+```
+
+```{r serial-check, include=FALSE}
+small_check <- validate_cluster4d(
+  small_requested, small_syn$vec, small_syn$mask
+)
+serial_check <- validate_cluster4d(
+  large_serial, large_syn$vec, large_syn$mask
+)
+parallel_check <- validate_cluster4d(
+  large_parallel, large_syn$vec, large_syn$mask
+)
+stopifnot(small_check$valid, serial_check$valid, parallel_check$valid)
+stopifnot(
+  small_requested$actual_k == 4L,
+  large_serial$actual_k == 4L,
+  large_parallel$actual_k == 4L
+)
+stopifnot(
+  isTRUE(small_requested$metadata$assignment_parallel_requested),
+  !isTRUE(small_requested$metadata$assignment_parallel_used),
+  identical(small_requested$metadata$native_n_threads, 1L),
+  !isTRUE(large_serial$metadata$assignment_parallel_requested),
+  !isTRUE(large_serial$metadata$assignment_parallel_used),
+  identical(large_serial$metadata$native_n_threads, 1L),
+  isTRUE(large_parallel$metadata$assignment_parallel_requested),
+  isTRUE(large_parallel$metadata$assignment_parallel_used),
+  identical(large_parallel$metadata$native_n_threads, 0L),
+  identical(large_serial$labels, large_parallel$labels)
+)
+execution_receipt <- data.frame(
+  workload = c("small", "large", "large"),
+  masked_voxels = c(length(small_requested$labels),
+                    length(large_serial$labels),
+                    length(large_parallel$labels)),
+  requested = c(
+    small_requested$metadata$assignment_parallel_requested,
+    large_serial$metadata$assignment_parallel_requested,
+    large_parallel$metadata$assignment_parallel_requested
+  ),
+  used = c(
+    small_requested$metadata$assignment_parallel_used,
+    large_serial$metadata$assignment_parallel_used,
+    large_parallel$metadata$assignment_parallel_used
+  ),
+  native_n_threads = c(
+    small_requested$metadata$native_n_threads,
+    large_serial$metadata$native_n_threads,
+    large_parallel$metadata$native_n_threads
+  )
+)
+```
+
+```{r execution-receipt, echo=FALSE}
+knitr::kable(
+  execution_receipt,
+  caption = "Requested and effective SLIC assignment modes in this render."
+)
+```
+
+The small 588-voxel call requests parallel assignment but deliberately uses the
+serial kernel; the 2,592-voxel call exercises the parallel path. The serial and
+parallel large-workload calls return identical labels in this render. These are
+execution-contract checks, not a speedup claim. Inspect the recorded metadata
+rather than inferring thread use from elapsed time alone.
+
+## How do direct APIs control threads?
+
+- `supervoxels(..., parallel = TRUE, num_threads = n)` scopes an optional
+  RcppParallel thread override to that call and restores the previous setting.
+- `slic4d_supervoxels(..., n_threads = n)` passes the requested thread count to
+  its native assignment operations. `0` means backend default and `1` requests
+  serial assignment.
+- `cluster4d(..., method = "slic", parallel = FALSE)` maps to one native thread.
+  `parallel = TRUE` requests the backend default, but inputs below 2,000 masked
+  voxels use the serial assignment kernel and report that fallback in metadata.
+
+Prefer these per-call controls. Changing `RcppParallel` global options in an
+analysis or vignette can affect unrelated work in the same R session and makes
+the execution receipt harder to interpret.
+
+## How should a speedup claim be tested?
+
+Run serial and parallel calls on the same installed package, input, K, method
+arguments, and machine. Warm both paths, repeat them in interleaved order, and
+validate every returned fit. Report elapsed-time distributions and whether
+labels or quality estimands changed. Record CPU, backend, requested threads,
+and method metadata.
+
+Do not tune `grain_size` from a formula presented as universally optimal. It is
+a scheduling control for `supervoxels()` and should be benchmarked over a small
+prespecified grid on the actual workload. The executable receipt pattern is in
+[Benchmark with a reproducible receipt](benchmarks.html); memory boundaries are
+in [Performance and memory](performance-memory.html).

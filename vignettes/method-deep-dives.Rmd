@@ -1,72 +1,167 @@
 ---
-title: Method deep dives
+title: "How the clustering methods differ"
 name: method-deep-dives
-description: Supervoxels, SNIC, SLIC, slice-MSF, and FLASH-3D—ideas and tradeoffs.
+description: Compare algorithmic work units and controls without turning them into universal rankings.
 output:
   rmarkdown::html_vignette:
     toc: yes
     toc_depth: 2
+    css: albers.css
+    includes:
+      in_header: albers-header.html
 params:
-  family: teal
+  family: red
   base_size: 13
   content_width: 72
-vignette: >
-  %\VignetteIndexEntry{Method deep dives}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
-css: albers.css
+  preset: homage
 resource_files:
 - albers.css
 - albers.js
-includes:
-  in_header: |-
-    <script src="albers.js"></script>
-    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
-
+- albers-header.html
+- fonts
+vignette: |
+  %\VignetteIndexEntry{How the clustering methods differ}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
 
-# Supervoxels {#supervoxels}
 ```{r setup, include=FALSE}
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
 knitr::opts_chunk$set(
-  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
-  out.width = "100%", fig.width = 7, fig.asp = 0.618,
-  message = FALSE, warning = FALSE
+  collapse = TRUE, comment = "#>", message = FALSE, warning = FALSE,
+  fig.align = "center", fig.retina = 2, out.width = "100%",
+  fig.width = 7, fig.asp = 0.58
 )
-set.seed(123); options(pillar.sigfig = 7, width = 80)
-if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
-  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+if (requireNamespace("albersdown", quietly = TRUE) &&
+    requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(family = params$family, preset = params$preset))
 }
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
 ```
 
-```{r albers_inject, echo=FALSE, results='asis'}
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```{r albers-classes, echo=FALSE, results='asis'}
+cat(sprintf(
+  paste0('<script>document.addEventListener("DOMContentLoaded",function(){',
+         'document.body.classList.add("palette-%s","preset-%s");',
+         '});</script><style>:root{--content:%sch}</style>'),
+  params$family, params$preset, params$content_width
+))
 ```
-- Iterative, heat-kernel similarities; parallelized updates available.
 
-# SNIC {#snic}
-- Non-iterative; sequential priority queue; connected components by design.
+All methods turn voxel-wise features and spatial support into parcels, but they
+do not optimize the same objective. Choose a family because its assumptions
+and controls match the analysis—not because an unscoped label calls it “fast”
+or “high quality.”
 
-# SLIC {#slic}
-- Iterative with local windows; preserves K; good speed/quality balance.
+## Where does each family spend its work?
 
-# Slice-MSF {#slice-msf}
-- Slice-wise minimum spanning forest; supports consensus and stitching.
+```{r method-map-data, include=FALSE}
+taxonomy <- data.frame(
+  key = c("supervoxels", "snic", "slic", "corr_slic", "brs_slic",
+          "slice_msf", "flash3d", "g3s", "rena", "rena_plus", "mcl",
+          "acsc", "commute"),
+  method = c("Supervoxels", "SNIC", "SLIC", "Corr-SLIC", "BRS-SLIC",
+             "Slice-MSF", "FLASH-3D", "G3S", "ReNA", "ReNA+", "MCL",
+             "ACSC", "Commute"),
+  work_unit = c(
+    "local heat kernels", "seeded local growth", "local assignment",
+    "correlation embedding", "sketch plus exact boundary", "spatial graph",
+    "compressed signatures", "gradient geodesic graph", "spatial graph",
+    "spatial graph plus refinement", "weighted graph diffusion",
+    "block community graph", "resistance embedding"
+  ),
+  update = c(
+    "iterative", "single growth", "iterative", "iterative", "staged",
+    "single construction", "iterative", "growth plus refinement",
+    "agglomerative", "agglomerative", "iterative", "community plus refinement",
+    "spectral then cluster"
+  ),
+  family = c("local", "local", "local", "embedded", "embedded", "graph",
+             "embedded", "graph", "graph", "graph", "graph", "community",
+             "spectral"),
+  direct = c(
+    "cluster4d_supervoxels", "cluster4d_snic", "cluster4d_slic", NA, NA,
+    "cluster4d_slice_msf", "cluster4d_flash3d", "cluster4d_g3s",
+    "cluster4d_rena", "cluster4d_rena_plus", "cluster4d_mcl",
+    "cluster4d_acsc", "cluster4d_commute"
+  ),
+  stringsAsFactors = FALSE
+)
+method_choices <- eval(formals(neurocluster::cluster4d)$method)
+package_exports <- getNamespaceExports("neurocluster")
+stopifnot(
+  identical(taxonomy$key, method_choices),
+  nrow(taxonomy) == 13L,
+  !anyDuplicated(taxonomy$key),
+  all(stats::na.omit(taxonomy$direct) %in% package_exports),
+  all(c("cluster4d", "validate_cluster4d", "compare_cluster4d") %in%
+      package_exports)
+)
+family_order <- c("local", "embedded", "graph", "community", "spectral")
+taxonomy$x <- match(taxonomy$family, family_order)
+taxonomy$y <- ave(seq_len(nrow(taxonomy)), taxonomy$family, FUN = seq_along)
+```
 
-# FLASH-3D {#flash3d}
-- DCT-based hashing/compression; fast approximation; temporal smoothing via `lambda_t`.
-includes:
-  in_header: |-
-    <link rel="stylesheet" href="albers.css" />
-    <script src="albers.js"></script>
+```{r taxonomy-table, echo=FALSE}
+knitr::kable(
+  taxonomy[c("method", "work_unit", "update")],
+  col.names = c("Unified method", "Dominant work unit", "Update pattern"),
+  caption = "All 13 choices accepted by the installed cluster4d() interface."
+)
+```
+
+```{r method-map, echo=FALSE, fig.cap='All 13 unified methods grouped by their dominant representation. Vertical position only separates labels within a group; it is not a score.', fig.alt='Five grouped columns labeled local, embedded, graph, community, and spectral containing all thirteen method names.'}
+palette_cb <- c(local = "#0072B2", embedded = "#D55E00", graph = "#009E73",
+                community = "#CC79A7", spectral = "#E69F00")
+plot(NA, xlim = c(0.5, 5.5), ylim = c(0.5, 5.2), axes = FALSE,
+     xlab = "dominant representation", ylab = "")
+axis(1, at = seq_along(family_order), labels = family_order)
+abline(v = seq_along(family_order), col = "#E5E5E5", lty = 3)
+points(taxonomy$x, taxonomy$y, pch = 21, cex = 2,
+       bg = palette_cb[taxonomy$family], col = "white", lwd = 1.3)
+text(taxonomy$x, taxonomy$y, labels = taxonomy$method,
+     pos = 3, cex = 0.72)
+box()
+```
+
+**What to notice.** The methods differ first in representation and update
+strategy. The axes are categories, not claims about runtime, memory, or
+accuracy.
+
+## What is distinctive about each method?
+
+- **SNIC** grows clusters from seeds with a priority queue in a non-iterative
+  pass. Its native control is compactness.
+- **SLIC** alternates local assignment and center updates. Its controls include
+  compactness, iteration count, seeding, connectivity, and optional exact-K
+  repair subject to mask topology.
+- **Corr-SLIC** performs local SLIC updates in a compact correlation embedding;
+  its approximation and exact-refinement controls must be reported.
+- **BRS-SLIC** deliberately separates a coarse sketch stage from exact
+  correlation refinement at parcel boundaries.
+- **Supervoxels** iteratively combines feature and spatial heat-kernel
+  similarities. It exposes bandwidths and convergence controls.
+- **Slice-MSF** builds DCT sketches and segments a masked spatial graph; it can
+  stitch across axial slices and combine seeded ensemble runs.
+- **FLASH-3D** uses compact temporal signatures and iterative refinement. Hash
+  length and DCT dimension are approximation controls, not generic quality
+  scores.
+- **G3S** uses functional gradients and geodesic growth followed by connected
+  refinement.
+- **ReNA** recursively agglomerates neighbouring regions on a spatial graph;
+  **ReNA+** adds its own refinement path. Their weights are method-native rather
+  than the unified spatial blend.
+- **MCL** alternates expansion and inflation on a sparse weighted voxel graph;
+  inflation controls granularity rather than a target-K objective.
+- **ACSC** builds a block graph, applies community detection, and can refine
+  boundaries using a chosen correlation definition.
+- **Commute** embeds the voxel graph using effective-resistance geometry before
+  clustering; its spectral representation has different scaling constraints
+  from local assignment methods.
+
+## What should drive the final choice?
+
+Decide which properties are required: connected parcels, an exact target K,
+cross-slice edges, a particular similarity definition, deterministic output,
+or a memory ceiling. Then test candidate methods on the same mask and features
+with defined estimands. [Compare clustering methods](compare-methods.html)
+shows that workflow; [Benchmark with a reproducible receipt](benchmarks.html)
+shows how to attach runtime evidence.

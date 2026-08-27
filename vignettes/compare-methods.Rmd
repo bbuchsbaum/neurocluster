@@ -1,160 +1,201 @@
 ---
 title: Compare clustering methods
 name: compare-methods
-description: Run multiple methods on the same data and compare outputs.
+description: Compare valid partitions using explicit, shared estimands.
 output:
   rmarkdown::html_vignette:
     toc: yes
     toc_depth: 2
+    css: albers.css
+    includes:
+      in_header: albers-header.html
 params:
-  family: lapis
+  family: red
   base_size: 13
   content_width: 72
-vignette: >
-  %\VignetteIndexEntry{Compare clustering methods}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
-css: albers.css
+  preset: homage
 resource_files:
 - albers.css
 - albers.js
-includes:
-  in_header: |-
-    <link rel="stylesheet" href="albers.css" />
-    <script src="albers.js"></script>
-    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
-
+- albers-header.html
+- fonts
+vignette: |
+  %\VignetteIndexEntry{Compare clustering methods}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
 
 ```{r setup, include=FALSE}
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) albersdown::albers_register_fonts()
 knitr::opts_chunk$set(
   collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
-  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  out.width = "100%", fig.width = 9, fig.asp = 0.56,
   message = FALSE, warning = FALSE
 )
-set.seed(123); options(pillar.sigfig = 7, width = 80)
-suppressWarnings(suppressPackageStartupMessages({
+options(width = 90)
+suppressPackageStartupMessages({
   library(neurocluster)
   library(neuroim2)
-}))
-if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
-  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+})
+parcel_colors <- c("#0072B2", "#E69F00", "#009E73", "#CC79A7",
+                   "#56B4E9", "#D55E00", "#F0E442", "#000000")
+method_colors <- c(ReNA = "#0072B2", G3S = "#E69F00", SLIC = "#009E73")
+align_labels <- function(labels, truth) {
+  ids <- sort(unique(labels))
+  truth_ids <- sort(unique(truth))
+  stopifnot(length(ids) == length(truth_ids))
+  overlap <- table(factor(labels, levels = ids),
+                   factor(truth, levels = truth_ids))
+  map <- truth_ids[as.integer(clue::solve_LSAP(overlap, maximum = TRUE))]
+  aligned <- unname(map[match(labels, ids)])
+  stopifnot(length(unique(aligned)) == length(ids))
+  aligned
 }
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+draw_slice <- function(labels, dims, z, title) {
+  slice <- array(labels, dims)[, , z]
+  image(t(slice[, ncol(slice):1]), col = parcel_colors, axes = FALSE,
+        useRaster = TRUE, asp = 1, main = title)
+  box(col = "#4A4A4A")
 }
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
-toy <- make_block_synthetic(dims = c(12, 12, 1), ntime = 60, noise = 0.1, seed = 2025)
 ```
 
-```{r albers_inject, echo=FALSE, results='asis'}
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```{r albers-classes, echo=FALSE, results='asis'}
+cat(sprintf(paste0(
+  '<script>document.addEventListener("DOMContentLoaded",function(){',
+  'document.body.classList.add("palette-%s","preset-%s");',
+  '});</script><style>:root{--content:%sch}</style>'
+), params$family, params$preset, params$content_width))
 ```
 
-# Goal {#goal}
-Run several methods with the same `n_clusters` and compare basic characteristics.
+# What makes a comparison fair? {#fair-comparison}
 
-We use a simple, scikit-learn-style synthetic (three vertical bands with distinct
-time courses plus light noise). It’s small, deterministic, and spatially local, so
-all methods have a fair shot.
+Method comparison only makes sense when every result uses the same included
+voxels and physical geometry. It also needs named estimands: parcel count and
+size, spatial dispersion in millimetres, or temporal coherence from the original
+voxel time series. `compare_cluster4d()` verifies the shared provenance before
+computing those quantities.
 
-# Ground truth bands (for reference) {#fig-toy-ground-truth}
-```{r fig-toy-ground-truth, fig.cap='Ground truth bands (3 clusters) on the toy axial slice.', fig.alt='Axial slice showing three colored vertical bands.'}
-# Display the ground truth as a simple image
-truth_array <- array(toy$truth, dim = toy$dims)
-image(truth_array[,,1], col = rainbow(6),
-      main = "Ground Truth: 3 bands", axes = FALSE)
+We use one deterministic volume with known labels. This gives us an additional
+simulation-only estimand—agreement with the known partition—without pretending
+that synthetic recovery proves performance on real data.
+
+```{r comparison-data}
+syn <- generate_synthetic_volume(
+  scenario = "gaussian_blobs", dims = c(16, 16, 8),
+  n_clusters = 4, n_time = 40, noise_sd = 0.08, seed = 42
+)
 ```
 
-# Run methods (same K) {#run-methods}
-```r
-methods <- c("snic", "slice_msf", "supervoxels")
-run_one <- function(m) {
-  args <- list(vec = toy$vec, mask = toy$mask, n_clusters = 3, method = m)
-  if (m == "snic") {
-    args$compactness <- 3
-  } else if (m == "slice_msf") {
-    args$r <- 8
-    args$min_size <- 5
-    args$compactness <- 3
-    args$num_runs <- 1
-    args$stitch_z <- TRUE
-  } else if (m == "supervoxels") {
-    args$alpha <- 0.6
-    args$connectivity <- 6
-  }
-  out <- try(do.call(cluster4d, args), silent = TRUE)
-  if (inherits(out, "try-error")) NULL else out
-}
-results <- setNames(lapply(methods, run_one), methods)
-results_ok <- Filter(Negate(is.null), results)
+# How do you hold inputs constant? {#fit-methods}
+
+Here ReNA, G3S, and SLIC all receive K = 4 and 26-neighbor connectivity. Their
+other defaults remain method-specific, so this is a controlled workflow example,
+not a tuned leaderboard. `preserve_k = TRUE` asks SLIC to repair its final
+partition to the requested count.
+
+```{r run-methods}
+rena_fit <- cluster4d(
+  syn$vec, syn$mask, 4, method = "rena",
+  connectivity = 26, parallel = FALSE
+)
+g3s_fit <- cluster4d(
+  syn$vec, syn$mask, 4, method = "g3s",
+  connectivity = 26, parallel = FALSE
+)
+slic_fit <- cluster4d(
+  syn$vec, syn$mask, 4, method = "slic",
+  connectivity = 26, parallel = FALSE, preserve_k = TRUE
+)
 ```
 
-# Axial slices by method {#fig-methods}
-```{r fig-methods, fig.cap='Toy axial view clustered by available methods (K=3). Colors indicate cluster IDs (arbitrary).', fig.alt='Panels showing axial slices for available methods with arbitrary cluster colors.'}
-# Fallback in case prior chunk failed in a different environment
-if (!exists("results_ok", inherits = TRUE)) {
-  methods <- c("snic", "slice_msf", "supervoxels")
-  run_one <- function(m) {
-    args <- list(
-      vec = toy$vec, mask = toy$mask, n_clusters = 3, method = m
-    )
-    if (m == "slice_msf") {
-      args$num_runs <- 1
-      args$stitch_z <- TRUE
-    } else if (m == "supervoxels") {
-      args$max_iterations <- 5
-    }
-    out <- try(do.call(cluster4d, args), silent = TRUE)
-    if (inherits(out, "try-error")) NULL else out
-  }
-  results <- setNames(lapply(methods, run_one), methods)
-  results_ok <- Filter(Negate(is.null), results)
-}
-n <- length(results_ok); if (n == 0) n <- 1
-par(mfrow = c(1, n))
-for (nm in names(results_ok)) {
-  plot(results_ok[[nm]], slice = c(1, 1, 1), view = "axial")
-  title(nm)
-}
-par(mfrow = c(1, 1))
+```{r check-methods, include=FALSE}
+fits <- list(ReNA = rena_fit, G3S = g3s_fit, SLIC = slic_fit)
+checks <- lapply(fits, validate_cluster4d, vec = syn$vec, mask = syn$mask)
+truth_metrics <- lapply(fits, cluster_metrics, truth = syn$truth)
+stopifnot(
+  all(vapply(checks, `[[`, logical(1), "valid")),
+  all(vapply(fits, `[[`, integer(1), "actual_k") == 4L),
+  all(vapply(truth_metrics, function(x) is.finite(x$ari_truth), logical(1)))
+)
+feature_mat <- t(as.matrix(neuroim2::series(
+  syn$vec, which(as.array(syn$mask) > 0)
+)))
 ```
 
-# Compare {#compare}
-```r
-if (length(results_ok) >= 1) {
-  comparison <- do.call(compare_cluster4d, results_ok)
-  comparison
+```{r method-slices, echo=FALSE, fig.cap='The known middle axial slice beside three fitted partitions. A one-to-one maximum-overlap assignment aligns the four arbitrary fitted IDs to the four known colors without merging predicted parcels; this display-only relabeling does not change any metric.', fig.alt='Four axial grid panels labeled known, ReNA, G3S, and SLIC. Every predicted parcel has a distinct color; ReNA matches the known regions while G3S and SLIC show different boundaries.'}
+old_par <- par(mfrow = c(1, 4), mar = c(1, 1, 3, 1))
+draw_slice(syn$truth, syn$dims, 4, "Known")
+for (nm in names(fits)) {
+  draw_slice(align_labels(fits[[nm]]$labels, syn$truth), syn$dims, 4, nm)
 }
+par(old_par)
+```
+
+# Which quantities are you comparing? {#estimands}
+
+The call below evaluates all three methods on the same support. Lower spatial
+RMS distance means voxels lie closer to their final parcel centroid. Temporal
+pairwise correlation is the mean Pearson correlation over all unordered voxel
+pairs within parcels; it is calculated from `feature_mat`, not from parcel
+centers.
+
+```{r compare-estimands}
+comparison <- compare_cluster4d(
+  fits,
+  metrics = c("summary", "spatial_dispersion", "temporal_coherence"),
+  feature_mat = feature_mat
+)
 comparison
-
-# Summarize basic facts from outputs
-if (length(results_ok) >= 1) {
-  sizes <- lapply(results_ok, function(x) table(x$cluster))
-  data.frame(
-    method = names(sizes),
-    n_clusters = sapply(results_ok, function(x) x$n_clusters),
-    min_size = sapply(sizes, min),
-    max_size = sapply(sizes, max),
-    mean_size = sapply(sizes, function(t) round(mean(t), 1))
-  )
-}
 ```
 
-# Notes {#notes}
-- SNIC assigns voxels in a single pass via a priority queue (see `snic()`); clusters are connected by construction. Runtime depends on input size and queue operations.
-- Supervoxels uses iterative reassignment with spatial/feature kernels (see `supervoxels()`); more iterations can change results and runtime.
-- SLIC uses local search windows and can preserve the requested K when `preserve_k = TRUE` (see `cluster4d_slic()`).
+```{r truth-estimands, echo=FALSE}
+diagnostics <- data.frame(
+  Method = names(fits),
+  ARI_to_known = vapply(truth_metrics, `[[`, numeric(1), "ari_truth"),
+  Spatial_RMS_mm = comparison$Spatial_RMS_Distance_mm,
+  Temporal_correlation = comparison$Temporal_Pairwise_Correlation
+)
+knitr::kable(
+  transform(diagnostics,
+            ARI_to_known = round(ARI_to_known, 3),
+            Spatial_RMS_mm = round(Spatial_RMS_mm, 2),
+            Temporal_correlation = round(Temporal_correlation, 3)),
+  caption = "Observed diagnostics on this synthetic fixture."
+)
+```
 
-# See also {#see-also}
-- Validate & compare: articles/validate-compare.html#checks
-- Method deep dives: articles/method-deep-dives.html#slic
-- Performance & memory: articles/performance-memory.html#scaling
+```{r check-comparison, include=FALSE}
+stopifnot(
+  identical(comparison$N_Clusters, rep(4L, 3)),
+  all(is.finite(as.matrix(diagnostics[, -1]))),
+  all(diagnostics$ARI_to_known >= -1 & diagnostics$ARI_to_known <= 1),
+  all(diagnostics$Temporal_correlation >= -1 &
+      diagnostics$Temporal_correlation <= 1)
+)
+```
+
+```{r tradeoff-plot, echo=FALSE, fig.cap='Agreement with the known synthetic partition versus physical compactness. Up indicates greater agreement; left indicates smaller spatial RMS distance. No single direction optimizes both estimands here.', fig.alt='Scatter plot with spatial RMS distance on the horizontal axis and adjusted Rand index on the vertical axis. SLIC is leftmost and lowest, G3S is intermediate, and ReNA is upper right.'}
+plot(
+  diagnostics$Spatial_RMS_mm, diagnostics$ARI_to_known,
+  xlab = "Spatial RMS distance (mm; lower is more compact)",
+  ylab = "Adjusted Rand index to known partition (higher is closer)",
+  pch = c(16, 17, 15), cex = 1.8,
+  col = method_colors[diagnostics$Method], bty = "l",
+  xlim = range(diagnostics$Spatial_RMS_mm) + c(-1.0, 1.0),
+  ylim = c(0, 1.04)
+)
+text(diagnostics$Spatial_RMS_mm, diagnostics$ARI_to_known,
+     labels = diagnostics$Method, pos = c(4, 2, 4), cex = 0.9)
+abline(h = seq(0, 1, 0.25), col = "#D9D9D9", lty = 3)
+```
+
+On this fixture ReNA recovers the known partition, while SLIC yields the lowest
+spatial dispersion. Those statements describe these evaluated outputs only.
+Real method choice should be repeated across representative subjects, masks,
+resolutions, and stability perturbations using estimands chosen before tuning.
+
+# What should you compare next? {#next}
+
+- Read [Choose parameters](choose-parameters.html) before tuning each method.
+- Read [Validate and compare](validate-compare.html) for structural validation and pairwise partition agreement.
+- Read [Benchmark methodology](benchmarks.html) for performance measurement rather than inferring speed here.

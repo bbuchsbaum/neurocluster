@@ -1,77 +1,135 @@
 ---
-title: API overview
+title: "Choose the right neurocluster interface"
 name: api-overview
-description: Group exported functions by task and link to details.
+description: Start with cluster4d, then move to validation, comparison, or direct method APIs.
 output:
   rmarkdown::html_vignette:
     toc: yes
     toc_depth: 2
+    css: albers.css
+    includes:
+      in_header: albers-header.html
 params:
   family: red
   base_size: 13
   content_width: 72
-vignette: >
-  %\VignetteIndexEntry{API overview}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
-css: albers.css
+  preset: homage
 resource_files:
 - albers.css
 - albers.js
-includes:
-  in_header: |-
-    <script src="albers.js"></script>
-    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
-
+- albers-header.html
+- fonts
+vignette: |
+  %\VignetteIndexEntry{Choose the right neurocluster interface}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
 
 ```{r setup, include=FALSE}
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
 knitr::opts_chunk$set(
-  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
-  out.width = "100%", fig.width = 7, fig.asp = 0.618,
-  message = FALSE, warning = FALSE
+  collapse = TRUE, comment = "#>", message = FALSE, warning = FALSE,
+  fig.align = "center", fig.retina = 2, out.width = "100%"
 )
-set.seed(123); options(pillar.sigfig = 7, width = 80)
-if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
-  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
-  css_file <- system.file("pkgdown/assets/albers.css", package = "albersdown")
-  if (file.exists(css_file)) {
-    cat(sprintf("<style>\n%s\n</style>", paste(readLines(css_file, warn = FALSE), collapse = "\n")))
-  }
+if (requireNamespace("albersdown", quietly = TRUE) &&
+    requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(
+    family = params$family, preset = params$preset
+  ))
 }
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+library(neurocluster)
 ```
 
-```{r albers_inject, echo=FALSE, results='asis'}
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```{r albers-classes, echo=FALSE, results='asis'}
+cat(sprintf(
+  paste0('<script>document.addEventListener("DOMContentLoaded",function(){',
+         'document.body.classList.add("palette-%s","preset-%s");',
+         '});</script><style>:root{--content:%sch}</style>'),
+  params$family, params$preset, params$content_width
+))
 ```
 
-# Interfaces {#interfaces}
-- Unified entry: `cluster4d()`
-- Wrappers: `cluster4d_supervoxels`, `cluster4d_snic`, `cluster4d_slic`, `cluster4d_slice_msf`, `cluster4d_flash3d`
+`neurocluster` has one main workflow and several specialist surfaces. If you
+are starting an analysis, use `cluster4d()`: it gives every method the same
+input checks and the same result contract. Move to a direct method function
+only when you need controls that the unified interface intentionally does not
+standardize.
 
-# Algorithms {#algorithms}
-- Legacy cores: `supervoxels`, `snic`, `slic4d_supervoxels`, `slice_msf`, `supervoxels_flash3d`
+## What is the shortest successful path?
 
-# Utilities {#utilities}
-- Validation & comparison: `validate_cluster4d`, `compare_cluster4d`
-- Helpers: `compute_centroids`, `knn_shrink`, `spatial_gradient`, `tesselate`
+| Task | Start here | What comes back |
+|---|---|---|
+| Fit one spatial clustering | `cluster4d()` | A validated-shape `cluster4d_result` |
+| Check a fitted result against its inputs | `validate_cluster4d()` | Errors, warnings, and a compact summary |
+| Compare compatible fits | `compare_cluster4d()` | Explicit size, dispersion, coherence, or agreement estimands |
+| Choose a defensible setting | `suggest_cluster4d_params()` | A starting point to validate on your own data |
+| Create a reproducible example | `generate_synthetic_volume()` | Data, mask, and known latent labels |
 
-# Variants {#variants}
-- Surfaces: `supervoxel_cluster_surface`
-- Time: `supervoxel_cluster_time`
-includes:
-  in_header: |-
-    <link rel="stylesheet" href="albers.css" />
-    <script src="albers.js"></script>
+The complete first-use journey is in [Getting started](getting-started.html).
+Parameter effects and validation are covered by
+[Choose parameters](choose-parameters.html) and
+[Validate and compare clusterings](validate-compare.html).
+
+## Which methods share the unified interface?
+
+```{r method-list}
+methods <- eval(formals(cluster4d)$method)
+paste(methods, collapse = ", ")
+```
+
+```{r method-list-check, include=FALSE}
+stopifnot(
+  length(methods) == 13L,
+  identical(
+    methods,
+    c("supervoxels", "snic", "slic", "corr_slic", "brs_slic",
+      "slice_msf", "flash3d", "g3s", "rena", "rena_plus", "mcl",
+      "acsc", "commute")
+  )
+)
+```
+
+The list above is read from the installed function, so it cannot silently
+drift from the current API. Method names select implementations; they are not
+a performance ranking. See [Compare clustering methods](compare-methods.html)
+for a scoped comparison and [Method deep dives](method-deep-dives.html) for
+algorithmic distinctions.
+
+## When should you use a direct function?
+
+Typed method-specific wrappers expose native controls while retaining the
+standard result contract. Examples include `cluster4d_snic()`,
+`cluster4d_slic()`, `cluster4d_g3s()`, `cluster4d_rena()`,
+`cluster4d_mcl()`, and `cluster4d_acsc()`.
+
+```{r direct-export-check, include=FALSE}
+typed_wrappers <- c(
+  "cluster4d_supervoxels", "cluster4d_snic", "cluster4d_slic",
+  "cluster4d_slice_msf", "cluster4d_flash3d", "cluster4d_g3s",
+  "cluster4d_rena", "cluster4d_rena_plus", "cluster4d_mcl",
+  "cluster4d_acsc", "cluster4d_commute"
+)
+stopifnot(all(typed_wrappers %in% getNamespaceExports("neurocluster")))
+```
+
+The current `cluster4d()` documentation classifies `supervoxels()`, `snic()`,
+`slic4d_supervoxels()`, `slice_msf()`, and `supervoxels_flash3d()` as legacy,
+deprecated entry points. They remain exported for compatibility, but new code
+should use `cluster4d()` or a typed `cluster4d_*()` wrapper. Arguments and
+defaults need not match across lifecycle generations. The mapping guide is
+[Direct method APIs and cluster4d](legacy-apis.html).
+
+## What should you inspect after fitting?
+
+Use the result rather than reconstructing state from method internals:
+
+```r
+fit$labels          # labels in included-mask voxel order
+fit$actual_k        # number of labels actually produced
+fit$centers         # cluster means in the original feature space
+fit$coord_centers   # cluster centroids in physical millimetres
+fit$parameters      # recorded fitting parameters
+fit$provenance      # geometry, mask, feature, and label provenance
+```
+
+[Read clustering results](objects-results.html) explains these fields and shows
+the validation receipt that should accompany a saved or exported fit.

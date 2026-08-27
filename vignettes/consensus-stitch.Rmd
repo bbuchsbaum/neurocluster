@@ -1,121 +1,236 @@
 ---
-title: Consensus and slice stitching
+title: "Build consensus and stitch across slices"
 name: consensus-stitch
-description: Use slice_msf with consensus and stitch clusters across z-slices.
+description: Understand the two independent Slice-MSF controls for ensembles and volumetric topology.
 output:
   rmarkdown::html_vignette:
     toc: yes
     toc_depth: 2
+    css: albers.css
+    includes:
+      in_header: albers-header.html
 params:
-  family: lapis
+  family: red
   base_size: 13
   content_width: 72
-vignette: >
-  %\VignetteIndexEntry{Consensus and slice stitching}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
-css: albers.css
+  preset: homage
 resource_files:
 - albers.css
 - albers.js
-includes:
-  in_header: |-
-    <script src="albers.js"></script>
-    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
-
+- albers-header.html
+- fonts
+vignette: |
+  %\VignetteIndexEntry{Build consensus and stitch across slices}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
 
 ```{r setup, include=FALSE}
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
 knitr::opts_chunk$set(
-  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
-  out.width = "100%", fig.width = 7, fig.asp = 0.618,
-  message = FALSE, warning = FALSE
+  collapse = TRUE, comment = "#>", message = FALSE, warning = FALSE,
+  fig.align = "center", fig.retina = 2, out.width = "100%",
+  fig.width = 7, fig.asp = 0.55
 )
-set.seed(123); options(pillar.sigfig = 7, width = 80)
-suppressWarnings(suppressPackageStartupMessages({
-  library(neurocluster)
-  library(neuroim2)
-}))
-if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
-  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+if (requireNamespace("albersdown", quietly = TRUE) &&
+    requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(family = params$family, preset = params$preset))
 }
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
-# Toy data with a deliberate z seam (top vs bottom slices differ)
-make_toy_seam <- function(dims = c(12,12,6), T = 12, seed = 456) {
-  set.seed(seed)
-  d1 <- dims[1]; d2 <- dims[2]; d3 <- dims[3]
-  mask <- NeuroVol(array(1L, dims), NeuroSpace(dims))
-  arr <- array(rnorm(d1*d2*d3*T, sd = 0.25), c(d1,d2,d3,T))
-  tt <- seq(0, 2*pi, length.out = T)
-  s_top <- sin(tt)
-  s_bot <- sin(tt + pi/3)
-  arr[,,1:3,] <- sweep(arr[,,1:3,], 4, 0.8*s_top, "+")
-  arr[,,4:6,] <- sweep(arr[,,4:6,], 4, 0.8*s_bot, "+")
-  vec <- NeuroVec(arr, NeuroSpace(c(d1,d2,d3,T)))
-  list(vec = vec, mask = mask)
-}
-toy <- make_toy_seam()
+library(neurocluster)
 ```
 
-# Consensus {#consensus}
-```r
-res_cons <- slice_msf(
-  toy$vec, toy$mask, target_k_global = -1,
-  compactness = 5, nbhd = 8,
-  num_runs = 3, consensus = TRUE, stitch_z = FALSE
+```{r albers-classes, echo=FALSE, results='asis'}
+cat(sprintf(
+  paste0('<script>document.addEventListener("DOMContentLoaded",function(){',
+         'document.body.classList.add("palette-%s","preset-%s");',
+         '});</script><style>:root{--content:%sch}</style>'),
+  params$family, params$preset, params$content_width
+))
+```
+
+Slice-MSF has two controls that solve different problems. `consensus = TRUE`
+combines multiple seeded DCT-subspace runs. `stitch_z = TRUE` adds graph edges
+across axial slices. One changes ensemble evidence; the other changes which
+spatial connections are possible.
+
+## What does stitching change?
+
+The following example uses one run so stitching is the only changed control.
+Natural segmentation (`target_k_global = -1`) is used because a global exact-K
+target is unavailable when slices are independent.
+
+```{r stitch-data, include=FALSE}
+set.seed(7)
+dims <- c(8L, 8L, 4L)
+n_time <- 32L
+tt <- 0:(n_time - 1L)
+dct_basis <- vapply(
+  seq_len(15L),
+  function(k) cos(pi * (tt + 0.5) * k / n_time),
+  numeric(n_time)
+)
+values <- array(0, c(dims, n_time))
+truth_array <- array(0L, dims)
+for (z in seq_len(dims[3])) {
+  for (y in seq_len(dims[2])) {
+    for (x in seq_len(dims[1])) {
+      region <- 1L + (x - 1L) %/% 2L + 4L * ((y - 1L) %/% 4L)
+      truth_array[x, y, z] <- region
+      coefficients <- rnorm(15L, sd = 0.08)
+      coefficients[region] <- 1
+      coefficients[min(15L, region + 4L)] <- 0.5
+      values[x, y, z, ] <-
+        as.vector(dct_basis %*% coefficients) + rnorm(n_time, sd = 0.02)
+    }
+  }
+}
+syn <- list(
+  vec = neuroim2::NeuroVec(
+    values, neuroim2::NeuroSpace(c(dims, n_time))
+  ),
+  mask = neuroim2::NeuroVol(
+    array(1, dims), neuroim2::NeuroSpace(dims)
+  ),
+  truth = as.integer(truth_array), dims = dims
+)
+stopifnot(length(unique(syn$truth)) == 8L, !anyNA(syn$truth))
+```
+
+```{r stitch-fits}
+independent <- slice_msf(
+  syn$vec, syn$mask, target_k_global = -1,
+  r = 6, compactness = 10, min_size = 2, num_runs = 1,
+  consensus = FALSE, stitch_z = FALSE, seed = 17
+)
+stitched <- slice_msf(
+  syn$vec, syn$mask, target_k_global = -1,
+  r = 6, compactness = 10, min_size = 2, num_runs = 1,
+  consensus = FALSE, stitch_z = TRUE, seed = 17
 )
 ```
 
-```{r albers_inject, echo=FALSE, results='asis'}
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+```{r stitch-check, include=FALSE}
+v_independent <- validate_cluster4d(independent, syn$vec, syn$mask)
+v_stitched <- validate_cluster4d(stitched, syn$vec, syn$mask)
+stopifnot(v_independent$valid, v_stitched$valid)
+stopifnot(!isTRUE(independent$metadata$topology$volumetric))
+stopifnot(isTRUE(stitched$metadata$topology$volumetric))
+stopifnot(all(independent$labels > 0), all(stitched$labels > 0))
+stopifnot(independent$actual_k > 1L, stitched$actual_k > 1L)
+adjacent_slice_ari <- function(fit) {
+  labels <- array(fit$labels, syn$dims)
+  mean(vapply(seq_len(syn$dims[3] - 1L), function(z) {
+    clustering_accuracy(
+      as.vector(labels[, , z]), as.vector(labels[, , z + 1L])
+    )$ari
+  }, numeric(1)))
 }
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+continuity <- data.frame(
+  topology = c("independent slices", "stitched 3-D graph"),
+  mean_adjacent_slice_ari = c(
+    adjacent_slice_ari(independent), adjacent_slice_ari(stitched)
+  )
+)
+stopifnot(all(is.finite(continuity$mean_adjacent_slice_ari)))
+stopifnot(continuity$mean_adjacent_slice_ari[2] >
+          continuity$mean_adjacent_slice_ari[1])
+align_to_truth <- function(labels) {
+  ids <- sort(unique(labels))
+  map <- vapply(ids, function(id) {
+    counts <- table(syn$truth[labels == id])
+    as.integer(names(counts)[which.max(counts)])
+  }, integer(1))
+  unname(map[match(labels, ids)])
+}
 ```
 
-# Stitch across z {#stitch}
-```r
-res_stitch <- slice_msf(
-  toy$vec, toy$mask, target_k_global = -1,
-  compactness = 5, nbhd = 8,
-  num_runs = 1, consensus = FALSE, stitch_z = TRUE
+```{r continuity-summary, echo=FALSE}
+knitr::kable(
+  transform(continuity,
+            mean_adjacent_slice_ari = round(mean_adjacent_slice_ari, 3)),
+  caption = "Label-invariant continuity across adjacent axial slices."
 )
 ```
 
-# Visual comparison {#fig-stitch}
-```{r fig-stitch, fig.cap='Slice-MSF on toy data with a designed z seam: consensus vs stitching.', fig.alt='Two panels: consensus (no stitch) and stitch across z.'}
-ok <- exists("res_cons", inherits = TRUE) && exists("res_stitch", inherits = TRUE)
-if (ok) {
-  par(mfrow = c(1,2))
-  plot(res_cons,   view = "axial"); title("consensus (no stitch)")
-  plot(res_stitch, view = "axial"); title("stitch_z = TRUE")
-  par(mfrow = c(1,1))
-} else {
-  cat("Consensus/stitch demo unavailable on this platform or dataset size.")
-}
+```{r stitch-figure, echo=FALSE, fig.cap='Adjacent axial slices from independent-slice and stitched Slice-MSF fits. Each fitted subparcel is colored by its majority known region, giving the same eight-color meaning in all panels.', fig.alt='Four maps compare slices two and three. Colors are more consistent across the stitched pair than across the independent pair.'}
+palette_cb <- c("#0072B2", "#D55E00", "#009E73", "#CC79A7",
+               "#E69F00", "#56B4E9", "#F0E442", "#000000")
+label_array <- function(fit) array(align_to_truth(fit$labels), dim = syn$dims)
+a <- label_array(independent)
+b <- label_array(stitched)
+old_par <- par(mfrow = c(2, 2), mar = c(1.2, 1.2, 2.3, 0.6))
+image(a[, , 2], col = palette_cb, axes = FALSE, main = "independent: z = 2"); box()
+image(a[, , 3], col = palette_cb, axes = FALSE, main = "independent: z = 3"); box()
+image(b[, , 2], col = palette_cb, axes = FALSE, main = "stitched: z = 2"); box()
+image(b[, , 3], col = palette_cb, axes = FALSE, main = "stitched: z = 3"); box()
+par(old_par)
 ```
 
-# Post-merge {#post-merge}
-```r
-# Example: merge clusters if too small (toy illustration)
-val <- validate_cluster4d(res_stitch, toy$vec, toy$mask)
-val$summary
+**What to notice.** The stitched fit is allowed to propagate parcel identity
+through axial edges; the independent fit is not. The adjacent-slice ARI is
+label-invariant and rises from
+`r sprintf("%.3f", continuity$mean_adjacent_slice_ari[1])` to
+`r sprintf("%.3f", continuity$mean_adjacent_slice_ari[2])` on this fixture.
+This observed difference is not a universal promise that stitching improves a
+scientific endpoint.
+
+## What does consensus change?
+
+For `num_runs > 1`, Slice-MSF constructs seeded DCT subspaces and fuses the run
+partitions. The seed is recorded and the caller’s random-number stream is
+preserved. Consensus is not a promise of improved accuracy; it is a defined
+ensemble procedure whose stability and quality must be evaluated for the task.
+
+```{r consensus-fit}
+ensemble <- slice_msf(
+  syn$vec, syn$mask, target_k_global = 8,
+  r = 6, compactness = 10, min_size = 2, num_runs = 3,
+  consensus = TRUE, use_features = TRUE, ensemble_fraction = 0.6,
+  stitch_z = TRUE, seed = 17
+)
 ```
 
-# Notes & limitations {#pitfalls}
-- With `stitch_z = FALSE`, each axial slice has an independent graph and a
-  global exact-K target is unavailable. With `stitch_z = TRUE`, the graph adds
-  axial edges and exact `target_k_global` becomes available.
-- Consensus (`num_runs > 1, consensus = TRUE`) aggregates multiple runs; improves stability at additional runtime cost.
-includes:
-  in_header: |-
-    <link rel="stylesheet" href="albers.css" />
-    <script src="albers.js"></script>
+```{r consensus-check, include=FALSE}
+v_ensemble <- validate_cluster4d(ensemble, syn$vec, syn$mask)
+stopifnot(v_ensemble$valid, ensemble$actual_k == 8L)
+stopifnot(length(ensemble$metadata$ensemble$runs) == 3L)
+stopifnot(identical(ensemble$metadata$ensemble$seed, 17L))
+run_signatures <- vapply(
+  ensemble$runs, function(run) paste(run$labels, collapse = ","), character(1)
+)
+consensus_stability <- data.frame(
+  run = seq_along(ensemble$runs),
+  run_clusters = vapply(
+    ensemble$runs, function(run) length(unique(run$labels)), integer(1)
+  ),
+  ari_to_consensus = vapply(
+    ensemble$runs,
+    function(run) clustering_accuracy(run$labels, ensemble$labels)$ari,
+    numeric(1)
+  )
+)
+stopifnot(length(unique(run_signatures)) == 3L)
+stopifnot(all(consensus_stability$run_clusters > 1L))
+stopifnot(all(is.finite(consensus_stability$ari_to_consensus)))
+```
+
+```{r consensus-stability-table, echo=FALSE}
+knitr::kable(
+  transform(consensus_stability,
+            ari_to_consensus = round(ari_to_consensus, 3)),
+  caption = "The three seeded runs are nondegenerate and distinct; ARI measures each run's agreement with the fused eight-parcel result."
+)
+```
+
+```{r consensus-stability-figure, echo=FALSE, fig.cap='Agreement of each distinct seeded run with the final consensus partition. Variation across runs is visible rather than hidden behind the fused result.', fig.alt='Three orange points show adjusted Rand agreement with consensus, all between about 0.65 and 0.72.'}
+plot(consensus_stability$run, consensus_stability$ari_to_consensus,
+     type = "b", pch = 17, lwd = 2, col = "#E69F00", bty = "l",
+     xaxt = "n", ylim = c(0, 1), xlab = "seeded run",
+     ylab = "ARI to consensus")
+axis(1, at = consensus_stability$run)
+```
+
+The exact-K claim above is scoped to this connected mask and requested target;
+the hidden check makes the vignette fail if it changes. Consensus does not erase
+run-to-run variation: the table and figure expose it. For parameter tuning
+and comparison, continue to [Choose parameters](choose-parameters.html) and
+[Validate and compare clusterings](validate-compare.html).

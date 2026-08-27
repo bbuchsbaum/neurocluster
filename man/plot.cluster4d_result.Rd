@@ -4,7 +4,7 @@
 \alias{plot.cluster4d_result}
 \title{Plot cluster4d result}
 \usage{
-\method{plot}{cluster4d_result}(x, slice = NULL, view = "all", colors = NULL, ...)
+\method{plot}{cluster4d_result}(x, slice = NULL, view = "all", colors = NULL, zlim = NULL, ...)
 }
 \arguments{
 \item{x}{A cluster4d_result object}
@@ -19,6 +19,10 @@
 \item{view}{Viewing plane: "axial", "sagittal", "coronal", or "all"}
 
 \item{colors}{Color palette for clusters. Default uses rainbow colors.}
+
+\item{zlim}{Numeric length-two label range shared by every displayed plane.
+The default, \code{c(0.5, x$n_clusters + 0.5)}, keeps each positive integer
+label mapped to the same categorical color even when a slice omits labels.}
 
 \item{...}{Additional arguments passed to plotting functions}
 }

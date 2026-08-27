@@ -160,13 +160,16 @@ summary.cluster4d_result <- function(object, ...) {
 #'   }
 #' @param view Viewing plane: "axial", "sagittal", "coronal", or "all"
 #' @param colors Color palette for clusters. Default uses rainbow colors.
+#' @param zlim Numeric length-two label range shared by every displayed plane.
+#'   The default, `c(0.5, x$n_clusters + 0.5)`, keeps each positive integer
+#'   label mapped to the same categorical color even when a slice omits labels.
 #' @param ... Additional arguments passed to plotting functions
 #'
 #' @return Invisibly returns the plotted data
 #' @method plot cluster4d_result
 #' @export
 plot.cluster4d_result <- function(x, slice = NULL, view = "all", 
-                                 colors = NULL, ...) {
+                                 colors = NULL, zlim = NULL, ...) {
   
   # Get the clustered volume and materialize label array
   clusvol <- x$clusvol
@@ -197,6 +200,9 @@ plot.cluster4d_result <- function(x, slice = NULL, view = "all",
   if (is.null(colors)) {
     n_colors <- x$n_clusters
     colors <- rainbow(n_colors)
+  }
+  if (is.null(zlim)) {
+    zlim <- c(0.5, x$n_clusters + 0.5)
   }
   
   # Save and restore graphics parameters
@@ -235,7 +241,7 @@ plot.cluster4d_result <- function(x, slice = NULL, view = "all",
     }
     
     # Create color-mapped image
-    image(slice_data, col = colors, main = main_title,
+    image(slice_data, col = colors, zlim = zlim, main = main_title,
           xlab = xlab, ylab = ylab, axes = FALSE, ...)
     
     # Add axes
@@ -250,7 +256,8 @@ plot.cluster4d_result <- function(x, slice = NULL, view = "all",
   invisible(list(
     slice_x = slice_x,
     slice_y = slice_y,
-    slice_z = slice_z
+    slice_z = slice_z,
+    zlim = zlim
   ))
 }
 

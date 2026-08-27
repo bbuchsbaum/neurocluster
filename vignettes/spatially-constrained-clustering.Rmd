@@ -1,70 +1,179 @@
 ---
-title: Spatially constrained clustering
+title: "Understand spatially constrained clustering"
 name: spatially-constrained-clustering
-description: 'Concepts: spatial vs. feature weighting, connectivity, and artifacts.'
+description: See how feature similarity, distance, and connectivity shape a parcel map.
 output:
   rmarkdown::html_vignette:
     toc: yes
     toc_depth: 2
+    css: albers.css
+    includes:
+      in_header: albers-header.html
 params:
-  family: violet
+  family: red
   base_size: 13
   content_width: 72
-vignette: >
-  %\VignetteIndexEntry{Spatially constrained clustering}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
-css: albers.css
+  preset: homage
 resource_files:
 - albers.css
 - albers.js
-includes:
-  in_header: |-
-    <script src="albers.js"></script>
-    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
-
+- albers-header.html
+- fonts
+vignette: |
+  %\VignetteIndexEntry{Understand spatially constrained clustering}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
 
-# Intuition {#intuition}
 ```{r setup, include=FALSE}
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
 knitr::opts_chunk$set(
-  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
-  out.width = "100%", fig.width = 7, fig.asp = 0.618,
-  message = FALSE, warning = FALSE
+  collapse = TRUE, comment = "#>", message = FALSE, warning = FALSE,
+  fig.align = "center", fig.retina = 2, out.width = "100%",
+  fig.width = 7, fig.asp = 0.55
 )
-set.seed(123); options(pillar.sigfig = 7, width = 80)
-if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
-  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+if (requireNamespace("albersdown", quietly = TRUE) &&
+    requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(family = params$family, preset = params$preset))
 }
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+library(neurocluster)
 ```
 
-```{r albers_inject, echo=FALSE, results='asis'}
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```{r albers-classes, echo=FALSE, results='asis'}
+cat(sprintf(
+  paste0('<script>document.addEventListener("DOMContentLoaded",function(){',
+         'document.body.classList.add("palette-%s","preset-%s");',
+         '});</script><style>:root{--content:%sch}</style>'),
+  params$family, params$preset, params$content_width
+))
 ```
-Spatially constrained clustering balances data similarity (time series) with spatial proximity to produce contiguous parcels.
 
-# Alpha vs. compactness {#alpha-vs-compactness}
-- Supervoxels: `alpha` controls the relative weight of feature similarity; in `cluster4d_supervoxels()`, `spatial_weight` is mapped as `alpha = 1 - spatial_weight`.
-- SNIC/SLIC: use a `compactness` term in their native interfaces; via `cluster4d()`, set `spatial_weight` which the wrappers map to the appropriate compactness scale.
+Ordinary clustering can group distant voxels because their time series look
+alike. Spatially constrained clustering adds location or neighbourhood
+structure so the output is a set of parcels rather than a scattered label map.
+The scientific choice is not “spatial or functional”; it is how the method
+defines and balances both forms of evidence.
 
-# Connectivity {#connectivity}
-- Use 6 for face-adjacency; 26 adds edges/corners. In `cluster4d()`, `connectivity` is passed through to the chosen method (where applicable).
+## What does spatial weight change?
 
-# Artifacts {#artifacts}
-- Slice-wise methods can exhibit z‑plane seams; stitch or increase spatial weighting.
-includes:
-  in_header: |-
-    <link rel="stylesheet" href="albers.css" />
-    <script src="albers.js"></script>
+In the unified API, `spatial_weight` lies in `[0, 1]`. Higher values give more
+influence to spatial compactness. Each wrapper maps that common scale to a
+method-native objective, so equal numeric values do not make different
+algorithms mathematically identical.
+
+The example below holds data, K, algorithm, and seed fixed while changing only
+G3S’s unified spatial weight. It uses a genuinely 3-D fixture so the spatial
+term acts across all three axes.
+
+```{r spatial-data, include=FALSE}
+syn <- generate_synthetic_volume(
+  scenario = "gaussian_blobs", dims = c(16, 16, 8),
+  n_clusters = 4, n_time = 40, noise_sd = 0.08, seed = 42
+)
+```
+
+```{r spatial-fits}
+spatial_weights <- c(0.2, 0.5, 0.8)
+weight_fits <- lapply(spatial_weights, function(weight) {
+  cluster4d(
+    syn$vec, syn$mask, n_clusters = 4, method = "g3s",
+    spatial_weight = weight, connectivity = 26, parallel = FALSE
+  )
+})
+```
+
+```{r spatial-checks, include=FALSE}
+weight_checks <- lapply(weight_fits, validate_cluster4d,
+                        vec = syn$vec, mask = syn$mask)
+weight_metrics <- lapply(weight_fits, cluster_metrics, truth = syn$truth)
+sensitivity <- data.frame(
+  spatial_weight = spatial_weights,
+  ari_to_known = vapply(weight_metrics, `[[`, numeric(1), "ari_truth"),
+  spatial_rms_mm = vapply(weight_metrics, `[[`, numeric(1),
+                          "spatial_rms_distance_mm")
+)
+stopifnot(
+  identical(syn$dims, c(16, 16, 8)), !anyNA(syn$truth),
+  length(unique(syn$truth)) == 4L,
+  all(vapply(weight_checks, `[[`, logical(1), "valid")),
+  all(vapply(weight_fits, `[[`, integer(1), "actual_k") == 4L),
+  all(is.finite(as.matrix(sensitivity))),
+  all(diff(sensitivity$spatial_rms_mm) < 0),
+  length(unique(round(sensitivity$ari_to_known, 8))) > 1L
+)
+align_to_known <- function(labels, truth) {
+  ids <- sort(unique(labels))
+  truth_ids <- sort(unique(truth))
+  stopifnot(length(ids) == length(truth_ids))
+  overlap <- table(factor(labels, levels = ids),
+                   factor(truth, levels = truth_ids))
+  map <- truth_ids[as.integer(clue::solve_LSAP(overlap, maximum = TRUE))]
+  aligned <- unname(map[match(labels, ids)])
+  stopifnot(length(unique(aligned)) == length(ids))
+  aligned
+}
+```
+
+```{r spatial-summary, echo=FALSE}
+knitr::kable(
+  transform(sensitivity, ari_to_known = round(ari_to_known, 3),
+            spatial_rms_mm = round(spatial_rms_mm, 2)),
+  caption = "Observed G3S sensitivity on this generated 3-D fixture."
+)
+```
+
+```{r spatial-map, echo=FALSE, fig.cap='The same middle axial slice at low and high G3S spatial weight. A one-to-one maximum-overlap assignment preserves four distinct fitted parcels while aligning their arbitrary IDs to the four known colors.', fig.alt='Two four-color axial parcel maps. Every fitted parcel has a distinct color; the high-weight map has visibly more compact boundaries than the low-weight map.'}
+palette_cb <- c("#0072B2", "#D55E00", "#009E73", "#CC79A7")
+label_slice <- function(fit, z = 4L) {
+  aligned <- align_to_known(fit$labels, syn$truth)
+  array(aligned, syn$dims)[, , z]
+}
+old_par <- par(mfrow = c(1, 2), mar = c(2.4, 2.4, 2.4, 0.8))
+image(label_slice(weight_fits[[1]]), col = palette_cb, zlim = c(0.5, 4.5), axes = FALSE,
+      main = "spatial_weight = 0.2")
+box()
+image(label_slice(weight_fits[[3]]), col = palette_cb, zlim = c(0.5, 4.5), axes = FALSE,
+      main = "spatial_weight = 0.8")
+box()
+par(old_par)
+```
+
+```{r sensitivity-figure, echo=FALSE, fig.cap='Two explicit sensitivity estimands. Larger spatial weight reduces physical RMS dispersion on this fixture, while agreement with the known feature-defined partition also changes. Neither axis alone defines quality.', fig.alt='Two line plots across spatial weights 0.2, 0.5, and 0.8. Spatial RMS distance declines; adjusted Rand agreement also changes.'}
+old_par <- par(mfrow = c(1, 2), mar = c(4.5, 4.4, 2, 1))
+plot(sensitivity$spatial_weight, sensitivity$spatial_rms_mm,
+     type = "b", pch = 16, lwd = 2, col = "#0072B2", bty = "l",
+     xlab = "spatial weight", ylab = "spatial RMS distance (mm)")
+plot(sensitivity$spatial_weight, sensitivity$ari_to_known,
+     type = "b", pch = 17, lwd = 2, col = "#D55E00", bty = "l",
+     ylim = c(0, 1), xlab = "spatial weight",
+     ylab = "ARI to known partition")
+par(old_par)
+```
+
+**What to notice.** Changing the weight moves boundaries even though K is
+fixed. On this fixture, higher weight produces lower physical dispersion, but
+agreement with the known feature-defined partition also falls. That tradeoff is
+measured here rather than inferred from appearance; it is not a universal G3S
+trend or evidence that either endpoint is “better.”
+
+## What does connectivity mean?
+
+Connectivity defines which mask voxels are neighbours in methods that expose
+it. Six-neighbour connectivity uses shared faces. Larger 3-D neighbourhoods
+can also include edge- or corner-touching voxels. Supported values are
+method-specific, and `cluster4d()` rejects a value a method cannot use rather
+than silently ignoring it.
+
+Connectivity is also a feasibility constraint. If a mask has multiple
+disconnected components, no connected clustering can produce fewer parcels
+than components without crossing excluded space. A requested K is therefore a
+target, not permission to violate topology.
+
+## How should artifacts be diagnosed?
+
+Inspect all three anatomical planes, cluster-size distributions, and boundary
+sensitivity across defensible settings. Slice-wise algorithms deserve an
+explicit cross-slice check; [Consensus and stitching](consensus-stitch.html)
+shows what stitching changes. Continue with
+[Choose parameters](choose-parameters.html) for tuning and
+[Validate and compare clusterings](validate-compare.html) for defined
+comparison estimands.

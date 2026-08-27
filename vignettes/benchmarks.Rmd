@@ -1,129 +1,155 @@
 ---
-title: "Benchmark gallery"
+title: "Benchmark with a reproducible receipt"
+name: benchmarks
+description: Run a scoped micro-comparison and report enough context to reproduce it.
 output:
   rmarkdown::html_vignette:
-    toc: true
+    toc: yes
     toc_depth: 2
-vignette: >
-  %\VignetteIndexEntry{Benchmark gallery}
+    css: albers.css
+    includes:
+      in_header: albers-header.html
+params:
+  family: red
+  base_size: 13
+  content_width: 72
+  preset: homage
+resource_files:
+- albers.css
+- albers.js
+- albers-header.html
+- fonts
+vignette: |
+  %\VignetteIndexEntry{Benchmark with a reproducible receipt}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
-  collapse = TRUE,
-  comment = "#>",
-  fig.width = 7,
-  fig.height = 4
+  collapse = TRUE, comment = "#>", message = FALSE, warning = FALSE,
+  fig.align = "center", fig.retina = 2, out.width = "100%",
+  fig.width = 7, fig.asp = 0.56
+)
+if (requireNamespace("albersdown", quietly = TRUE) &&
+    requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(family = params$family, preset = params$preset))
+}
+library(neurocluster)
+```
+
+```{r albers-classes, echo=FALSE, results='asis'}
+cat(sprintf(
+  paste0('<script>document.addEventListener("DOMContentLoaded",function(){',
+         'document.body.classList.add("palette-%s","preset-%s");',
+         '});</script><style>:root{--content:%sch}</style>'),
+  params$family, params$preset, params$content_width
+))
+```
+
+A benchmark is evidence only for its measured workload. This article does not
+read a checked-in `results.csv` or present old machine timings as current. It
+runs a deliberately small comparison during rendering and shows the receipt
+needed to reproduce it. Use the pattern—not the tiny timings—to design a study
+for your data.
+
+## What exactly is measured here?
+
+The estimand is elapsed wall-clock seconds for a complete `cluster4d()` call on
+one generated 400-voxel, 18-time-point volume, after one warm-up call. We keep
+three repetitions for each method and require every fit to be valid and to
+produce the requested K. These are smoke-scale timings, not whole-brain
+performance claims.
+
+```{r benchmark-data, include=FALSE}
+syn <- generate_synthetic_volume(
+  scenario = "gaussian_blobs", dims = c(10, 10, 4),
+  n_clusters = 4, n_time = 18, noise_sd = 0.06, seed = 713
+)
+fit_one <- function(method) {
+  if (method == "snic") {
+    cluster4d(syn$vec, syn$mask, 4, method = "snic", spatial_weight = 0.4)
+  } else {
+    cluster4d(
+      syn$vec, syn$mask, 4, method = "slic", spatial_weight = 0.4,
+      max_iterations = 6, preserve_k = TRUE, parallel = FALSE
+    )
+  }
+}
+invisible(fit_one("snic"))
+invisible(fit_one("slic"))
+```
+
+```{r benchmark-run}
+methods <- c("snic", "slic")
+benchmark_order <- c("snic", "slic", "slic", "snic", "snic", "slic")
+repetitions <- as.integer(ave(
+  seq_along(benchmark_order), benchmark_order, FUN = seq_along
+))
+data.frame(run = seq_along(benchmark_order), method = benchmark_order,
+           repetition = repetitions)
+
+timings <- do.call(rbind, lapply(seq_along(benchmark_order), function(run) {
+  method <- benchmark_order[run]
+  elapsed <- system.time(fit <- fit_one(method))[["elapsed"]]
+  validation <- validate_cluster4d(fit, syn$vec, syn$mask)
+  data.frame(
+    run = run, method = method, repetition = repetitions[run],
+    elapsed_seconds = unname(elapsed),
+    actual_k = fit$actual_k, valid = validation$valid
+  )
+}))
+timings
+```
+
+```{r benchmark-check, include=FALSE}
+stopifnot(nrow(timings) == 6L)
+stopifnot(all(timings$valid), all(timings$actual_k == 4L))
+stopifnot(all(is.finite(timings$elapsed_seconds)))
+stopifnot(all(timings$elapsed_seconds >= 0))
+stopifnot(identical(timings$method, benchmark_order))
+stopifnot(all(table(timings$method) == 3L))
+benchmark_summary <- aggregate(elapsed_seconds ~ method, timings, median)
+benchmark_summary <- benchmark_summary[match(methods, benchmark_summary$method), ]
+```
+
+```{r benchmark-figure, echo=FALSE, fig.cap='Three elapsed-time repetitions per method on the vignette’s tiny generated workload; diamonds are medians.', fig.alt='Jittered timing points and median diamonds for SNIC and serial SLIC on a 400-voxel example.'}
+palette_cb <- c(snic = "#0072B2", slic = "#D55E00")
+x <- match(timings$method, methods)
+offset <- (timings$repetition - 2) * 0.08
+plot(x + offset, timings$elapsed_seconds, pch = 21, cex = 1.5,
+     bg = palette_cb[timings$method], col = "white",
+     xaxt = "n", xlab = "method", ylab = "elapsed seconds",
+     xlim = c(0.5, 2.5), ylim = c(0, max(timings$elapsed_seconds) * 1.15 + 1e-6))
+axis(1, at = seq_along(methods), labels = toupper(methods))
+points(seq_along(methods), benchmark_summary$elapsed_seconds,
+       pch = 23, cex = 1.8, bg = "#009E73", col = "white")
+box()
+```
+
+**What to notice.** Repeated timings vary even on a tiny fixed input. The plot
+supports only this render’s workload and environment; it does not rank methods
+for a different volume, K, parameter set, or machine.
+
+## What belongs in the receipt?
+
+```{r benchmark-receipt}
+list(
+  package_version = as.character(packageVersion("neurocluster")),
+  r_version = paste(R.version$major, R.version$minor, sep = "."),
+  platform = R.version$platform,
+  dimensions = syn$dims,
+  included_voxels = length(syn$truth),
+  time_points = ncol(syn$patterns),
+  requested_k = 4L,
+  repetitions = 3L,
+  run_order = benchmark_order
 )
 ```
 
-## What's in here
-
-- Benchmarks of the core methods (snic, slice_msf, supervoxels, flash3d, rena, acsc)
-- Shared synthetic datasets of increasing size/complexity
-- A few common parameter settings per method to show how runtime and cluster count move
-
-The heavy lifting is done by `inst/benchmarks/bench_methods.R`. We keep that **off by default** so the vignette stays light; instead we read precomputed results if they exist.
-
-## How to reproduce locally
-
-```r
-# from the package root
-Rscript inst/benchmarks/bench_methods.R
-```
-
-This writes `inst/benchmarks/results.csv`. Re-knit this vignette to refresh the tables/plots.
-
-## Load results (if available)
-
-```{r load-results}
-res_path <- system.file("benchmarks/results.csv", package = "neurocluster")
-if (!file.exists(res_path)) {
-  cat("Benchmark results not found. Run inst/benchmarks/bench_methods.R to generate them.")
-  has_results <- FALSE
-} else {
-  results <- read.csv(res_path, stringsAsFactors = FALSE)
-  results$elapsed_sec <- as.numeric(results$elapsed_sec)
-  has_results <- TRUE
-}
-```
-
-## Summary table
-
-```{r table, echo=FALSE}
-if (has_results) head(results, 12)
-```
-
-## Quick plots
-
-```{r plots, echo=FALSE, message=FALSE, warning=FALSE}
-if (has_results && requireNamespace("ggplot2", quietly = TRUE)) {
-  library(ggplot2)
-  results$method <- factor(results$method, levels = sort(unique(results$method)))
-
-  # Best ARI per method/dataset (show param_id to avoid "cherry-pick" concerns)
-  if (!all(is.na(results$ari))) {
-    best_ari <- subset(results, !is.na(ari))
-    best_ari <- best_ari[order(best_ari$dataset, best_ari$method, -best_ari$ari), ]
-    best_ari <- best_ari[!duplicated(best_ari[c("dataset","method")]), ]
-    p_best_ari <- ggplot(best_ari, aes(x = method, y = ari, fill = dataset, alpha = factor(param_id))) +
-      geom_col(position = position_dodge()) +
-      scale_alpha_discrete(name = "param_id") +
-      scale_y_continuous("Best ARI (per method/dataset)", limits = c(0, 1)) +
-      coord_flip() +
-      theme_minimal()
-    print(p_best_ari)
-  }
-
-  p_time <- ggplot(results, aes(x = method, y = elapsed_sec, fill = dataset)) +
-    geom_col(position = position_dodge()) +
-    scale_y_log10("Elapsed (s, log scale)", limits = c(min(results$elapsed_sec[results$elapsed_sec>0])*0.8, NA)) +
-    coord_flip() +
-    theme_minimal()
-
-  p_k <- ggplot(results, aes(x = method, y = n_clusters, fill = dataset)) +
-    geom_col(position = position_dodge()) +
-    scale_y_continuous("Clusters found", limits = c(0, NA)) +
-    coord_flip() +
-    theme_minimal()
-
-  # Relative time within each dataset (faster to compare)
-  rel <- results
-  rel <- rel[rel$elapsed_sec > 0, ]
-  rel$rel_time <- ave(rel$elapsed_sec, rel$dataset, FUN = function(x) x / min(x))
-  p_rel <- ggplot(rel, aes(x = method, y = rel_time, fill = dataset)) +
-    geom_col(position = position_dodge()) +
-    scale_y_log10("Relative time (vs fastest in dataset, log scale)", limits = c(1, NA)) +
-    coord_flip() +
-    theme_minimal()
-
-  # Accuracy (if available)
-  acc <- results[!is.na(results$ari), ]
-  if (nrow(acc) > 0) {
-    p_ari <- ggplot(acc, aes(x = method, y = ari, fill = dataset, alpha = factor(param_id))) +
-      geom_col(position = position_dodge()) +
-      scale_alpha_discrete(name = "param_id") +
-      scale_y_continuous("Adjusted Rand Index", limits = c(0, 1)) +
-      coord_flip() +
-      theme_minimal()
-    print(p_ari)
-  }
-
-  print(p_time)
-  print(p_rel)
-  print(p_k)
-}
-```
-
-## Notes on parameters
-
-- **snic**: compactness = {2, 5}
-- **slice_msf**: r = {8, 12}, min_size tuned for small/medium data
-- **supervoxels**: alpha = {0.4, 0.8}
-- **flash3d**: dctM = {8, 12}
-- **rena**: connectivity = {6, 26}
-- **acsc**: lambda = {0.6, 1.0}
-
-These are not exhaustive sweeps—just representative settings to show trends without long runtimes. Adjust `inst/benchmarks/bench_methods.R` if you want deeper dives.
+For a real benchmark, also record the commit, CPU, RAM, operating system,
+thread backend and count, full method calls, warm-up policy, allocation or peak
+RSS measurement method, and every repetition. Predefine quality estimands when
+comparing approximation settings; elapsed time alone cannot establish a useful
+clustering. See [Performance and memory](performance-memory.html) and
+[Validate and compare clusterings](validate-compare.html).

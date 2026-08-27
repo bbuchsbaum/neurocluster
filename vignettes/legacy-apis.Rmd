@@ -1,76 +1,128 @@
 ---
-title: Legacy APIs and backward compatibility
+title: "Direct method APIs and cluster4d"
 name: legacy-apis
-description: Map old interfaces to the unified cluster4d entry point.
+description: Understand what the unified interface maps and what remains method-specific.
 output:
   rmarkdown::html_vignette:
     toc: yes
     toc_depth: 2
+    css: albers.css
+    includes:
+      in_header: albers-header.html
 params:
-  family: ochre
+  family: red
   base_size: 13
   content_width: 72
-vignette: >
-  %\VignetteIndexEntry{Legacy APIs and backward compatibility}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
-css: albers.css
+  preset: homage
 resource_files:
 - albers.css
 - albers.js
-includes:
-  in_header: |-
-    <script src="albers.js"></script>
-    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
-
+- albers-header.html
+- fonts
+vignette: |
+  %\VignetteIndexEntry{Direct method APIs and cluster4d}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
 
-# Map old to new {#map}
 ```{r setup, include=FALSE}
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
 knitr::opts_chunk$set(
-  collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
-  out.width = "100%", fig.width = 7, fig.asp = 0.618,
-  message = FALSE, warning = FALSE
+  collapse = TRUE, comment = "#>", message = FALSE, warning = FALSE,
+  fig.align = "center", fig.retina = 2, out.width = "100%"
 )
-set.seed(123); options(pillar.sigfig = 7, width = 80)
-if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
-  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+if (requireNamespace("albersdown", quietly = TRUE) &&
+    requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(albersdown::theme_albers(family = params$family, preset = params$preset))
 }
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+library(neurocluster)
 ```
 
-```{r albers_inject, echo=FALSE, results='asis'}
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
-```
-- `supervoxels(vec, mask, K, alpha, ...)` → `cluster4d(vec, mask, n_clusters=K, method="supervoxels", spatial_weight=1-alpha, ...)`
-- `snic(vec, mask, K, compactness, ...)` → `cluster4d(..., method="snic", spatial_weight=compactness/10, ...)`
-- `slic4d_supervoxels(...)` → `cluster4d(..., method="slic", ...)`
-- `slice_msf(...)` → `cluster4d(..., method="slice_msf", ...)`
-- `supervoxels_flash3d(...)` → `cluster4d(..., method="flash3d", ...)`
-
-# Examples {#examples}
-```r
-# Old
-# res <- supervoxels(vec, mask, K = 100, alpha = 0.3)
-
-# New
-# res <- cluster4d(vec, mask, n_clusters = 100, method = "supervoxels", spatial_weight = 0.7)
+```{r albers-classes, echo=FALSE, results='asis'}
+cat(sprintf(
+  paste0('<script>document.addEventListener("DOMContentLoaded",function(){',
+         'document.body.classList.add("palette-%s","preset-%s");',
+         '});</script><style>:root{--content:%sch}</style>'),
+  params$family, params$preset, params$content_width
+))
 ```
 
-# Deprecations {#deprecations}
-- Prefer `cluster4d()` for consistency and shared validation.
-includes:
-  in_header: |-
-    <link rel="stylesheet" href="albers.css" />
-    <script src="albers.js"></script>
+The package keeps `cluster4d()`, typed `cluster4d_*()` wrappers, and older
+method-native functions. The current `cluster4d()` documentation classifies
+`supervoxels()`, `snic()`, `slic4d_supervoxels()`, `slice_msf()`, and
+`supervoxels_flash3d()` as legacy/deprecated entry points. They remain exported
+for compatibility, but new code should use the unified interface or its typed
+wrappers. Equivalence should never be assumed unless mapped parameters are
+identical.
+
+## What does the unified interface map?
+
+| Unified method | Legacy entry point | Preferred typed wrapper | Important mapping |
+|---|---|---|---|
+| `"supervoxels"` | `supervoxels()` | `cluster4d_supervoxels()` | `alpha = 1 - spatial_weight` |
+| `"snic"` | `snic()` | `cluster4d_snic()` | `compactness = 10 * spatial_weight` |
+| `"slic"` | `slic4d_supervoxels()` | `cluster4d_slic()` | `compactness = 20 * spatial_weight` |
+| `"slice_msf"` | `slice_msf()` | `cluster4d_slice_msf()` | target K, connectivity, and weight are translated |
+| `"flash3d"` | `supervoxels_flash3d()` | `cluster4d_flash3d()` | `lambda_s = spatial_weight`; temporal weight is complementary unless supplied |
+| `"g3s"` | none (`g3s()` does not exist) | `cluster4d_g3s()` | `alpha = 1 - spatial_weight` |
+
+Those statements describe the current wrappers. Defaults and method-specific
+arguments can still differ, so record the actual `cluster4d()` or typed-wrapper
+call—not an informal translation.
+
+```{r lifecycle-check, include=FALSE}
+exports <- getNamespaceExports("neurocluster")
+legacy_exports <- c(
+  "supervoxels", "snic", "slic4d_supervoxels", "slice_msf",
+  "supervoxels_flash3d"
+)
+typed_exports <- c(
+  "cluster4d_supervoxels", "cluster4d_snic", "cluster4d_slic",
+  "cluster4d_slice_msf", "cluster4d_flash3d", "cluster4d_g3s"
+)
+stopifnot(
+  all(legacy_exports %in% exports), all(typed_exports %in% exports),
+  !"g3s" %in% exports
+)
+```
+
+## Can a mapping be checked rather than trusted?
+
+This small compatibility example checks the exact legacy SNIC mapping on one
+generated volume. It explains an existing script; it is not a recommendation
+to start new code with `snic()`.
+
+```{r direct-data, echo=FALSE}
+syn <- generate_synthetic_volume(
+  scenario = "gaussian_blobs", dims = c(10, 10, 3),
+  n_clusters = 4, n_time = 16, seed = 812
+)
+```
+
+```{r direct-fit}
+unified <- cluster4d(
+  syn$vec, syn$mask, n_clusters = 4, method = "snic",
+  spatial_weight = 0.4
+)
+direct <- snic(syn$vec, syn$mask, K = 4, compactness = 4)
+```
+
+```{r direct-check, include=FALSE}
+vu <- validate_cluster4d(unified, syn$vec, syn$mask)
+vd <- validate_cluster4d(direct, syn$vec, syn$mask)
+stopifnot(vu$valid, vd$valid)
+stopifnot(identical(unified$labels, direct$labels))
+stopifnot(identical(unified$actual_k, direct$actual_k))
+```
+
+For this input and package version, the labels are identical. That is a check
+of this mapping—not a blanket promise that every unified/direct pair is
+bit-identical.
+
+## Which interface should you publish?
+
+Use `cluster4d()` when methods are compared under a shared contract. Use a
+typed `cluster4d_*()` wrapper when the protocol depends on a native parameter.
+Treat the legacy functions as compatibility surfaces. In every case, save the
+result’s `parameters` and `provenance`, validate it against the original `vec`
+and `mask`, and report the actual rather than merely requested cluster count.
+See [Read clustering results](objects-results.html).

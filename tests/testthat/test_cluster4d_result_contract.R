@@ -198,6 +198,37 @@ test_that("cluster vector and ClusteredNeuroVol round-trip exactly", {
   }
 })
 
+test_that("orthogonal plots keep one categorical label scale across planes", {
+  dims <- c(4L, 4L, 3L)
+  sp <- neuroim2::NeuroSpace(dims)
+  mask <- neuroim2::NeuroVol(array(1L, dims), sp)
+  labels <- array(1L, dims)
+  labels[3:4, 3:4, 2:3] <- 2L
+  result <- structure(
+    list(
+      clusvol = neuroim2::ClusteredNeuroVol(mask, as.integer(labels)),
+      n_clusters = 2L
+    ),
+    class = "cluster4d_result"
+  )
+
+  plot_file <- tempfile(fileext = ".png")
+  grDevices::png(plot_file)
+  on.exit({
+    grDevices::dev.off()
+    unlink(plot_file)
+  }, add = TRUE)
+  receipt <- plot(
+    result, slice = c(2, 2, 1), view = "all",
+    colors = c("#0072B2", "#D55E00")
+  )
+
+  expect_identical(receipt$zlim, c(0.5, 2.5))
+  expect_false(2L %in% labels[, , 1])
+  expect_false(2L %in% labels[2, , ])
+  expect_false(2L %in% labels[, 2, ])
+})
+
 test_that("validate_cluster4d fails closed on malformed and stale results", {
   fixture <- result_contract_fixture()
   result <- run_result_contract_methods(fixture)$snic

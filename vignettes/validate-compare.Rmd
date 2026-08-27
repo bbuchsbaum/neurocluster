@@ -1,84 +1,197 @@
 ---
 title: Validate and compare clusterings
 name: validate-compare
-description: Quality checks, cluster sizes, and basic overlaps.
+description: Separate structural validity, single-partition diagnostics, and pairwise agreement.
 output:
   rmarkdown::html_vignette:
     toc: yes
     toc_depth: 2
+    css: albers.css
+    includes:
+      in_header: albers-header.html
 params:
   family: red
   base_size: 13
   content_width: 72
-vignette: >
-  %\VignetteIndexEntry{Validate and compare clusterings}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
-css: albers.css
+  preset: homage
 resource_files:
 - albers.css
 - albers.js
-includes:
-  in_header: |-
-    <link rel="stylesheet" href="albers.css" />
-    <script src="albers.js"></script>
-    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
-
+- albers-header.html
+- fonts
+vignette: |
+  %\VignetteIndexEntry{Validate and compare clusterings}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
 
 ```{r setup, include=FALSE}
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) albersdown::albers_register_fonts()
 knitr::opts_chunk$set(
   collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
-  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  out.width = "100%", fig.width = 8, fig.asp = 0.58,
   message = FALSE, warning = FALSE
 )
-set.seed(123); options(pillar.sigfig = 7, width = 80)
-suppressWarnings(suppressPackageStartupMessages({
+options(width = 90)
+suppressPackageStartupMessages({
   library(neurocluster)
   library(neuroim2)
-}))
-if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
-  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
-}
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
-mask <- NeuroVol(array(1, c(4,4,4)), NeuroSpace(c(4,4,4)))
-vec  <- NeuroVec(array(rnorm(4*4*4*10), c(4,4,4,10)), NeuroSpace(c(4,4,4,10)))
-res1 <- cluster4d(vec, mask, n_clusters = 3, method = "g3s", max_iterations = 1)
-res2 <- cluster4d(vec, mask, n_clusters = 3, method = "slic", max_iterations = 3)
+})
+method_colors <- c(ReNA = "#0072B2", G3S = "#E69F00")
 ```
 
-```{r albers_inject, echo=FALSE, results='asis'}
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```{r albers-classes, echo=FALSE, results='asis'}
+cat(sprintf(paste0(
+  '<script>document.addEventListener("DOMContentLoaded",function(){',
+  'document.body.classList.add("palette-%s","preset-%s");',
+  '});</script><style>:root{--content:%sch}</style>'
+), params$family, params$preset, params$content_width))
 ```
 
-# Checks {#checks}
-```r
-val <- validate_cluster4d(res1, vec, mask)
-val
+# Which question are you asking? {#questions}
+
+Three questions are easy to conflate:
+
+1. **Is the object internally consistent?** Check it with `validate_cluster4d()`.
+2. **What properties does one partition have?** Measure them with `cluster_metrics()`.
+3. **How do partitions differ on the same voxels?** Use `compare_cluster4d()`.
+
+A structurally valid result can still be scientifically poor, and two partitions
+can agree closely while both miss the relevant organization. Keep the three
+questions separate in an analysis report.
+
+```{r validation-data}
+syn <- generate_synthetic_volume(
+  scenario = "gaussian_blobs", dims = c(16, 16, 8),
+  n_clusters = 4, n_time = 40, noise_sd = 0.08, seed = 42
+)
+rena_fit <- cluster4d(
+  syn$vec, syn$mask, 4, method = "rena",
+  connectivity = 26, parallel = FALSE
+)
+g3s_fit <- cluster4d(
+  syn$vec, syn$mask, 4, method = "g3s",
+  connectivity = 26, parallel = FALSE
+)
 ```
 
-# Sizes {#sizes}
-```r
-table(res1$cluster)
-table(res2$cluster)
+# Is the result internally consistent? {#validate}
+
+Supply the original vector and mask for the strongest check. The validator then
+recomputes feature centers, physical coordinate centers, voxel ordering, and
+geometry rather than trusting stored summaries.
+
+```{r validate-result}
+validation <- validate_cluster4d(rena_fit, syn$vec, syn$mask)
+validation[c("valid", "warnings", "errors")]
 ```
 
-# Compare {#compare}
-```r
-compare_cluster4d(res1, res2)
+```{r check-validation, include=FALSE}
+g3s_validation <- validate_cluster4d(g3s_fit, syn$vec, syn$mask)
+stopifnot(
+  validation$valid, g3s_validation$valid,
+  length(validation$errors) == 0L,
+  identical(rena_fit$labels, rena_fit$cluster),
+  identical(nrow(rena_fit$centers), rena_fit$actual_k),
+  identical(dim(rena_fit$coord_centers), c(rena_fit$actual_k, 3L))
+)
 ```
 
-# Report {#report}
-- Flag tiny clusters for potential merging.
-- Note between-cluster correlations for interpretability.
+`valid = TRUE` means the object satisfies its declared contract. It does not
+certify anatomical meaning, reproducibility across subjects, or suitability for
+a downstream model.
+
+# What does one partition measure? {#single-partition}
+
+`cluster_metrics()` exposes explicit voxel-level estimands. With known labels it
+reports adjusted Rand index, variation of information in bits, and pairwise
+Dice. With a canonical `cluster4d_result`, spatial dispersion is reconstructed
+in physical millimetres from its provenance.
+
+```{r cluster-metrics}
+rena_metrics <- cluster_metrics(rena_fit, truth = syn$truth)
+rena_metrics[c(
+  "n_clusters", "size_summary", "ari_truth",
+  "variation_of_information_truth_bits", "spatial_rms_distance_mm"
+)]
+```
+
+```{r check-cluster-metrics, include=FALSE}
+stopifnot(
+  identical(rena_metrics$n_clusters, 4L),
+  all(is.finite(unlist(rena_metrics))),
+  rena_metrics$ari_truth >= -1 && rena_metrics$ari_truth <= 1,
+  rena_metrics$variation_of_information_truth_bits >= 0,
+  rena_metrics$spatial_rms_distance_mm > 0
+)
+```
+
+Ground truth is available here because this is a simulation. Do not substitute
+an anatomical atlas and silently call it truth; describe the atlas comparison
+as agreement with a reference partition.
+
+# How do you compare two outputs? {#compare}
+
+Temporal coherence requires the original voxel-by-time matrix. Pairwise
+partition agreement requires exactly two results. The function refuses
+incompatible masks or physical geometry instead of silently comparing
+misaligned labels.
+
+```{r prepare-features}
+feature_mat <- t(as.matrix(neuroim2::series(
+  syn$vec, which(as.array(syn$mask) > 0)
+)))
+```
+
+```{r compare-results}
+comparison <- compare_cluster4d(
+  ReNA = rena_fit, G3S = g3s_fit,
+  metrics = c(
+    "summary", "spatial_dispersion", "temporal_coherence",
+    "partition_agreement"
+  ),
+  feature_mat = feature_mat
+)
+comparison
+```
+
+```{r check-comparison, include=FALSE}
+numeric_comparison <- comparison[vapply(comparison, is.numeric, logical(1))]
+stopifnot(
+  nrow(comparison) == 2L,
+  all(comparison$N_Clusters == 4L),
+  all(vapply(numeric_comparison, function(x) all(is.finite(x)), logical(1))),
+  length(unique(comparison$Adjusted_Rand_Index)) == 1L,
+  length(unique(comparison$Variation_of_Information_bits)) == 1L
+)
+```
+
+The agreement columns repeat because they describe the one ReNA–G3S pair.
+Adjusted Rand index corrects for chance agreement; variation of information is
+an information distance in bits; pairwise Dice compares whether voxel pairs are
+placed together. None is a substitute for spatial or temporal diagnostics.
+
+```{r size-figure, echo=FALSE, fig.cap='Sorted parcel sizes reveal balance without implying that equal sizes are inherently better. Both valid outputs contain four parcels over the same 2,048 voxels.', fig.alt='Grouped dot plot of four sorted parcel sizes for ReNA and G3S. ReNA has a wider size range than G3S.'}
+sizes <- rbind(
+  ReNA = sort(tabulate(rena_fit$labels, nbins = rena_fit$actual_k)),
+  G3S = sort(tabulate(g3s_fit$labels, nbins = g3s_fit$actual_k))
+)
+matplot(
+  seq_len(ncol(sizes)), t(sizes), type = "b", lty = 1, lwd = 2,
+  pch = c(16, 17), col = method_colors,
+  xlab = "Parcel size rank", ylab = "Included voxels", xaxt = "n", bty = "l"
+)
+axis(1, at = seq_len(ncol(sizes)), labels = seq_len(ncol(sizes)))
+legend("topleft", legend = rownames(sizes), col = method_colors,
+       pch = c(16, 17), lty = 1, lwd = 2, bty = "n")
+```
+
+# What belongs in a report? {#report}
+
+Record the mask and geometry, method and complete parameter set, requested and
+actual K, validity outcome, parcel-size distribution, and each estimand with its
+units. For simulation or external-reference studies, name the reference and
+state whether it is genuine ground truth.
+
+Next, [Visualize and export](visualize-export.html) shows how to inspect the
+spatial result and round-trip it through NIfTI.

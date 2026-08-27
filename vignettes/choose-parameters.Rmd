@@ -1,121 +1,211 @@
 ---
 title: Choose parameters for your data
 name: choose-parameters
-description: Use suggestions and tune K, spatial weighting, and connectivity.
+description: Learn how parcel count and spatial weighting change the estimand.
 output:
   rmarkdown::html_vignette:
     toc: yes
     toc_depth: 2
+    css: albers.css
+    includes:
+      in_header: albers-header.html
 params:
-  family: ochre
+  family: red
   base_size: 13
   content_width: 72
-vignette: >
-  %\VignetteIndexEntry{Choose parameters for your data}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
-css: albers.css
+  preset: homage
 resource_files:
 - albers.css
 - albers.js
-includes:
-  in_header: |-
-    <script src="albers.js"></script>
-    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
-
+- albers-header.html
+- fonts
+vignette: |
+  %\VignetteIndexEntry{Choose parameters for your data}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
 
 ```{r setup, include=FALSE}
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) albersdown::albers_register_fonts()
 knitr::opts_chunk$set(
   collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
-  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  out.width = "100%", fig.width = 8.5, fig.asp = 0.56,
   message = FALSE, warning = FALSE
 )
-set.seed(123); options(pillar.sigfig = 7, width = 80)
-suppressWarnings(suppressPackageStartupMessages({
+options(width = 88)
+suppressPackageStartupMessages({
   library(neurocluster)
   library(neuroim2)
-}))
-if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
-  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+})
+parcel_colors <- c("#0072B2", "#E69F00", "#009E73", "#CC79A7",
+                   "#56B4E9", "#D55E00", "#F0E442", "#000000")
+align_labels <- function(labels, truth) {
+  ids <- sort(unique(labels))
+  truth_ids <- sort(unique(truth))
+  stopifnot(length(ids) == length(truth_ids))
+  overlap <- table(factor(labels, levels = ids),
+                   factor(truth, levels = truth_ids))
+  map <- truth_ids[as.integer(clue::solve_LSAP(overlap, maximum = TRUE))]
+  aligned <- unname(map[match(labels, ids)])
+  stopifnot(length(unique(aligned)) == length(ids))
+  aligned
 }
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+draw_slice <- function(labels, dims, z, title) {
+  slice <- array(labels, dims)[, , z]
+  image(t(slice[, ncol(slice):1]), col = parcel_colors, axes = FALSE,
+        useRaster = TRUE, asp = 1, main = title)
+  box(col = "#4A4A4A")
 }
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
 ```
 
-```{r albers_inject, echo=FALSE, results='asis'}
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+```{r albers-classes, echo=FALSE, results='asis'}
+cat(sprintf(paste0(
+  '<script>document.addEventListener("DOMContentLoaded",function(){',
+  'document.body.classList.add("palette-%s","preset-%s");',
+  '});</script><style>:root{--content:%sch}</style>'
+), params$family, params$preset, params$content_width))
+```
+
+# Which decisions come first? {#decisions}
+
+Start with the scale of the scientific question, not with a search for the
+largest validation score. `n_clusters` sets the target granularity. The
+`spatial_weight` parameter sets how strongly feature similarity is traded
+against spatial proximity, but its exact mapping is method-specific. Both alter
+the partition you are estimating.
+
+A sensible tuning exercise therefore holds the dataset and method fixed, changes
+one quantity at a time, and records several named diagnostics. The example below
+uses G3S and a known synthetic partition so that parameter effects are visible.
+
+```{r tuning-data}
+syn <- generate_synthetic_volume(
+  scenario = "gaussian_blobs", dims = c(16, 16, 8),
+  n_clusters = 4, n_time = 40, noise_sd = 0.08, seed = 42
+)
+```
+
+# What does K change? {#choose-k}
+
+K is a target parcel count, not a quality score. Fewer parcels make coarser
+summaries; more parcels make finer summaries and reduce observations per parcel.
+Some methods may return a different final count, so always retain `actual_k`.
+
+```{r fit-k-grid}
+k_grid <- c(3L, 4L, 6L)
+k_fits <- lapply(k_grid, function(k) {
+  cluster4d(
+    syn$vec, syn$mask, k, method = "g3s", spatial_weight = 0.5,
+    max_iterations = 5, connectivity = 26, parallel = FALSE
+  )
+})
+```
+
+```{r summarize-k-grid, echo=FALSE}
+k_metrics <- lapply(k_fits, cluster_metrics, truth = syn$truth)
+k_summary <- data.frame(
+  Requested_K = k_grid,
+  Actual_K = vapply(k_fits, `[[`, integer(1), "actual_k"),
+  ARI_to_known = vapply(k_metrics, `[[`, numeric(1), "ari_truth"),
+  Spatial_RMS_mm = vapply(k_metrics, `[[`, numeric(1),
+                          "spatial_rms_distance_mm"),
+  Minimum_size = vapply(k_metrics, function(x) x$size_summary[["min"]], numeric(1))
+)
+knitr::kable(
+  transform(k_summary, ARI_to_known = round(ARI_to_known, 3),
+            Spatial_RMS_mm = round(Spatial_RMS_mm, 2)),
+  caption = "Observed G3S diagnostics while changing only the target K."
+)
+```
+
+```{r check-k-grid, include=FALSE}
+k_checks <- lapply(k_fits, validate_cluster4d, vec = syn$vec, mask = syn$mask)
+stopifnot(
+  all(vapply(k_checks, `[[`, logical(1), "valid")),
+  identical(k_summary$Actual_K, k_grid),
+  all(k_summary$Minimum_size > 0),
+  all(diff(k_summary$Spatial_RMS_mm) < 0)
+)
+```
+
+```{r k-tradeoff, echo=FALSE, fig.cap='Changing target K changes both granularity and observed diagnostics on this fixture. The known partition has four regions, but the highest ARI here occurs at K = 3; matching a nominal count does not guarantee the best partition.', fig.alt='Two line charts over K values 3, 4, and 6. Adjusted Rand index is highest at 3 and declines, while spatial RMS distance declines as K increases.'}
+old_par <- par(mfrow = c(1, 2), mar = c(4.5, 4.5, 2.5, 1))
+plot(k_summary$Requested_K, k_summary$ARI_to_known, type = "b", pch = 16,
+     col = "#0072B2", lwd = 2, ylim = c(0, 1), bty = "l",
+     xlab = "Target K", ylab = "ARI to known partition")
+abline(v = 4, lty = 3, col = "#777777")
+plot(k_summary$Requested_K, k_summary$Spatial_RMS_mm, type = "b", pch = 17,
+     col = "#D55E00", lwd = 2, bty = "l",
+     xlab = "Target K", ylab = "Spatial RMS distance (mm)")
+abline(v = 4, lty = 3, col = "#777777")
+par(old_par)
+```
+
+# What does spatial weight change? {#spatial-weight}
+
+For G3S, larger `spatial_weight` puts more emphasis on spatial proximity and
+less on feature similarity. That usually encourages compact parcels, but the
+effect and useful range depend on the data and method. Evaluate it rather than
+assuming that more compact is automatically better.
+
+```{r fit-weight-grid}
+weight_grid <- c(0.2, 0.5, 0.8)
+weight_fits <- lapply(weight_grid, function(weight) {
+  cluster4d(
+    syn$vec, syn$mask, 4, method = "g3s", spatial_weight = weight,
+    max_iterations = 5, connectivity = 26, parallel = FALSE
+  )
+})
+```
+
+```{r summarize-weight-grid, echo=FALSE}
+weight_metrics <- lapply(weight_fits, cluster_metrics, truth = syn$truth)
+weight_summary <- data.frame(
+  Spatial_weight = weight_grid,
+  ARI_to_known = vapply(weight_metrics, `[[`, numeric(1), "ari_truth"),
+  Spatial_RMS_mm = vapply(weight_metrics, `[[`, numeric(1),
+                          "spatial_rms_distance_mm")
+)
+knitr::kable(
+  transform(weight_summary, ARI_to_known = round(ARI_to_known, 3),
+            Spatial_RMS_mm = round(Spatial_RMS_mm, 2)),
+  caption = "Observed G3S diagnostics while changing only spatial weight."
+)
+```
+
+```{r check-weight-grid, include=FALSE}
+weight_checks <- lapply(weight_fits, validate_cluster4d,
+                        vec = syn$vec, mask = syn$mask)
+stopifnot(
+  all(vapply(weight_checks, `[[`, logical(1), "valid")),
+  all(vapply(weight_fits, `[[`, integer(1), "actual_k") == 4L),
+  all(diff(weight_summary$Spatial_RMS_mm) < 0),
+  all(weight_summary$ARI_to_known >= -1 & weight_summary$ARI_to_known <= 1)
+)
+```
+
+```{r weight-slices, echo=FALSE, fig.cap='Middle axial slices as G3S spatial weight increases. A one-to-one maximum-overlap assignment preserves a distinct color for every predicted parcel while aligning arbitrary IDs to the known synthetic colors. The rightmost partition is physically tighter but agrees less with the known feature-defined regions.', fig.alt='Three axial grid panels for spatial weights 0.2, 0.5, and 0.8. Each panel retains four distinct parcel colors; boundaries become more regular and compact from left to right.'}
+old_par <- par(mfrow = c(1, 3), mar = c(1, 1, 3, 1))
+for (i in seq_along(weight_fits)) {
+  draw_slice(align_labels(weight_fits[[i]]$labels, syn$truth), syn$dims, 4,
+             paste("Spatial weight", weight_grid[i]))
 }
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+par(old_par)
 ```
 
-# Heuristics {#heuristics}
-The package’s helper `suggest_cluster4d_params()` derives a baseline K as `n_voxels / 250` (see source in `cluster4d_common.R`) and adjusts by priority. This is a starting point; actual K depends on analysis goals and mask size.
+On this fixture, increasing spatial weight reduces RMS distance from
+`r sprintf("%.2f", weight_summary$Spatial_RMS_mm[1])` mm to
+`r sprintf("%.2f", weight_summary$Spatial_RMS_mm[3])` mm, while agreement with
+the known partition falls. The executable checks establish that observation for
+this example only.
 
-# Suggestions {#suggestions}
-```r
-n_vox <- 50000
-n_time <- 200
-params <- suggest_cluster4d_params(n_vox, n_time, priority = "balanced")
-params$recommended_method
-params$n_clusters
-```
+# How should you tune real data? {#real-data}
 
-# Tradeoffs {#tradeoffs}
-- Quality: increase iterations; methods with iterative refinement (e.g., `supervoxels()`, `cluster4d_slic()`); consider higher K.
-- Speed: `slice_msf` (slice-wise) or `flash3d` (hash/DCT) with fewer iterations and lower K.
-- Memory: `snic()` (single pass), `slice_msf` with fewer coefficients.
+1. Choose a scientifically meaningful range of parcel counts before examining outcomes.
+2. Hold preprocessing, mask, method, and geometry fixed while varying one parameter.
+3. Record `actual_k`, parcel-size distributions, spatial dispersion, temporal coherence, and stability under perturbation.
+4. Reject invalid or degenerate results before ranking diagnostics.
+5. Report the full selection rule, not only the chosen setting.
 
-# Recipes {#recipes}
-- Whole-brain (2–3 mm): start from `n_voxels/250`, `spatial_weight` around 0.4–0.6, connectivity 26.
-- ROI: smaller K (e.g., 10–100), lower `spatial_weight` (0.2–0.4), connectivity 6.
-
-# Toy data for illustrations {#toy-data}
-To make parameter effects concrete, we use `make_block_synthetic()`—three vertical
-bands with distinct time courses, light noise, and a single slice. It’s fast,
-deterministic, and spatially local.
-
-```{r toy-data, echo=FALSE}
-toy <- make_block_synthetic(dims = c(12, 12, 1), ntime = 60, noise = 0.1, seed = 99)
-```
-
-# Effect of K (number of clusters) {#fig-k}
-Larger K produces finer partitions. Below we fix the method (`snic`) and compactness,
-varying only K.
-
-```{r fig-k, fig.cap='Effect of K on a block synthetic (snic).', fig.alt='Three panels showing axial slices clustered with K=2, K=3, and K=5.'}
-par(mfrow = c(1, 3))
-res_k2 <- snic(toy$vec, toy$mask, K = 2, compactness = 3)
-plot(res_k2, slice = c(1, 1, 1), view = "axial"); title("K = 2")
-res_k3 <- snic(toy$vec, toy$mask, K = 3, compactness = 3)
-plot(res_k3, slice = c(1, 1, 1), view = "axial"); title("K = 3")
-res_k5 <- snic(toy$vec, toy$mask, K = 5, compactness = 3)
-plot(res_k5, slice = c(1, 1, 1), view = "axial"); title("K = 5")
-par(mfrow = c(1,1))
-```
-
-# Effect of compactness (SNIC) {#fig-compactness}
-Higher `compactness` makes clusters more spatially tight; lower values follow feature patterns more closely.
-
-```{r fig-compactness, fig.cap='Effect of compactness on the block synthetic (K=3, snic).', fig.alt='Three panels with compactness 2, 4, 6.'}
-par(mfrow = c(1, 3))
-res_c2 <- snic(toy$vec, toy$mask, K = 3, compactness = 2)
-plot(res_c2, slice = c(1, 1, 1), view = "axial"); title("compactness = 2")
-res_c4 <- snic(toy$vec, toy$mask, K = 3, compactness = 4)
-plot(res_c4, slice = c(1, 1, 1), view = "axial"); title("compactness = 4")
-res_c6 <- snic(toy$vec, toy$mask, K = 3, compactness = 6)
-plot(res_c6, slice = c(1, 1, 1), view = "axial"); title("compactness = 6")
-par(mfrow = c(1,1))
-```
-includes:
-  in_header: |-
-    <link rel="stylesheet" href="albers.css" />
-    <script src="albers.js"></script>
+Continue with [Validate and compare](validate-compare.html) for the exact
+validation and comparison contracts.

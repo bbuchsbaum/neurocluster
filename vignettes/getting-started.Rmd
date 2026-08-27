@@ -1,128 +1,160 @@
 ---
 title: Getting started with neurocluster
 name: getting-started
-description: Quick tour of the core workflow.
+description: A first spatially constrained clustering, from data to a checked result.
 output:
   rmarkdown::html_vignette:
     toc: yes
     toc_depth: 2
+    css: albers.css
+    includes:
+      in_header: albers-header.html
 params:
   family: red
   base_size: 13
   content_width: 72
-vignette: >
-  %\VignetteIndexEntry{Getting started with neurocluster}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
-css: albers.css
+  preset: homage
 resource_files:
 - albers.css
 - albers.js
-includes:
-  in_header: |-
-    <link rel="stylesheet" href="albers.css" />
-    <script src="albers.js"></script>
-    <script>document.addEventListener('DOMContentLoaded',()=>document.body.classList.add('palette-red'));</script>
-
+- albers-header.html
+- fonts
+vignette: |
+  %\VignetteIndexEntry{Getting started with neurocluster}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
 
 ```{r setup, include=FALSE}
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
-if (requireNamespace("albersdown", quietly = TRUE)) ggplot2::theme_set(albersdown::theme_albers(params$family))
+if (requireNamespace("albersdown", quietly = TRUE)) albersdown::albers_register_fonts()
 knitr::opts_chunk$set(
   collapse = TRUE, comment = "#>", fig.align = "center", fig.retina = 2,
-  out.width = "100%", fig.width = 7, fig.asp = 0.618,
+  out.width = "100%", fig.width = 8, fig.asp = 0.58,
   message = FALSE, warning = FALSE
 )
-set.seed(123); options(pillar.sigfig = 7, width = 80)
-suppressWarnings(suppressPackageStartupMessages({
+options(width = 80)
+suppressPackageStartupMessages({
   library(neurocluster)
   library(neuroim2)
-}))
-if (requireNamespace("albersdown", quietly = TRUE) && requireNamespace("ggplot2", quietly = TRUE)) {
-  ggplot2::theme_set(albersdown::theme_albers(params$family, base_size = params$base_size))
+})
+parcel_colors <- c("#0072B2", "#E69F00", "#009E73", "#CC79A7",
+                   "#56B4E9", "#D55E00", "#F0E442", "#000000")
+align_labels <- function(labels, truth) {
+  ids <- sort(unique(labels))
+  truth_ids <- sort(unique(truth))
+  stopifnot(length(ids) == length(truth_ids))
+  overlap <- table(factor(labels, levels = ids),
+                   factor(truth, levels = truth_ids))
+  map <- truth_ids[as.integer(clue::solve_LSAP(overlap, maximum = TRUE))]
+  aligned <- unname(map[match(labels, ids)])
+  stopifnot(length(unique(aligned)) == length(ids))
+  aligned
 }
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
+draw_slice <- function(labels, dims, z, title) {
+  slice <- array(labels, dims)[, , z]
+  image(t(slice[, ncol(slice):1]), col = parcel_colors, axes = FALSE,
+        useRaster = TRUE, asp = 1, main = title)
+  box(col = "#4A4A4A")
 }
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
 ```
 
-```{r albers_inject, echo=FALSE, results='asis'}
-if (file.exists("albers.css")) {
-  cat(sprintf("<style>\n%s\n</style>", paste(readLines("albers.css", warn = FALSE), collapse = "\n")))
-}
-cat(sprintf('<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-%s");});</script>', params$family))
-cat(sprintf('<style>:root{--content:%sch}</style>', params$content_width))
+```{r albers-classes, echo=FALSE, results='asis'}
+cat(sprintf(paste0(
+  '<script>document.addEventListener("DOMContentLoaded",function(){',
+  'document.body.classList.add("palette-%s","preset-%s");',
+  '});</script><style>:root{--content:%sch}</style>'
+), params$family, params$preset, params$content_width))
 ```
 
-# Goal {#goal}
-Cluster a small 4D volume (3D space × time) into a few spatially coherent parcels, inspect the result, and export a NIfTI file.
+# What problem are you solving? {#problem}
 
-# TL;DR {#tldr}
-```r
-# Create a small but structured synthetic dataset
+A 4D neuroimaging dataset gives you a time series at every voxel. Many analyses
+become easier when neighboring voxels with similar signals are replaced by a
+smaller set of spatially coherent parcels. `cluster4d()` performs that reduction
+while retaining the mask geometry, final labels, feature means, and physical
+centroids needed downstream.
+
+This first workflow uses a small simulated brain volume with known parcels. The
+known answer lets you learn the object model and verify the result before moving
+to your own NIfTI data.
+
+# What goes in? {#inputs}
+
+You need a `NeuroVec` containing x × y × z × time data and a `NeuroVol` mask.
+Only finite mask values greater than zero are included. Here, the generator
+returns both objects plus one ground-truth label per included voxel.
+
+```{r make-example}
 syn <- generate_synthetic_volume(
-  scenario = "gaussian_blobs",
-  dims = c(10, 10, 6),
-  n_clusters = 4,
-  n_time = 24,
-  seed = 42
+  scenario = "gaussian_blobs", dims = c(16, 16, 8),
+  n_clusters = 4, n_time = 40, noise_sd = 0.08, seed = 42
 )
-
-# Minimal clustering: SNIC is fast on small data
-result <- cluster4d(syn$vec, syn$mask, n_clusters = 4, method = "snic")
+c(spatial_dimensions = paste(syn$dims, collapse = " x "),
+  time_points = dim(syn$vec)[4], masked_voxels = length(syn$truth))
 ```
 
-# Setup {#setup}
-```{r data-setup}
-syn <- generate_synthetic_volume(
-  scenario = "gaussian_blobs",
-  dims = c(10, 10, 6),
-  n_clusters = 4,
-  n_time = 24,
-  seed = 42
+# How do you make a first parcellation? {#cluster}
+
+Choose a target number of parcels and a method. ReNA is a useful first pass for
+this example because it aggregates adjacent regions directly. The target is not
+a promise for every method, so inspect `actual_k` after fitting.
+
+```{r first-fit}
+fit <- cluster4d(
+  syn$vec, syn$mask, n_clusters = 4, method = "rena",
+  connectivity = 26, parallel = FALSE
 )
-brain_mask <- syn$mask
-vec  <- syn$vec
+c(method = fit$method, requested_k = fit$parameters$n_clusters_requested,
+  actual_k = fit$actual_k)
 ```
 
-# Peek at the ground truth {#truth}
-```{r truth-peek, fig.cap='Ground-truth Gaussian blobs (axial slice).', fig.alt='Axial slice showing four distinct clusters.'}
-# Display the ground truth cluster labels
-truth_array <- array(syn$truth, dim = syn$dims)
-image(truth_array[,,3], col = rainbow(syn$n_clusters),
-      main = "Ground Truth: Slice 3", axes = FALSE)
-```
-
-# Walkthrough {#walkthrough}
-```r
-result <- cluster4d(vec, mask, n_clusters = 4)
-print(result)
-summary(result)
-plot(result)
-```
-
-# Quick visual (toy blocks) {#quick-visual}
-Here’s a scikit-learn-style “blobs” example: three vertical bands with distinct time courses plus light noise. It’s tiny, deterministic, and easy to see what the algorithm is doing.
-
-```{r quick-visual, fig.cap='Blocky synthetic with three temporal signatures. SNIC recovers the spatial bands cleanly.', fig.alt='Axial slice showing three contiguous colored bands.'}
-toy <- make_block_synthetic(dims = c(12, 12, 1), ntime = 60, noise = 0.1, seed = 7)
-toy_res <- cluster4d(
-  toy$vec, toy$mask, n_clusters = 3,
-  method = "snic"
+```{r check-first-fit, include=FALSE}
+fit_check <- validate_cluster4d(fit, syn$vec, syn$mask)
+fit_metrics <- cluster_metrics(fit, truth = syn$truth)
+stopifnot(
+  fit_check$valid,
+  identical(fit$actual_k, 4L),
+  is.finite(fit_metrics$ari_truth),
+  fit_metrics$ari_truth > 0.99,
+  identical(fit$labels, fit$cluster)
 )
-plot(toy_res, slice = c(1, 1, 1), view = "axial")
+aligned_fit <- align_labels(fit$labels, syn$truth)
 ```
 
-# Export {#export}
-```r
-writeVol(result$clusvol, "clusters.nii.gz")
+```{r first-result, echo=FALSE, fig.cap='Known simulated parcels and the fitted ReNA partition on the middle axial slice. A one-to-one maximum-overlap assignment aligns arbitrary fitted IDs to the known colors only for this diagnostic view.', fig.alt='Two axial brain-grid panels. The known four-region partition is on the left and the fitted partition on the right; all four parcel colors and shapes match.'}
+old_par <- par(mfrow = c(1, 2), mar = c(1, 1, 3, 1))
+draw_slice(syn$truth, syn$dims, z = 4, "Known parcels")
+draw_slice(aligned_fit, syn$dims, z = 4, "Fitted parcels")
+par(old_par)
 ```
 
-# See also {#see-also}
-- Compare methods: articles/compare-methods.html#run-methods
-- Choose parameters: articles/choose-parameters.html#heuristics
-- Visualize & export: articles/visualize-export.html#plot
+On this deliberately easy fixture, the fitted partition matches the known
+partition exactly (adjusted Rand index = `r sprintf("%.3f", fit_metrics$ari_truth)`).
+That result checks the example; it is not a general performance claim about
+ReNA or evidence that four parcels is appropriate for real data.
+
+# How do you check the object? {#validate}
+
+`validate_cluster4d()` checks the result schema and independently recomputes
+centers and geometry when you supply the original inputs. It answers “is this a
+consistent result?”, not “is this a scientifically useful parcellation?”
+
+```{r validate-result}
+check <- validate_cluster4d(fit, syn$vec, syn$mask)
+check[c("valid", "warnings", "errors")]
+```
+
+The object contains contiguous voxel labels in mask order, a clustered volume
+for plotting or export, and final centers in the original time-series space.
+
+```{r inspect-result}
+c(n_labels = length(fit$labels), n_centers = nrow(fit$centers),
+  center_time_points = ncol(fit$centers))
+```
+
+# Where should you go next? {#next}
+
+- Read [Choose parameters](choose-parameters.html) to learn what K and spatial weighting change.
+- Read [Compare methods](compare-methods.html) to compare methods on identical inputs.
+- Read [Validate and compare](validate-compare.html) to separate structural validity from quality estimands.
+- Read [Visualize and export](visualize-export.html) to inspect slices and write a NIfTI label map.
