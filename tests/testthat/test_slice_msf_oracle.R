@@ -144,9 +144,13 @@ test_that("exact-K repair preserves spherical and gradient parcel structure", {
     expect_identical(length(sizes), 8L, info = name)
     expect_true(min(sizes) >= 2L, info = name)
     expect_true(max(sizes) < 0.5 * length(fit$cluster), info = name)
+    observed <- clustering_accuracy(fit$cluster, fixture$truth)$ari
     expect_true(
-      clustering_accuracy(fit$cluster, fixture$truth)$ari >= minimum_ari[[name]],
-      info = name
+      observed >= minimum_ari[[name]],
+      info = slice_msf_quality_diagnostic(
+        fit, fixture$truth, minimum_ari[[name]], name,
+        fixture$contract$estimand, fixture$contract$seed
+      )
     )
     expect_identical(repair$requested_k, 8L, info = name)
     expect_identical(repair$min_cluster_size, 2L, info = name)

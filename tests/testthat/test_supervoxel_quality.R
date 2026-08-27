@@ -45,12 +45,12 @@ METHOD_OVERRIDES <- list(
 )
 
 SPHERICAL_ARI_FLOORS <- c(
-  flash3d = 0.50, slice_msf = -0.01, g3s = 0.80, rena = 0.80,
+  flash3d = 0.50, slice_msf = 0.80, g3s = 0.80, rena = 0.80,
   rena_plus = 0.85, acsc = 0.90, slic = 0.90, corr_slic = 0.75,
   supervoxels = 0.70, snic = 0.25, commute = 0.60
 )
 GRADIENT_ARI_FLOORS <- c(
-  flash3d = 0.10, slice_msf = -0.01, g3s = 0.40, rena = 0.10,
+  flash3d = 0.10, slice_msf = 0.40, g3s = 0.40, rena = 0.10,
   rena_plus = 0.50, acsc = 0.60, slic = 0.55, corr_slic = 0.35,
   supervoxels = 0.30, snic = 0.25, commute = 0.40
 )
@@ -478,12 +478,21 @@ test_that("spherical clusters test evaluates irregular boundaries", {
       ))
 
       min_ari <- SPHERICAL_ARI_FLOORS[[method]]
-      expect_true(
-        metrics$ari >= min_ari,
-        info = sprintf(
+      gate_info <- if (method == "slice_msf") {
+        slice_msf_quality_diagnostic(
+          result, data$true_labels, min_ari,
+          "spherical_supervoxel_quality",
+          "irregular spherical parcels with variable sizes", 42L
+        )
+      } else {
+        sprintf(
           "%s ARI %.4f fell below its spherical floor %.2f",
           method, metrics$ari, min_ari
         )
+      }
+      expect_true(
+        metrics$ari >= min_ari,
+        info = gate_info
       )
 
     } else {
@@ -584,12 +593,21 @@ test_that("gradient clusters test evaluates soft boundary handling", {
       ))
 
       min_ari <- GRADIENT_ARI_FLOORS[[method]]
-      expect_true(
-        metrics$ari >= min_ari,
-        info = sprintf(
+      gate_info <- if (method == "slice_msf") {
+        slice_msf_quality_diagnostic(
+          result, data$true_labels, min_ari,
+          "gradient_supervoxel_quality",
+          "six parcels with two-voxel signal-mixing boundaries", 42L
+        )
+      } else {
+        sprintf(
           "%s ARI %.4f fell below its gradient floor %.2f",
           method, metrics$ari, min_ari
         )
+      }
+      expect_true(
+        metrics$ari >= min_ari,
+        info = gate_info
       )
 
     } else {

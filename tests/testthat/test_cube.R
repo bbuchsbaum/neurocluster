@@ -25,21 +25,20 @@ METHOD_OVERRIDES <- list(
 )
 
 # Empirical recovery floors are method-specific because the algorithms optimize
-# different estimands. In particular, Slice-MSF's exact-K repair is constrained
-# by its spatial RAG and is not a supervised feature-recovery method. These
-# floors retain a margin for platform noise while detecting material regression.
+# different estimands. These floors retain a margin for platform noise while
+# requiring every advertised method to beat a scientifically meaningful gate.
 CUBE_ARI_FLOORS <- c(
-  flash3d = 0.95, slice_msf = -0.01, g3s = 0.75, rena = 0.95,
+  flash3d = 0.95, slice_msf = 0.60, g3s = 0.75, rena = 0.95,
   rena_plus = 0.95, acsc = 0.90, slic = 0.90, corr_slic = 0.95,
   supervoxels = 0.90, snic = 0.25, commute = 0.50
 )
 MODERATE_NOISE_ARI_FLOORS <- c(
-  flash3d = 0.90, slice_msf = -0.01, g3s = 0.75, rena = 0.90,
+  flash3d = 0.90, slice_msf = 0.60, g3s = 0.75, rena = 0.90,
   rena_plus = 0.90, acsc = 0.90, slic = 0.90, corr_slic = 0.90,
   supervoxels = 0.85, snic = 0.30, commute = 0.45
 )
 HIGH_NOISE_ARI_FLOORS <- c(
-  flash3d = 0.90, slice_msf = -0.01, g3s = 0.65, rena = 0.90,
+  flash3d = 0.90, slice_msf = 0.60, g3s = 0.65, rena = 0.90,
   rena_plus = 0.90, acsc = 0.90, slic = 0.85, corr_slic = 0.90,
   supervoxels = 0.75, snic = 0.25, commute = 0.45
 )

@@ -177,6 +177,69 @@ slice_msf_truth_is_connected <- function(fixture) {
   length(unique(split)) == length(unique(fixture$truth))
 }
 
+slice_msf_all_connected <- function(cluster_map, connectivity = 6L) {
+  offsets <- as.matrix(expand.grid(-1L:1L, -1L:1L, -1L:1L))
+  offsets <- offsets[rowSums(abs(offsets)) > 0L, , drop = FALSE]
+  if (connectivity == 6L) {
+    offsets <- offsets[rowSums(abs(offsets)) == 1L, , drop = FALSE]
+  } else if (connectivity == 18L) {
+    offsets <- offsets[rowSums(abs(offsets)) <= 2L, , drop = FALSE]
+  }
+  dims <- dim(cluster_map)
+  all(vapply(sort(unique(cluster_map[cluster_map > 0L])), function(label) {
+    members <- which(cluster_map == label, arr.ind = TRUE)
+    seen <- array(FALSE, dims)
+    queue <- matrix(members[1L, ], nrow = 1L)
+    visited <- 0L
+    while (nrow(queue) > 0L) {
+      current <- queue[1L, ]
+      queue <- queue[-1L, , drop = FALSE]
+      if (seen[current[1L], current[2L], current[3L]]) next
+      if (cluster_map[current[1L], current[2L], current[3L]] != label) next
+      seen[current[1L], current[2L], current[3L]] <- TRUE
+      visited <- visited + 1L
+      candidates <- sweep(offsets, 2L, current, `+`)
+      valid <- rowSums(candidates < 1L) == 0L &
+        candidates[, 1L] <= dims[[1L]] &
+        candidates[, 2L] <= dims[[2L]] &
+        candidates[, 3L] <= dims[[3L]]
+      if (any(valid)) queue <- rbind(queue, candidates[valid, , drop = FALSE])
+    }
+    visited == nrow(members)
+  }, logical(1L)))
+}
+
+slice_msf_quality_diagnostic <- function(fit, truth, threshold, fixture,
+                                         estimand, seed) {
+  observed <- clustering_accuracy(fit$cluster, truth)$ari
+  sizes <- sort(tabulate(fit$cluster))
+  repair <- fit$metadata$exact_k_repair
+  natural_k <- if (is.null(repair)) {
+    length(unique(fit$cluster))
+  } else {
+    repair$normalized_k
+  }
+  requested_k <- if (is.null(repair)) {
+    NA_integer_
+  } else {
+    repair$requested_k
+  }
+  min_size <- fit$parameters$min_size
+  if (is.null(min_size)) min_size <- NA_integer_
+  sprintf(
+    paste0(
+      "estimand=%s; fixture=%s; seed=%d; observed_ari=%.6f; ",
+      "threshold=%.2f; natural_k=%s; repaired_k=%s; min_size=%s; ",
+      "smallest=%d; largest=%d"
+    ),
+    estimand, fixture, as.integer(seed), observed, threshold,
+    ifelse(is.na(natural_k), "NA", as.character(natural_k)),
+    ifelse(is.na(requested_k), "NA", as.character(requested_k)),
+    ifelse(is.na(min_size), "NA", as.character(min_size)),
+    min(sizes), max(sizes)
+  )
+}
+
 slice_msf_make_spherical_fixture <- function() {
   dims <- c(15L, 15L, 15L)
   n_clusters <- 8L
