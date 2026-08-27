@@ -129,7 +129,7 @@ cat("# methods   : ", paste(METHODS, collapse = ","), "\n", sep = "")
 
 speed <- speed_fixture()
 accuracy <- accuracy_fixture()
-scaled_features <- scale(speed$x)
+scaled_features <- stats::scale(speed$x)
 wss <- function(labels) {
   centers <- rowsum(scaled_features, labels) / as.vector(tabulate(labels))
   sum((scaled_features - centers[labels, , drop = FALSE])^2)
