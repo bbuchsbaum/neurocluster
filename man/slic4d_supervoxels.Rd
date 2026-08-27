@@ -60,7 +60,7 @@ for speed (Johnson-Lindenstrauss style). 0 = use full time series.}
 "grid" (regular grid), "farthest" (farthest point sampling).}
 
 \item{seed_relocate}{One of "correlation" (correlation gradient), "intensity" (mean intensity gradient),
-"spatial" (spatial gradient using neighborweights), "none" (no relocation).}
+"spatial" (spatial gradient using adjoin), "none" (no relocation).}
 
 \item{seed_relocate_radius}{Search radius in voxels for gradient-based seed relocation (default 1).}
 

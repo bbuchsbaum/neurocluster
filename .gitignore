@@ -34,6 +34,10 @@ inst/benchmarks/*_ab*.csv
 # albersdown vignette backups
 .albersdown.bak/
 
+# pkgdown output. Built and published to the gh-pages branch by
+# .github/workflows/pkgdown.yaml; never committed to the default branch.
+docs/
+
 # Archived one-off notes, patches, and verification scripts kept out of the
 # package root. Retained locally; history has them if they are ever needed.
 archive/

@@ -39,8 +39,8 @@
 #' gradient_vol <- spatial_gradient(input_vol, mask)
 #' }
 #'
-#' @seealso \code{\link[neighborweights:spatial_laplacian]{spatial_laplacian}}, \code{\link[neighborweights:weighted_spatial_adjacency]{weighted_spatial_adjacency}}
-#' @importFrom neighborweights spatial_adjacency spatial_laplacian
+#' @seealso \code{\link[adjoin:spatial_laplacian]{spatial_laplacian}}, \code{\link[adjoin:weighted_spatial_adjacency]{weighted_spatial_adjacency}}
+#' @importFrom adjoin spatial_adjacency spatial_laplacian
 #' @importFrom neuroim2 NeuroVol
 #' @import assertthat
 #'
@@ -48,14 +48,14 @@
 spatial_gradient <- function(vol, mask, sigma=.5) {
   mask.idx <- which(mask>0)
 
-  G <- neighborweights::spatial_adjacency(index_to_coord(mask, mask.idx),
+  G <- adjoin::spatial_adjacency(index_to_coord(mask, mask.idx),
                                           dthresh=9, nnk=9,
                                           weight_mode="heat",
                                           sigma=.8, stochastic=TRUE)
   v <- vol[mask.idx]
   vs <- G %*% vol[mask.idx]
 
-  S = neighborweights::spatial_laplacian(index_to_coord(mask, mask.idx),
+  S = adjoin::spatial_laplacian(index_to_coord(mask, mask.idx),
                                          weight_mode="heat",
                                          nnk=27,
                                          dthresh=6,

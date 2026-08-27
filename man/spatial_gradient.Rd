@@ -32,5 +32,5 @@ gradient_vol <- spatial_gradient(input_vol, mask)
 
 }
 \seealso{
-\code{\link[neighborweights:spatial_laplacian]{spatial_laplacian}}, \code{\link[neighborweights:weighted_spatial_adjacency]{weighted_spatial_adjacency}}
+\code{\link[adjoin:spatial_laplacian]{spatial_laplacian}}, \code{\link[adjoin:weighted_spatial_adjacency]{weighted_spatial_adjacency}}
 }

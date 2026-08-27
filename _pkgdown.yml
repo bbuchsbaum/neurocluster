@@ -1,3 +1,4 @@
+url: https://bbuchsbaum.github.io/neurocluster/
 template:
   package: albersdown
   bootstrap: 5
@@ -14,61 +15,60 @@ navbar:
       menu:
       - text: Tutorials
       - text: Getting Started
-        href: articles/01-getting-started.html
+        href: articles/getting-started.html
       - text: Compare Methods
-        href: articles/02-compare-methods.html
+        href: articles/compare-methods.html
       - text: End-to-End Export
-        href: articles/03-end-to-end-export.html
+        href: articles/end-to-end-export.html
       - text: How-tos
       - text: Choose Parameters
-        href: articles/10-choose-parameters.html
+        href: articles/choose-parameters.html
       - text: Speed & Parallel
-        href: articles/11-speed-parallel.html
+        href: articles/speed-parallel.html
       - text: Visualize & Export
-        href: articles/12-visualize-export.html
+        href: articles/visualize-export.html
       - text: Consensus & Stitching
-        href: articles/13-consensus-stitch.html
+        href: articles/consensus-stitch.html
       - text: Validate & Compare
-        href: articles/14-validate-compare.html
+        href: articles/validate-compare.html
       - text: Legacy APIs
-        href: articles/15-legacy-apis.html
+        href: articles/legacy-apis.html
       - text: Explanations
       - text: Spatially Constrained Clustering
-        href: articles/20-spatially-constrained-clustering.html
+        href: articles/spatially-constrained-clustering.html
       - text: Method Deep Dives
-        href: articles/21-method-deep-dives.html
+        href: articles/method-deep-dives.html
       - text: Performance & Memory
-        href: articles/22-performance-memory.html
+        href: articles/performance-memory.html
       - text: Benchmarks
-        href: articles/25-benchmarks.html
+        href: articles/benchmarks.html
       - text: Reference Maps
       - text: API Overview
-        href: articles/30-api-overview.html
+        href: articles/api-overview.html
       - text: Objects & Results
-        href: articles/31-objects-results.html
+        href: articles/objects-results.html
 articles:
 - title: Tutorials
   contents:
-  - matches("^01-getting-started$")
-  - matches("^02-compare-methods$")
-  - matches("^03-end-to-end-export$")
+  - getting-started
+  - compare-methods
+  - end-to-end-export
 - title: How-tos
   contents:
-  - matches("^10-choose-parameters$")
-  - matches("^11-speed-parallel$")
-  - matches("^12-visualize-export$")
-  - matches("^13-consensus-stitch$")
-  - matches("^14-validate-compare$")
-  - matches("^15-legacy-apis$")
+  - choose-parameters
+  - speed-parallel
+  - visualize-export
+  - consensus-stitch
+  - validate-compare
+  - legacy-apis
 - title: Explanations
   contents:
-  - matches("^20-spatially-constrained-clustering$")
-  - matches("^21-method-deep-dives$")
-  - matches("^22-performance-memory$")
+  - spatially-constrained-clustering
+  - method-deep-dives
+  - performance-memory
 - title: Benchmarks
-  contents:
-  - matches("^25-benchmarks$")
+  contents: benchmarks
 - title: Reference Maps
   contents:
-  - matches("^30-api-overview$")
-  - matches("^31-objects-results$")
+  - api-overview
+  - objects-results

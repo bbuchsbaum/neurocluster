@@ -8,6 +8,15 @@
 \description{
 Provides multiple algorithms for spatially constrained clustering of 3D and 4D neuroimaging data. Methods include supervoxels, SNIC (Simple Non-Iterative Clustering), SLIC (Simple Linear Iterative Clustering), slice-based minimum spanning forest, FLASH-3D with DCT compression, and adaptive correlation superclustering (ACSC). All methods balance feature similarity and spatial proximity to produce coherent brain parcellations. A unified 'cluster4d' interface standardizes access to all algorithms.
 }
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://bbuchsbaum.github.io/neurocluster/}
+  \item \url{https://github.com/bbuchsbaum/neurocluster}
+  \item Report bugs at \url{https://github.com/bbuchsbaum/neurocluster/issues}
+}
+
+}
 \author{
 \strong{Maintainer}: Bradley Buchsbaum \email{brad.buchsbaum@gmail.com}
 

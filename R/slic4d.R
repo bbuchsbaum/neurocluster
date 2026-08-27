@@ -39,7 +39,7 @@
 #' @param seed_method One of "mask_poisson" (Poisson disk in mask), "mask_grid" (grid in mask),
 #'   "grid" (regular grid), "farthest" (farthest point sampling).
 #' @param seed_relocate One of "correlation" (correlation gradient), "intensity" (mean intensity gradient),
-#'   "spatial" (spatial gradient using neighborweights), "none" (no relocation).
+#'   "spatial" (spatial gradient using adjoin), "none" (no relocation).
 #' @param seed_relocate_radius Search radius in voxels for gradient-based seed relocation (default 1).
 #' @param connectivity Neighborhood connectivity: 6 (face neighbors) or 26 (all neighbors).
 #' @param strict_connectivity Enforce exactly one connected component per label
@@ -260,9 +260,9 @@ slic4d_supervoxels <- function(bvec, mask,
       grad3d <- .grad3d_fdiff(mean3d)
       grad_masked <- grad3d[mask_idx]
     } else if (seed_relocate == "spatial") {
-      # Use spatial gradient via neighborweights
-      if (!requireNamespace("neighborweights", quietly = TRUE)) {
-        warning("neighborweights not installed; falling back to intensity gradient")
+      # Use spatial gradient via adjoin
+      if (!requireNamespace("adjoin", quietly = TRUE)) {
+        warning("adjoin not installed; falling back to intensity gradient")
         img4d <- as.array(bvec)
         mean3d <- apply(img4d, c(1,2,3), mean)
         grad3d <- .grad3d_fdiff(mean3d)
@@ -470,8 +470,8 @@ slic4d_grad_summary <- function(bvec, mask, method = c("correlation", "intensity
     mean3d <- apply(img4d, c(1,2,3), mean)
     return(.grad3d_fdiff(mean3d))
   } else {
-    if (!requireNamespace("neighborweights", quietly = TRUE)) {
-      stop("neighborweights not installed for 'spatial' method.")
+    if (!requireNamespace("adjoin", quietly = TRUE)) {
+      stop("adjoin not installed for 'spatial' method.")
     }
     spatial_gradient(
       neuroim2::NeuroVol(apply(as.array(bvec), c(1,2,3), mean), space = sp),

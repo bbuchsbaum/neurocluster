@@ -14,10 +14,12 @@ Description: Provides multiple algorithms for spatially constrained clustering
     similarity and spatial proximity to produce coherent brain parcellations.
     A unified 'cluster4d' interface standardizes access to all algorithms.
 License: GPL (>= 3)
+URL: https://bbuchsbaum.github.io/neurocluster/, https://github.com/bbuchsbaum/neurocluster
+BugReports: https://github.com/bbuchsbaum/neurocluster/issues
 Encoding: UTF-8
 Depends: R (>= 3.5.0)
 Imports: Rcpp (>= 0.11.3), RcppParallel, Matrix, FNN, RANN,
-    assertthat, clue, igraph, neighborweights, neuroim2,
+    assertthat, clue, igraph, adjoin, neuroim2,
     purrr, future, future.apply, furrr, methods
 LinkingTo: Rcpp, RcppParallel, RcppArmadillo
 RoxygenNote: 7.3.3
@@ -25,3 +27,5 @@ Roxygen: list(markdown = TRUE)
 Suggests: testthat, knitr, rmarkdown, pkgdown, ggplot2, rsvd, neurosurf,
     irlba, robustbase, mclust, albersdown
 VignetteBuilder: knitr
+Remotes: bbuchsbaum/neurosurf
+Config/Needs/website: albersdown
