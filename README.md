@@ -129,11 +129,11 @@ not benchmark rankings.
 
 **Slice-MSF status.** Earlier reliability weighting could collapse distinct
 features to zero-distance edges, and its former exact-K repair could peel off
-singletons. Those paths have been rejected or replaced, but release-level
-recertification remains pending. The parameter suggester will not recommend the
-method. If you are evaluating it explicitly, begin with the
-[experimental contract](vignettes/slice-msf.Rmd)
-and retain its natural/exact-K provenance.
+singletons. Those paths have been rejected or replaced, and local package
+recertification passes at this source revision. Slice-MSF remains experimental
+while broader real-data validation and hosted release evidence are pending; the
+parameter suggester will not recommend it. If you are evaluating it explicitly,
+begin with `vignette("slice-msf")` and retain its natural/exact-K provenance.
 
 Start with the [method comparison](https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.html), then use
 [parameter guidance](https://bbuchsbaum.github.io/neurocluster/articles/choose-parameters.html) to translate a scientific
@@ -172,8 +172,8 @@ Keep these boundaries visible:
   export a first result.
 - [Spatially constrained clustering](https://bbuchsbaum.github.io/neurocluster/articles/spatially-constrained-clustering.html)
   — understand the feature-versus-space objective.
-- [Evaluate Slice-MSF](vignettes/slice-msf.Rmd)
-  — inspect the experimental similarity, exact-K, feasibility, and metadata contract.
+- **Evaluate Slice-MSF** — run `vignette("slice-msf")` to inspect the
+  experimental similarity, exact-K, feasibility, and metadata contract.
 - [Compare methods](https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.html) and
   [choose parameters](https://bbuchsbaum.github.io/neurocluster/articles/choose-parameters.html) — make a method choice
   from evidence rather than labels such as “fast” or “best.”
