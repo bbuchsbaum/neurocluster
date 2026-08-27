@@ -1,0 +1,115 @@
+test_that("Slice-MSF fixtures declare connected estimands and invariances", {
+  fixtures <- list(
+    spherical = slice_msf_make_spherical_fixture(),
+    gradient = slice_msf_make_gradient_fixture(),
+    cube = slice_msf_make_cube_fixture(),
+    dct_ensemble = slice_msf_make_block_fixture()
+  )
+  for (name in names(fixtures)) {
+    fixture <- fixtures[[name]]
+    expect_named(
+      fixture$contract,
+      c("estimand", "connectivity", "seed", "invariances"),
+      info = name
+    )
+    expect_true(nzchar(fixture$contract$estimand), info = name)
+    expect_true(slice_msf_truth_is_connected(fixture), info = name)
+    expect_setequal(
+      fixture$contract$invariances,
+      c("offset", "linear_trend", "positive_scale")
+    )
+  }
+})
+
+test_that("independent R preprocessing and FH oracle match native gamma-zero path", {
+  dims <- c(3L, 2L, 1L)
+  n_time <- 12L
+  time <- 0:(n_time - 1L)
+  signals <- rbind(
+    cos(pi * (time + 0.5) / n_time),
+    cos(3 * pi * (time + 0.5) / n_time),
+    -cos(pi * (time + 0.5) / n_time)
+  )
+  values <- array(0, c(dims, n_time))
+  for (voxel in seq_len(prod(dims))) {
+    coordinate <- arrayInd(voxel, dims)
+    signal <- signals[1L + (voxel - 1L) %% 3L, ]
+    values[coordinate[[1L]], coordinate[[2L]], coordinate[[3L]], ] <-
+      3 + 0.2 * time + signal
+  }
+  mask <- neuroim2::NeuroVol(array(1, dims), neuroim2::NeuroSpace(dims))
+  vec <- neuroim2::NeuroVec(values, neuroim2::NeuroSpace(c(dims, n_time)))
+  frequencies <- c(1L, 2L, 3L, 5L)
+  mode_weights <- c(1, 0.5, 1.5, 0.75)
+  native <- slice_msf_single(
+    vec, mask, r = length(frequencies), k = 0.25, min_size = 1L,
+    nbhd = 8L, stitch_z = TRUE, gamma = 0, z_mult = 0,
+    dct_frequencies = frequencies, dct_weights = mode_weights
+  )
+  expected_sketch <- vapply(seq_len(prod(dims)), function(voxel) {
+    coordinate <- arrayInd(voxel, dims)
+    slice_msf_oracle_sketch(
+      values[coordinate[[1L]], coordinate[[2L]], coordinate[[3L]], ],
+      frequencies, mode_weights
+    )
+  }, numeric(length(frequencies)))
+  expect_equal(native$sketch, expected_sketch, tolerance = 1e-11)
+  expect_equal(native$weights, rep(1, prod(dims)), tolerance = 0)
+
+  edges <- slice_msf_oracle_edges(mask, expected_sketch, 8L, TRUE)
+  expected_labels <- slice_msf_oracle_fh(
+    prod(dims), edges, fh_scale = 0.25, min_size = 1L
+  )
+  expect_equal(
+    clustering_accuracy(native$labels, expected_labels)$ari,
+    1,
+    tolerance = 1e-12
+  )
+})
+
+test_that("supported Slice-MSF defaults recover the spherical estimand", {
+  fixture <- slice_msf_make_spherical_fixture()
+  direct <- slice_msf(
+    fixture$vec, fixture$mask,
+    target_k_global = -1L, r = 16L, compactness = 4,
+    min_size = 2L, num_runs = 1L, consensus = FALSE,
+    stitch_z = TRUE, nbhd = 8L
+  )
+  wrapped <- cluster4d(
+    fixture$vec, fixture$mask, n_clusters = 8L, method = "slice_msf",
+    spatial_weight = 0.4, min_size = 2L, r = 16L,
+    num_runs = 1L, consensus = FALSE, verbose = FALSE
+  )
+  ablation <- cluster4d(
+    fixture$vec, fixture$mask, n_clusters = 8L, method = "slice_msf",
+    spatial_weight = 0.4, min_size = 2L, r = 16L,
+    num_runs = 1L, consensus = FALSE, gamma = 0, z_mult = 0,
+    verbose = FALSE
+  )
+
+  expect_gte(length(unique(direct$cluster)), 2L)
+  expect_gte(clustering_accuracy(wrapped$cluster, fixture$truth)$ari, 0.80)
+  expect_gte(clustering_accuracy(ablation$cluster, fixture$truth)$ari, 0.80)
+  expect_gte(min(tabulate(wrapped$cluster)), 2L)
+  expect_error(
+    slice_msf(
+      fixture$vec, fixture$mask, num_runs = 1L, consensus = FALSE,
+      min_size = 2L, gamma = 1e-6
+    ),
+    "gamma must be zero",
+    class = "slice_msf_unsupported_gamma"
+  )
+})
+
+test_that("adjacent-correlation diagnostics cannot define feature distance", {
+  alternating <- rep(c(-1, 1), 8L)
+  shifted <- c(alternating[-1L], alternating[[1L]])
+  zero_diagnostic <- rep(c(-1, 0, 1, 0), 4L)
+  left <- slice_msf_oracle_sketch(alternating, c(1L, 3L, 5L))
+  right <- slice_msf_oracle_sketch(shifted, c(1L, 3L, 5L))
+  distance <- 1 - max(-1, min(1, sum(left * right)))
+
+  expect_lte(slice_msf_oracle_adjacent_correlation(alternating), 0)
+  expect_lte(slice_msf_oracle_adjacent_correlation(zero_diagnostic), 0)
+  expect_gt(distance, 0)
+})
