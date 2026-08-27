@@ -291,12 +291,16 @@ slice_msf <- function(vec, mask,
   cluster_ids <- .exact_k_connected_labels(
     cluster_ids, graph_info$graph, graph_info$edges
   )
+  exact_k_repair <- NULL
   if (target_k_global > 0L) {
     cluster_ids <- force_exact_k(
       cluster_ids, original$features, target_k_global,
       mask = mask, connectivity = if (nbhd == 4L) 6L else 26L,
-      graph_info = graph_info
+      graph_info = graph_info, min_cluster_size = min_size,
+      record_operations = TRUE
     )
+    exact_k_repair <- attr(cluster_ids, "exact_k_repair", exact = TRUE)
+    cluster_ids <- as.integer(cluster_ids)
   }
   labels[] <- 0L
   labels[mask.idx] <- cluster_ids
@@ -350,7 +354,8 @@ slice_msf <- function(vec, mask,
           volumetric = stitch_z,
           connectivity = if (nbhd == 4L) 6L else 26L,
           exact_k_engine = if (target_k_global > 0L) "shared_adjacency_preserving" else NULL
-        )
+        ),
+        exact_k_repair = exact_k_repair
       )
     ),
     class = c(

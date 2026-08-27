@@ -246,7 +246,8 @@ cluster4d_g3s <- function(vec, mask, K = 100,
   labels <- .exact_k_connected_labels(labels, neib$graph, neib$edges)
   labels <- force_exact_k(
     labels, features_by_voxel, K,
-    mask = mask, connectivity = connectivity, graph_info = neib
+    mask = mask, connectivity = connectivity, graph_info = neib,
+    min_cluster_size = 1L
   )
 
   # =============================================================================

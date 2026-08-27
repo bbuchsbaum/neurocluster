@@ -58,6 +58,13 @@ test_that("slice_msf achieves exact K with target_k_global", {
   n_clusters <- length(unique(result$cluster))
   expect_equal(n_clusters, 4, 
                info = "Should have exactly 4 clusters with target_k_global=4")
+  expect_true(all(tabulate(result$cluster) >= 20L))
+  repair <- result$metadata$exact_k_repair
+  expect_identical(repair$requested_k, 4L)
+  expect_identical(repair$min_cluster_size, 20L)
+  expect_identical(repair$final_sizes, as.integer(tabulate(result$cluster)))
+  expect_identical(sum(repair$input_sizes), length(result$cluster))
+  expect_true(is.list(repair$operations))
   
   # Test exact K = 2 (should merge more regions)
   result2 <- slice_msf(vec, mask, target_k_global = 2, num_runs = 1,
@@ -66,6 +73,7 @@ test_that("slice_msf achieves exact K with target_k_global", {
   n_clusters2 <- length(unique(result2$cluster))
   expect_equal(n_clusters2, 2,
                info = "Should have exactly 2 clusters with target_k_global=2")
+  expect_true(all(tabulate(result2$cluster) >= 20L))
 })
 
 test_that("slice_msf rejects global exact K on independent slices", {
@@ -146,16 +154,12 @@ test_that("slice_msf exact K preserves spatial contiguity", {
       visited[current[1], current[2], current[3]] <- TRUE
       n_visited <- n_visited + 1
       
-      # Add 6-connected neighbors (and 8-connected in-plane)
-      neighbors <- list(
-        c(-1, 0, 0), c(1, 0, 0),  # X neighbors
-        c(0, -1, 0), c(0, 1, 0),  # Y neighbors
-        c(0, 0, -1), c(0, 0, 1),  # Z neighbors
-        c(-1, -1, 0), c(1, 1, 0), # Diagonal in XY
-        c(-1, 1, 0), c(1, -1, 0)  # Diagonal in XY
-      )
+      # nbhd = 8 maps to the documented 26-neighbour volumetric contract.
+      neighbors <- as.matrix(expand.grid(-1:1, -1:1, -1:1))
+      neighbors <- neighbors[rowSums(abs(neighbors)) > 0L, , drop = FALSE]
       
-      for (offset in neighbors) {
+      for (neighbor_row in seq_len(nrow(neighbors))) {
+        offset <- neighbors[neighbor_row, ]
         nx <- current[1] + offset[1]
         ny <- current[2] + offset[2]
         nz <- current[3] + offset[3]

@@ -317,7 +317,7 @@ slic4d_supervoxels <- function(bvec, mask,
       preserve_k_feasible <- K >= minimum_k
       final_labels <- force_exact_k(
         final_labels, feat, repair_target, mask, connectivity,
-        graph_info = graph_info
+        graph_info = graph_info, min_cluster_size = 1L
       )
       if (!preserve_k_feasible) {
         warning(

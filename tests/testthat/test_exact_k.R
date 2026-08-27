@@ -58,6 +58,218 @@ expect_exact_k_topology <- function(labels, mask, target, connectivity) {
   )
 }
 
+independent_grid_edges <- function(mask, connectivity) {
+  coords <- arrayInd(which(as.array(mask) > 0), dim(mask))
+  if (nrow(coords) < 2L) return(matrix(integer(), ncol = 2L))
+  pairs <- utils::combn(seq_len(nrow(coords)), 2L)
+  delta <- abs(coords[pairs[1L, ], , drop = FALSE] -
+                 coords[pairs[2L, ], , drop = FALSE])
+  chebyshev <- apply(delta, 1L, max)
+  manhattan <- rowSums(delta)
+  adjacent <- chebyshev == 1L & if (connectivity == 6L) {
+    manhattan == 1L
+  } else if (connectivity == 18L) {
+    manhattan <= 2L
+  } else {
+    TRUE
+  }
+  t(pairs[, adjacent, drop = FALSE])
+}
+
+slow_tree_split_oracle <- function(labels, features, mask, connectivity,
+                                   min_cluster_size, target_k) {
+  edges <- independent_grid_edges(mask, connectivity)
+  sizes <- tabulate(labels, nbins = max(labels))
+  total_capacity <- sum(sizes %/% min_cluster_size)
+  candidates <- list()
+
+  for (cluster_id in seq_len(max(labels))) {
+    nodes <- which(labels == cluster_id)
+    induced <- edges[
+      labels[edges[, 1L]] == cluster_id & labels[edges[, 2L]] == cluster_id,
+      , drop = FALSE
+    ]
+    if (length(nodes) < 2L * min_cluster_size) next
+    stopifnot(nrow(induced) == length(nodes) - 1L)
+    root <- min(nodes)
+
+    for (cut in seq_len(nrow(induced))) {
+      remaining <- induced[-cut, , drop = FALSE]
+      visited <- induced[cut, 1L]
+      frontier <- visited
+      while (length(frontier)) {
+        node <- frontier[[1L]]
+        frontier <- frontier[-1L]
+        incident <- remaining[
+          remaining[, 1L] == node | remaining[, 2L] == node, , drop = FALSE
+        ]
+        neighbors <- setdiff(as.integer(incident), node)
+        neighbors <- setdiff(neighbors, visited)
+        if (length(neighbors)) {
+          visited <- c(visited, neighbors)
+          frontier <- c(frontier, neighbors)
+        }
+      }
+      split_nodes <- sort(unique(visited))
+      if (root %in% split_nodes) split_nodes <- setdiff(nodes, split_nodes)
+      remainder <- setdiff(nodes, split_nodes)
+      if (length(split_nodes) < min_cluster_size ||
+          length(remainder) < min_cluster_size) next
+      capacity_after <- total_capacity - length(nodes) %/% min_cluster_size +
+        length(split_nodes) %/% min_cluster_size +
+        length(remainder) %/% min_cluster_size
+      if (capacity_after < target_k) next
+
+      split_mean <- colMeans(features[split_nodes, , drop = FALSE])
+      remainder_mean <- colMeans(features[remainder, , drop = FALSE])
+      gain <- length(split_nodes) * length(remainder) / length(nodes) *
+        sum((split_mean - remainder_mean)^2)
+      cut_edge <- induced[cut, ]
+      child <- cut_edge[cut_edge %in% split_nodes]
+      parent <- cut_edge[!cut_edge %in% split_nodes]
+      candidates[[length(candidates) + 1L]] <- list(
+        cluster = as.integer(cluster_id),
+        nodes = as.integer(split_nodes),
+        gain = as.numeric(gain),
+        split_min = as.integer(min(split_nodes)),
+        child = as.integer(child),
+        parent = as.integer(parent)
+      )
+    }
+  }
+  if (!length(candidates)) return(NULL)
+  gains <- vapply(candidates, `[[`, numeric(1L), "gain")
+  clusters <- vapply(candidates, `[[`, integer(1L), "cluster")
+  split_min <- vapply(candidates, `[[`, integer(1L), "split_min")
+  children <- vapply(candidates, `[[`, integer(1L), "child")
+  parents <- vapply(candidates, `[[`, integer(1L), "parent")
+  candidates[[order(-gains, clusters, split_min, children, parents)[1L]]]
+}
+
+test_that("feature-tree splits match an independent exhaustive tree-cut oracle", {
+  line <- exact_k_mask(array(1, c(6L, 1L, 1L)))
+  branch_values <- array(0, c(3L, 3L, 1L))
+  branch_values[cbind(c(1L, 2L, 2L, 2L, 3L),
+                      c(2L, 1L, 2L, 3L, 2L), 1L)] <- 1L
+  branch <- exact_k_mask(branch_values)
+  fixtures <- list(
+    list(mask = line, labels = rep(1L, 6L), levels = c(-1, 0, 1),
+         minimum = c(1L, 2L), target = 2L),
+    list(mask = branch, labels = rep(1L, 5L), levels = c(0, 1),
+         minimum = c(1L, 2L), target = 2L),
+    list(mask = line, labels = c(1L, 1L, 1L, 2L, 2L, 2L), levels = c(0, 1),
+         minimum = 1L, target = 3L)
+  )
+
+  for (fixture in fixtures) {
+    assignments <- as.matrix(expand.grid(
+      rep(list(fixture$levels), length(fixture$labels))
+    ))
+    graph <- .exact_k_graph(fixture$mask, 6L)
+    for (minimum in fixture$minimum) {
+      for (row in seq_len(nrow(assignments))) {
+        features <- matrix(assignments[row, ], ncol = 1L)
+        expected <- slow_tree_split_oracle(
+          fixture$labels, features, fixture$mask, 6L,
+          minimum, fixture$target
+        )
+        actual <- .exact_k_select_split(
+          fixture$labels, features, graph$edges, minimum, fixture$target
+        )
+        expect_equal(actual$gain, expected$gain, tolerance = 1e-12)
+        expect_identical(actual$cluster, expected$cluster)
+        expect_identical(sort(actual$nodes), sort(expected$nodes))
+        expect_identical(
+          actual[c("split_min", "child", "parent")],
+          expected[c("split_min", "child", "parent")]
+        )
+      }
+    }
+  }
+})
+
+test_that("minimum-size feasibility is explicit and preserved through awkward repairs", {
+  mask <- exact_k_mask(array(1, c(12L, 1L, 1L)))
+  features <- cbind(seq_len(12L), rep(c(0, 1), 6L))
+
+  split <- force_exact_k(
+    rep(1L, 12L), features, 3L, mask, 6L, min_cluster_size = 3L
+  )
+  expect_exact_k_topology(split, mask, 3L, 6L)
+  expect_true(all(tabulate(split) >= 3L))
+
+  awkward <- force_exact_k(
+    c(1L, 2L, 2L, 3L, 3L, 4L, 4L, 4L, 4L, 4L, 4L, 4L),
+    features, 3L, mask, 6L, min_cluster_size = 3L
+  )
+  expect_exact_k_topology(awkward, mask, 3L, 6L)
+  expect_true(all(tabulate(awkward) >= 3L))
+
+  impossible <- tryCatch(
+    force_exact_k(
+      rep(1L, 12L), features, 5L, mask, 6L, min_cluster_size = 3L
+    ),
+    cluster4d_exact_k_infeasible = identity
+  )
+  expect_s3_class(impossible, "cluster4d_exact_k_infeasible")
+  expect_identical(impossible$reason, "minimum_cluster_size")
+  expect_identical(impossible$target_k, 5L)
+  expect_identical(impossible$n_voxels, 12L)
+  expect_identical(impossible$min_cluster_size, 3L)
+  expect_identical(impossible$current_k, 1L)
+
+  disconnected_values <- array(0, c(9L, 1L, 1L))
+  disconnected_values[c(1L, 2L, 5L:9L)] <- 1L
+  disconnected <- exact_k_mask(disconnected_values)
+  graph_impossible <- tryCatch(
+    force_exact_k(
+      rep(1L, 7L), matrix(seq_len(7L), ncol = 1L), 2L,
+      disconnected, 6L, min_cluster_size = 3L
+    ),
+    cluster4d_exact_k_infeasible = identity
+  )
+  expect_s3_class(graph_impossible, "cluster4d_exact_k_infeasible")
+  expect_identical(graph_impossible$reason, "minimum_cluster_size")
+  expect_identical(graph_impossible$target_k, 2L)
+  expect_identical(graph_impossible$n_voxels, 7L)
+  expect_identical(graph_impossible$min_cluster_size, 3L)
+  expect_identical(graph_impossible$current_k, 2L)
+})
+
+test_that("random connected masks satisfy exact K, size, and connectivity contracts", {
+  set.seed(4831)
+  dims <- c(6L, 6L, 4L)
+  for (trial in seq_len(40L)) {
+    connectivity <- sample(c(6L, 18L, 26L), 1L)
+    offsets <- exact_k_offsets(connectivity)
+    wanted <- sample(15:32, 1L)
+    occupied <- matrix(c(3L, 3L, 2L), nrow = 1L)
+    while (nrow(occupied) < wanted) {
+      origin <- occupied[sample(seq_len(nrow(occupied)), 1L), ]
+      candidate <- origin + offsets[sample(seq_len(nrow(offsets)), 1L), ]
+      if (all(candidate >= 1L & candidate <= dims) &&
+          !any(apply(occupied, 1L, function(x) all(x == candidate)))) {
+        occupied <- rbind(occupied, candidate)
+      }
+    }
+    values <- array(0L, dims)
+    values[occupied] <- 1L
+    mask <- exact_k_mask(values)
+    n <- sum(values)
+    features <- matrix(rnorm(n * 3L), ncol = 3L)
+    initial <- sample(seq_len(min(6L, n)), n, replace = TRUE)
+    minimum <- sample(1:3, 1L)
+    target <- sample(seq_len(min(5L, n %/% minimum)), 1L)
+
+    result <- force_exact_k(
+      initial, features, target, mask, connectivity,
+      min_cluster_size = minimum
+    )
+    expect_exact_k_topology(result, mask, target, connectivity)
+    expect_true(all(tabulate(result) >= minimum), info = paste("trial", trial))
+  }
+})
+
 test_that("small-grid targets are exhaustively feasible exactly when topology permits", {
   dims <- c(2L, 2L, 1L)
   for (bits in seq_len(2^prod(dims) - 1L)) {
@@ -222,6 +434,93 @@ slow_merge_to_target <- function(labels, features, target, edges) {
   }
   labels
 }
+
+slow_corrected_force_exact_k <- function(labels, features, target, mask,
+                                         connectivity,
+                                         min_cluster_size = 1L) {
+  graph <- .exact_k_graph(mask, connectivity)
+  n <- length(labels)
+  minimum <- length(unique(graph$components))
+  component_sizes <- tabulate(graph$components, nbins = minimum)
+  maximum <- sum(component_sizes %/% min_cluster_size)
+  labels <- .exact_k_connected_labels(labels, graph$graph, graph$edges)
+  labels <- .exact_k_prepare_minimum_size(
+    labels, features, graph$edges, target, min_cluster_size,
+    minimum, maximum, n
+  )
+  if (max(labels) > target) {
+    labels <- .exact_k_merge_to_target(
+      labels, features, target, graph$edges, minimum, n,
+      maximum, min_cluster_size
+    )
+  }
+  if (max(labels) < target) {
+    labels <- .exact_k_consolidate_split_capacity(
+      labels, features, graph$edges, target, min_cluster_size,
+      minimum, maximum, n
+    )
+  }
+  while (max(labels) < target) {
+    split <- .exact_k_select_split(
+      labels, features, graph$edges, min_cluster_size, target
+    )
+    stopifnot(!is.null(split))
+    labels[split$nodes] <- max(labels) + 1L
+  }
+  .exact_k_relabel(labels)
+}
+
+test_that("cached exact-K splits are bit-identical to the corrected slow oracle", {
+  set.seed(61227)
+  for (trial in seq_len(60L)) {
+    dims <- sample(2:5, 3L, replace = TRUE)
+    included <- sample(
+      c(FALSE, TRUE), prod(dims), replace = TRUE,
+      prob = c(0.25, 0.75)
+    )
+    if (sum(included) < 3L) included[seq_len(3L)] <- TRUE
+    mask <- exact_k_mask(array(as.integer(included), dims))
+    connectivity <- sample(c(6L, 18L, 26L), 1L)
+    graph <- .exact_k_graph(mask, connectivity)
+    n <- length(graph$mask_idx)
+    features <- matrix(rnorm(n * 4L), ncol = 4L)
+    initial <- sample(seq_len(min(n, 7L)), n, replace = TRUE)
+    normalized <- .exact_k_connected_labels(initial, graph$graph, graph$edges)
+    minimum <- length(unique(graph$components))
+    current <- max(normalized)
+    if (trial %% 2L && current < n) {
+      target <- sample(seq.int(current, min(n, current + 6L)), 1L)
+    } else {
+      target <- sample(seq.int(minimum, current), 1L)
+    }
+
+    expected <- slow_corrected_force_exact_k(
+      initial, features, target, mask, connectivity
+    )
+    actual <- force_exact_k(
+      initial, features, target, mask, connectivity,
+      min_cluster_size = 1L
+    )
+    expect_identical(actual, expected, info = paste("trial", trial))
+  }
+
+  for (trial in seq_len(30L)) {
+    n <- sample(12:30, 1L)
+    mask <- exact_k_mask(array(1, c(n, 1L, 1L)))
+    features <- matrix(rnorm(n * 3L), ncol = 3L)
+    minimum <- sample(2:4, 1L)
+    target <- sample(seq_len(n %/% minimum), 1L)
+    initial <- rep(1L, n)
+    expected <- slow_corrected_force_exact_k(
+      initial, features, target, mask, 6L, minimum
+    )
+    actual <- force_exact_k(
+      initial, features, target, mask, 6L,
+      min_cluster_size = minimum
+    )
+    expect_identical(actual, expected, info = paste("minimum-size trial", trial))
+  }
+})
 
 test_that("incremental exact-K merging matches the rebuilding oracle", {
   set.seed(2112)

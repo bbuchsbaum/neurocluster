@@ -216,7 +216,8 @@ acsc <- function(bvec, mask,
   if (!is.null(K)) {
     voxel_labels <- force_exact_k(
       voxel_labels, feature_mat, K,
-      mask = mask, connectivity = 6L, graph_info = graph_info
+      mask = mask, connectivity = 6L, graph_info = graph_info,
+      min_cluster_size = 1L
     )
   }
 

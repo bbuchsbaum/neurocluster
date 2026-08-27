@@ -405,7 +405,7 @@ rena <- function(bvec, mask,
   if (exact_k) {
     final_labels <- force_exact_k(
       final_labels, t(feature_mat), K,
-      mask = mask, connectivity = connectivity
+      mask = mask, connectivity = connectivity, min_cluster_size = 1L
     )
     current_n_clusters <- length(unique(final_labels))
   }

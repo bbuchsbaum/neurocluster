@@ -1,36 +1,22 @@
 #!/usr/bin/env Rscript
 
-# Fixed-case comparison of the topology-preserving exact-K engine with the
-# pinned pre-remediation hclust/k-means helper. The parent process uses
-# /usr/bin/time -l to capture peak resident memory for each isolated worker.
+# Absolute runtime and peak-memory characterization of the corrected sparse
+# exact-K split engine. The two fixtures pin the production-scale N/K pairs
+# from the Slice-MSF remediation epic. The parent process uses /usr/bin/time -l
+# so every worker reports peak resident memory in an isolated process.
 
 args <- commandArgs(trailingOnly = TRUE)
 
-old_force_exact_k <- function(labels, feature_mat, K_target) {
-  labels <- as.integer(labels)
-  K_target <- max(1L, min(K_target, nrow(feature_mat) - 1L))
-  relabel <- function(lbl) as.integer(match(lbl, sort(unique(lbl))))
-  labels <- relabel(labels)
-  k_curr <- length(unique(labels))
-  if (k_curr == K_target) return(labels)
-  centroids <- function(lbls) {
-    rowsum(feature_mat, lbls) / as.numeric(table(lbls))
-  }
-  if (k_curr > K_target) {
-    cut <- stats::cutree(
-      stats::hclust(stats::dist(centroids(labels)), method = "ward.D2"),
-      k = K_target
-    )
-    return(relabel(cut[labels]))
-  }
-  set.seed(1)
-  relabel(stats::kmeans(
-    feature_mat, centers = K_target, iter.max = 50, nstart = 5
-  )$cluster)
-}
-
 make_case <- function(case) {
-  dims <- c(20L, 20L, 4L)
+  specification <- switch(
+    case,
+    n12544_k150 = list(dims = c(28L, 28L, 16L), target = 150L,
+                       block = c(7L, 7L, 8L)),
+    n32000_k300 = list(dims = c(40L, 40L, 20L), target = 300L,
+                       block = c(8L, 8L, 10L)),
+    stop("unknown exact-K benchmark case: ", case)
+  )
+  dims <- specification$dims
   sp <- neuroim2::NeuroSpace(dims)
   mask <- neuroim2::NeuroVol(array(1, dims), sp)
   coords <- arrayInd(seq_len(prod(dims)), dims)
@@ -42,26 +28,18 @@ make_case <- function(case) {
     coords[, 2] / dims[2],
     coords[, 3] / dims[3]
   )
-  if (case == "over_target") {
-    labels <- interaction(
-      (coords[, 1] - 1L) %/% 4L,
-      (coords[, 2] - 1L) %/% 4L,
-      (coords[, 3] - 1L) %/% 2L,
-      drop = TRUE
-    )
-  } else {
-    labels <- interaction(
-      (coords[, 1] - 1L) %/% 10L,
-      (coords[, 2] - 1L) %/% 10L,
-      (coords[, 3] - 1L) %/% 2L,
-      drop = TRUE
-    )
-  }
+  labels <- interaction(
+    (coords[, 1L] - 1L) %/% specification$block[[1L]],
+    (coords[, 2L] - 1L) %/% specification$block[[2L]],
+    (coords[, 3L] - 1L) %/% specification$block[[3L]],
+    drop = TRUE
+  )
   list(
     mask = mask,
     features = features,
     labels = as.integer(labels),
-    target = 25L
+    target = specification$target,
+    min_cluster_size = 20L
   )
 }
 
@@ -76,38 +54,39 @@ topology_ok <- function(labels, mask) {
 if (length(args) && identical(args[[1]], "--worker")) {
   suppressPackageStartupMessages(devtools::load_all(".", quiet = TRUE, recompile = FALSE))
   case_name <- args[[2]]
-  method <- args[[3]]
-  repetitions <- as.integer(args[[4]])
+  repetitions <- as.integer(args[[3]])
   fixture <- make_case(case_name)
   graph <- neurocluster:::.exact_k_graph(fixture$mask, 6L)
   elapsed <- numeric(repetitions)
   result <- NULL
   for (i in seq_len(repetitions)) {
     elapsed[[i]] <- system.time({
-      result <- if (method == "candidate") {
-        neurocluster:::force_exact_k(
-          fixture$labels, fixture$features, fixture$target,
-          fixture$mask, 6L
-        )
-      } else {
-        old_force_exact_k(
-          fixture$labels, fixture$features, fixture$target
-        )
-      }
+      result <- neurocluster:::force_exact_k(
+        fixture$labels, fixture$features, fixture$target,
+        fixture$mask, 6L, graph_info = graph,
+        min_cluster_size = fixture$min_cluster_size
+      )
     })[["elapsed"]]
   }
   output <- data.frame(
     case = case_name,
-    method = method,
+    method = "corrected_feature_tree",
     n_voxels = length(fixture$labels),
     n_edges = nrow(graph$edges),
     initial_k = length(unique(fixture$labels)),
+    natural_k = length(unique(fixture$labels)),
     target_k = fixture$target,
+    repaired_k = length(unique(result)),
+    min_cluster_size = fixture$min_cluster_size,
     repetitions = repetitions,
     median_elapsed_s = stats::median(elapsed),
     p95_elapsed_s = stats::quantile(elapsed, 0.95, names = FALSE),
     exact_k = length(unique(result)) == fixture$target,
     topology_ok = topology_ok(result, fixture$mask),
+    minimum_size_ok = min(tabulate(result)) >= fixture$min_cluster_size,
+    smallest_cluster = min(tabulate(result)),
+    largest_cluster = max(tabulate(result)),
+    cluster_sizes = paste(tabulate(result), collapse = ","),
     stringsAsFactors = FALSE
   )
   write.table(output, row.names = FALSE, sep = "\t", quote = FALSE)
@@ -120,13 +99,13 @@ rscript <- file.path(R.home("bin"), "Rscript")
 time_bin <- "/usr/bin/time"
 if (!file.exists(time_bin)) stop("/usr/bin/time is required for peak RSS measurement")
 
-run_worker <- function(case, method, repetitions = 5L) {
+run_worker <- function(case, repetitions = 3L) {
   stdout <- tempfile("exact-k-bench-", fileext = ".tsv")
   stderr <- tempfile("exact-k-time-", fileext = ".txt")
   on.exit(unlink(c(stdout, stderr)), add = TRUE)
   status <- system2(
     time_bin,
-    c("-l", rscript, script, "--worker", case, method, repetitions),
+    c("-l", rscript, script, "--worker", case, repetitions),
     stdout = stdout,
     stderr = stderr
   )
@@ -139,10 +118,12 @@ run_worker <- function(case, method, repetitions = 5L) {
   result
 }
 
-results <- do.call(rbind, lapply(c("over_target", "under_target"), function(case) {
-  rbind(
-    run_worker(case, "baseline"),
-    run_worker(case, "candidate")
-  )
-}))
+repetitions <- as.integer(Sys.getenv("EXACT_K_BENCH_REPS", "3"))
+if (!is.finite(repetitions) || repetitions < 1L) {
+  stop("EXACT_K_BENCH_REPS must be a positive integer")
+}
+results <- do.call(rbind, lapply(
+  c("n12544_k150", "n32000_k300"),
+  run_worker, repetitions = repetitions
+))
 write.table(results, row.names = FALSE, sep = "\t", quote = FALSE)

@@ -104,7 +104,8 @@ test_that("supported Slice-MSF defaults recover the spherical estimand", {
   expect_gte(clustering_accuracy(wrapped$cluster, fixture$truth)$ari, 0.80)
   expect_gte(clustering_accuracy(ablation$cluster, fixture$truth)$ari, 0.80)
   expect_gte(min(tabulate(wrapped$cluster)), 2L)
-  expect_equal(wrapped$parameters$fh_scale, 0.4, tolerance = 1e-12)
+  expect_equal(wrapped$parameters$spatial_weight, 0.4, tolerance = 1e-12)
+  expect_equal(wrapped$parameters$compactness, 4, tolerance = 1e-12)
   expect_error(
     slice_msf(
       fixture$vec, fixture$mask, num_runs = 1L, consensus = FALSE,
@@ -121,6 +122,38 @@ test_that("supported Slice-MSF defaults recover the spherical estimand", {
     "gamma must be zero",
     class = "slice_msf_unsupported_gamma"
   )
+})
+
+test_that("exact-K repair preserves spherical and gradient parcel structure", {
+  fixtures <- list(
+    spherical = slice_msf_make_spherical_fixture(),
+    gradient = slice_msf_make_gradient_fixture()
+  )
+  minimum_ari <- c(spherical = 0.80, gradient = 0.95)
+
+  for (name in names(fixtures)) {
+    fixture <- fixtures[[name]]
+    fit <- cluster4d(
+      fixture$vec, fixture$mask, n_clusters = 8L, method = "slice_msf",
+      spatial_weight = 0.4, min_size = 2L, r = 16L,
+      num_runs = 1L, consensus = FALSE, verbose = FALSE
+    )
+    sizes <- tabulate(fit$cluster)
+    repair <- fit$metadata$exact_k_repair
+
+    expect_identical(length(sizes), 8L, info = name)
+    expect_true(min(sizes) >= 2L, info = name)
+    expect_true(max(sizes) < 0.5 * length(fit$cluster), info = name)
+    expect_true(
+      clustering_accuracy(fit$cluster, fixture$truth)$ari >= minimum_ari[[name]],
+      info = name
+    )
+    expect_identical(repair$requested_k, 8L, info = name)
+    expect_identical(repair$min_cluster_size, 2L, info = name)
+    expect_identical(repair$final_sizes, as.integer(sizes), info = name)
+    expect_identical(sum(repair$input_sizes), length(fit$cluster), info = name)
+    expect_true(is.list(repair$operations), info = name)
+  }
 })
 
 test_that("adjacent-correlation diagnostics cannot define feature distance", {

@@ -648,7 +648,7 @@ cluster4d_mcl <- function(vec, mask, n_clusters = 100,
   if (exact_k) {
     labels <- force_exact_k(
       labels, data_prep$features, n_clusters,
-      mask = mask, connectivity = connectivity
+      mask = mask, connectivity = connectivity, min_cluster_size = 1L
     )
   }
 
