@@ -1,142 +1,134 @@
 #!/usr/bin/env Rscript
 
-# Focused reproduction for the near-zero Slice-MSF ARI observed in
-# tests/testthat/test_supervoxel_quality.R. This is diagnostic only: it compares
-# the supported path with two ablations and records the intermediate partition,
-# reliability, edge-separation, and exact-K behavior.
+# Proof-bearing Slice-MSF characterization. Run from the package root. The
+# script records public defaults, natural versus repaired K, the signed
+# temporal-smoothness diagnostic, unweighted edge separation, and fail-closed
+# gamma behavior. It deliberately uses the same fixed spherical fixture as the
+# regression test.
 
 suppressPackageStartupMessages(
   devtools::load_all(quiet = TRUE, recompile = FALSE)
 )
+source("tests/testthat/helper-slice-msf-oracle.R", local = TRUE)
 
-# Load only helper definitions preceding the first test_that() call. This keeps
-# the fixture exactly aligned with the quality test without running all methods.
-test_expressions <- parse("tests/testthat/test_supervoxel_quality.R")
-for (expression in test_expressions) {
-  if (is.call(expression) && identical(expression[[1L]], as.name("test_that"))) {
-    break
-  }
-  eval(expression, envir = .GlobalEnv)
-}
-
-data <- make_spherical_clusters(
-  dims = c(15, 15, 15), n_clusters = 8, n_time = 100,
-  noise_sd = 0.3, size_variation = 0.5, seed = 42
-)
-mask_index <- which(as.vector(as.array(data$mask)) > 0)
-truth <- data$true_labels
+fixture <- slice_msf_make_spherical_fixture()
+truth <- fixture$truth
+mask_index <- which(as.vector(as.array(fixture$mask)) > 0)
 
 partition_row <- function(name, labels) {
   sizes <- sort(tabulate(as.integer(factor(labels))), decreasing = TRUE)
-  metrics <- clustering_accuracy(labels, truth)
   data.frame(
     fit = name,
     k = length(sizes),
-    ari = metrics$ari,
+    ari = clustering_accuracy(labels, truth)$ari,
     largest = sizes[[1L]],
     smallest = sizes[[length(sizes)]],
     singleton_count = sum(sizes == 1L),
-    size_cv = stats::sd(sizes) / mean(sizes),
+    sizes = paste(sizes, collapse = ","),
     stringsAsFactors = FALSE
   )
 }
 
-run_natural <- function(gamma, z_mult = 0.5) {
+run_natural <- function() {
   slice_msf(
-    data$vec, data$mask,
-    target_k_global = -1L,
-    r = 16L, compactness = 4, min_size = 2L,
-    num_runs = 1L, consensus = FALSE,
-    stitch_z = TRUE, nbhd = 8L, gamma = gamma, z_mult = z_mult
+    fixture$vec, fixture$mask,
+    target_k_global = -1L, r = 16L, compactness = 4, min_size = 2L,
+    num_runs = 1L, consensus = FALSE, stitch_z = TRUE, nbhd = 8L
   )
 }
 
-run_exact <- function(gamma, z_mult = 0.5) {
+run_exact <- function(...) {
   cluster4d(
-    data$vec, data$mask, n_clusters = 8L, method = "slice_msf",
+    fixture$vec, fixture$mask, n_clusters = 8L, method = "slice_msf",
     spatial_weight = 0.4, min_size = 2L, r = 16L,
-    num_runs = 1L, consensus = FALSE,
-    gamma = gamma, z_mult = z_mult, verbose = FALSE
+    num_runs = 1L, consensus = FALSE, verbose = FALSE, ...
   )
 }
 
-supported_natural <- run_natural(gamma = 1)
-supported_exact <- run_exact(gamma = 1)
-unit_reliability_natural <- run_natural(gamma = 0)
-unit_reliability_exact <- run_exact(gamma = 0)
-unit_reliability_no_z_exact <- run_exact(gamma = 0, z_mult = 0)
-
+natural <- run_natural()
+public_exact <- run_exact()
+explicit_safe_exact <- run_exact(gamma = 0, z_mult = 0)
 partitions <- do.call(rbind, list(
-  partition_row("supported_natural_gamma_1", supported_natural$cluster),
-  partition_row("supported_exact_k_gamma_1", supported_exact$cluster),
-  partition_row("unit_reliability_natural_gamma_0", unit_reliability_natural$cluster),
-  partition_row("unit_reliability_exact_k_gamma_0", unit_reliability_exact$cluster),
-  partition_row("unit_reliability_no_z_exact_k_gamma_0", unit_reliability_no_z_exact$cluster)
+  partition_row("public_natural", natural$cluster),
+  partition_row("public_exact_k", public_exact$cluster),
+  partition_row("explicit_gamma_0_z_0_exact_k", explicit_safe_exact$cluster)
 ))
 
-# Any strictly positive gamma preserves exact zeros from non-positive
-# split-half correlations. Probe the discontinuity at gamma = 0 explicitly.
-gamma_sweep <- do.call(rbind, lapply(c(0, 1e-6, 0.1, 0.5, 1, 2), function(value) {
-  natural <- if (value == 0) unit_reliability_natural else if (value == 1) {
-    supported_natural
-  } else run_natural(value)
-  exact <- if (value == 0) unit_reliability_exact else if (value == 1) {
-    supported_exact
-  } else run_exact(value)
-  natural_sizes <- sort(tabulate(natural$cluster), decreasing = TRUE)
-  exact_sizes <- sort(tabulate(exact$cluster), decreasing = TRUE)
-  data.frame(
-    gamma = value,
-    natural_k = length(natural_sizes),
-    natural_largest = natural_sizes[[1L]],
-    exact_ari = clustering_accuracy(exact$cluster, truth)$ari,
-    exact_largest = exact_sizes[[1L]],
-    exact_singletons = sum(exact_sizes == 1L)
+repair <- data.frame(
+  natural_k = length(unique(natural$cluster)),
+  requested_k = 8L,
+  repair_direction = if (length(unique(natural$cluster)) > 8L) "merge" else "split",
+  repair_ran = TRUE,
+  pre_sizes = paste(sort(tabulate(natural$cluster), decreasing = TRUE), collapse = ","),
+  post_sizes = paste(sort(tabulate(public_exact$cluster), decreasing = TRUE), collapse = ","),
+  public_default_matches_explicit_safe = identical(
+    as.integer(public_exact$cluster), as.integer(explicit_safe_exact$cluster)
+  ),
+  stringsAsFactors = FALSE
+)
+
+capture_gamma_error <- function(path, expression) {
+  condition <- tryCatch(
+    {
+      force(expression)
+      NULL
+    },
+    error = identity
   )
-}))
+  data.frame(
+    path = path,
+    rejected = inherits(condition, "slice_msf_unsupported_gamma"),
+    condition_class = if (is.null(condition)) "none" else class(condition)[[1L]],
+    message = if (is.null(condition)) "" else conditionMessage(condition),
+    stringsAsFactors = FALSE
+  )
+}
+
+gamma_contract <- rbind(
+  capture_gamma_error("direct", slice_msf(
+    fixture$vec, fixture$mask, min_size = 2L,
+    num_runs = 1L, consensus = FALSE, gamma = 1e-6
+  )),
+  capture_gamma_error("cluster4d", run_exact(gamma = 1e-6))
+)
 
 native <- slice_msf_single(
-  data$vec, data$mask,
+  fixture$vec, fixture$mask,
   r = 16L, k = 0.4, min_size = 2L,
-  nbhd = 8L, stitch_z = TRUE, gamma = 1, z_mult = 0.5
+  nbhd = 8L, stitch_z = TRUE, gamma = 0, z_mult = 0
 )
-weights <- native$weights[mask_index]
-reliability <- data.frame(
+smoothness <- native$temporal_smoothness[mask_index]
+temporal_smoothness <- data.frame(
   statistic = c(
     "minimum", "q25", "median", "mean", "q75", "maximum",
-    "fraction_exact_zero", "fraction_below_0.01", "fraction_below_0.10"
+    "fraction_non_positive", "fraction_negative"
   ),
   value = c(
-    min(weights), stats::quantile(weights, 0.25), stats::median(weights),
-    mean(weights), stats::quantile(weights, 0.75), max(weights),
-    mean(weights == 0), mean(weights < 0.01), mean(weights < 0.10)
+    min(smoothness), stats::quantile(smoothness, 0.25),
+    stats::median(smoothness), mean(smoothness),
+    stats::quantile(smoothness, 0.75), max(smoothness),
+    mean(smoothness <= 0), mean(smoothness < 0)
   )
 )
 
-graph <- neurocluster:::.exact_k_graph(data$mask, 26L)
+graph <- neurocluster:::.exact_k_graph(fixture$mask, 26L)
 edges <- graph$edges
 sketch <- native$sketch[, mask_index, drop = FALSE]
 similarity <- colSums(
   sketch[, edges[, 1L], drop = FALSE] *
     sketch[, edges[, 2L], drop = FALSE]
 )
-unweighted_distance <- 1 - pmax(-1, pmin(1, similarity))
-edge_reliability <- sqrt(weights[edges[, 1L]] * weights[edges[, 2L]])
-weighted_distance <- edge_reliability * unweighted_distance
+distance <- 1 - pmax(-1, pmin(1, similarity))
 boundary <- truth[edges[, 1L]] != truth[edges[, 2L]]
-
 edge_summary <- do.call(rbind, lapply(
   list(within_truth = !boundary, between_truth = boundary),
   function(select) {
     data.frame(
       n = sum(select),
-      unweighted_q25 = stats::quantile(unweighted_distance[select], 0.25),
-      unweighted_median = stats::median(unweighted_distance[select]),
-      unweighted_q75 = stats::quantile(unweighted_distance[select], 0.75),
-      weighted_q25 = stats::quantile(weighted_distance[select], 0.25),
-      weighted_median = stats::median(weighted_distance[select]),
-      weighted_q75 = stats::quantile(weighted_distance[select], 0.75),
-      fraction_weighted_zero = mean(weighted_distance[select] == 0)
+      q25 = stats::quantile(distance[select], 0.25),
+      median = stats::median(distance[select]),
+      q75 = stats::quantile(distance[select], 0.75),
+      fraction_zero = mean(distance[select] == 0)
     )
   }
 ))
@@ -144,36 +136,17 @@ edge_summary$edge_type <- rownames(edge_summary)
 rownames(edge_summary) <- NULL
 edge_summary <- edge_summary[, c("edge_type", setdiff(names(edge_summary), "edge_type"))]
 
-original <- neurocluster:::.cluster4d_original_data(
-  data$vec, data$mask, "slice_msf_diagnosis"
-)
-one_component_exact <- neurocluster:::force_exact_k(
-  rep(1L, length(truth)), original$features, 8L,
-  mask = data$mask, connectivity = 26L, graph_info = graph
-)
-fallback_comparison <- data.frame(
-  final_equals_one_component_fallback = identical(
-    as.integer(supported_exact$cluster), as.integer(one_component_exact)
-  ),
-  partition_ari = neurocluster:::.partition_metrics(
-    supported_exact$cluster, one_component_exact
-  )$ari,
-  fallback_sizes = paste(
-    sort(tabulate(one_component_exact), decreasing = TRUE), collapse = ","
-  )
-)
-
 report <- capture.output({
   cat("\nPARTITIONS\n")
   print(partitions, row.names = FALSE, digits = 6)
-  cat("\nRELIABILITY\n")
-  print(reliability, row.names = FALSE, digits = 6)
-  cat("\nGAMMA SWEEP\n")
-  print(gamma_sweep, row.names = FALSE, digits = 6)
-  cat("\nEDGE SEPARATION\n")
+  cat("\nREPAIR\n")
+  print(repair, row.names = FALSE)
+  cat("\nGAMMA CONTRACT\n")
+  print(gamma_contract, row.names = FALSE)
+  cat("\nTEMPORAL SMOOTHNESS (DIAGNOSTIC ONLY)\n")
+  print(temporal_smoothness, row.names = FALSE, digits = 6)
+  cat("\nUNWEIGHTED EDGE SEPARATION\n")
   print(edge_summary, row.names = FALSE, digits = 6)
-  cat("\nEXACT-K FALLBACK\n")
-  print(fallback_comparison, row.names = FALSE)
   cat("\nSESSION\n")
   print(sessionInfo())
 })
@@ -186,21 +159,22 @@ artifact_dir <- Sys.getenv(
 dir.create(artifact_dir, recursive = TRUE, showWarnings = FALSE)
 writeLines(report, file.path(artifact_dir, "diagnosis.txt"))
 utils::write.csv(partitions, file.path(artifact_dir, "partitions.csv"), row.names = FALSE)
-utils::write.csv(reliability, file.path(artifact_dir, "reliability.csv"), row.names = FALSE)
-utils::write.csv(gamma_sweep, file.path(artifact_dir, "gamma-sweep.csv"), row.names = FALSE)
-utils::write.csv(edge_summary, file.path(artifact_dir, "edge-summary.csv"), row.names = FALSE)
+utils::write.csv(repair, file.path(artifact_dir, "repair.csv"), row.names = FALSE)
+utils::write.csv(gamma_contract, file.path(artifact_dir, "gamma-contract.csv"), row.names = FALSE)
 utils::write.csv(
-  fallback_comparison, file.path(artifact_dir, "exact-k-fallback.csv"),
+  temporal_smoothness, file.path(artifact_dir, "temporal-smoothness.csv"),
   row.names = FALSE
 )
+utils::write.csv(edge_summary, file.path(artifact_dir, "edge-summary.csv"), row.names = FALSE)
 saveRDS(
   list(
     git_sha = system2("git", c("rev-parse", "HEAD"), stdout = TRUE),
+    dirty = length(system2("git", c("status", "--porcelain"), stdout = TRUE)) > 0L,
     partitions = partitions,
-    reliability = reliability,
-    gamma_sweep = gamma_sweep,
+    repair = repair,
+    gamma_contract = gamma_contract,
+    temporal_smoothness = temporal_smoothness,
     edge_summary = edge_summary,
-    exact_k_fallback = fallback_comparison,
     session_info = sessionInfo()
   ),
   file.path(artifact_dir, "diagnosis.rds")

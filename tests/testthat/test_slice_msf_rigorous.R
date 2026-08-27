@@ -168,67 +168,36 @@ test_that("slice_msf separates regions with different temporal patterns", {
   expect_true(left_clusters != right_clusters)
 })
 
-test_that("slice_msf reliability weighting works correctly", {
-  # Test that voxels with more reliable signals are weighted more heavily
-  set.seed(300)
-  dims <- c(8, 8, 2)
+test_that("slice_msf exposes temporal smoothness only as a diagnostic", {
+  dims <- c(4L, 2L, 1L)
+  ntime <- 20L
+  half_pattern <- sin(seq(0, 2 * pi, length.out = ntime / 2L))
+  alternating <- as.vector(rbind(half_pattern, -half_pattern))
+  smooth <- sin(seq(0, 2 * pi, length.out = ntime))
+  values <- array(0, c(dims, ntime))
+  for (voxel in seq_len(prod(dims))) {
+    coordinate <- arrayInd(voxel, dims)
+    values[coordinate[[1L]], coordinate[[2L]], coordinate[[3L]], ] <-
+      if (voxel %% 2L) alternating else smooth
+  }
   mask <- NeuroVol(array(1, dims), NeuroSpace(dims))
-  ntime <- 40  # Even number for split-half
-  
-  nvox <- prod(dims)
-  ts_data <- matrix(0, nrow = nvox, ncol = ntime)
-  
-  # Create two groups:
-  # Group 1: Highly reliable signal (same pattern in both halves)
-  # Group 2: Unreliable signal (different patterns in each half)
-  
-  reliable_voxels <- 1:64
-  unreliable_voxels <- 65:128
-  
-  # Reliable: consistent sine wave
-  pattern <- sin(seq(0, 2*pi, length.out = ntime/2))
-  ts_data[reliable_voxels, 1:(ntime/2)] <- matrix(rep(pattern, length(reliable_voxels)), 
-                                                    ncol = ntime/2, byrow = TRUE)
-  ts_data[reliable_voxels, (ntime/2+1):ntime] <- matrix(rep(pattern, length(reliable_voxels)), 
-                                                          ncol = ntime/2, byrow = TRUE)
-  
-  # Unreliable: different patterns in each half
-  ts_data[unreliable_voxels, 1:(ntime/2)] <- matrix(rnorm(length(unreliable_voxels) * ntime/2), 
-                                                      ncol = ntime/2)
-  ts_data[unreliable_voxels, (ntime/2+1):ntime] <- matrix(rnorm(length(unreliable_voxels) * ntime/2), 
-                                                            ncol = ntime/2)
-  
-  # Add small noise to all
-  ts_data <- ts_data + rnorm(nvox * ntime, sd = 0.1)
-  
-  # Create NeuroVec
-  vec_list <- lapply(1:ntime, function(t) {
-    vol_data <- array(0, dims)
-    vol_data[mask > 0] <- ts_data[, t]
-    NeuroVol(vol_data, NeuroSpace(dims))
-  })
-  vec <- do.call(concat, vec_list)
-  
-  # Run clustering with low min_size to allow separation
-  result <- slice_msf(vec, mask, num_runs = 1, r = 4, 
-                      min_size = 10, compactness = 3, gamma = 1.5)
-  
-  # The reliable voxels should cluster together more than unreliable ones
-  reliable_clusters <- result$cluster[reliable_voxels]
-  unreliable_clusters <- result$cluster[unreliable_voxels]
-  
-  # Count the size of the most common cluster in each group
-  reliable_table <- table(reliable_clusters)
-  unreliable_table <- table(unreliable_clusters)
-  
-  reliable_coherence <- max(reliable_table) / length(reliable_clusters)
-  unreliable_coherence <- max(unreliable_table) / length(unreliable_clusters)
-  
-  # Reliable voxels should have higher coherence (or at least equal)
-  # With small data, both might end up in single clusters
-  expect_true(reliable_coherence >= unreliable_coherence * 0.9,
-              info = sprintf("Reliable coherence (%.2f) should be >= unreliable (%.2f)", 
-                            reliable_coherence, unreliable_coherence))
+  vec <- NeuroVec(values, NeuroSpace(c(dims, ntime)))
+  result <- slice_msf_single(
+    vec, mask, r = 4L, k = 0.3, min_size = 1L, gamma = 0
+  )
+
+  expect_named(
+    result,
+    c("labels", "temporal_smoothness", "sketch", "params")
+  )
+  expect_true(all(is.finite(result$temporal_smoothness)))
+  expect_lt(min(result$temporal_smoothness), 0)
+  expect_equal(result$params$feature_distance, "1-cosine")
+  expect_error(
+    slice_msf(vec, mask, num_runs = 1L, consensus = FALSE, gamma = 1),
+    "gamma must be zero",
+    class = "slice_msf_unsupported_gamma"
+  )
 })
 
 test_that("slice_msf consensus fusion improves stability", {

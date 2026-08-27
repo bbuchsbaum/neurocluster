@@ -426,7 +426,7 @@ slic4d_core <- function(feats, coords, mask_lin_idx, dims, voxmm, K, compactness
     .Call('_neurocluster_slic4d_core', PACKAGE = 'neurocluster', feats, coords, mask_lin_idx, dims, voxmm, K, compactness, max_iter, step_mm, n_threads, seed_method, enforce_connectivity, min_size, connectivity, strict_connectivity, preserve_k, topup_iters, grad_masked, seed_relocate_radius, verbose)
 }
 
-slice_msf_runwise <- function(TS, mask, vol_dim, r = 12L, fh_scale = 0.32, min_size = 80L, nbhd = 8L, stitch_z = FALSE, rows_are_time = TRUE, gamma = 1.5, voxel_dim = NULL, spatial_beta = 0.0, target_k_global = -1L, target_k_per_slice = -1L, z_mult = 0.0, w_threshold = 0.0, dct_frequencies = NULL, dct_weights = NULL) {
+slice_msf_runwise <- function(TS, mask, vol_dim, r = 12L, fh_scale = 0.32, min_size = 80L, nbhd = 8L, stitch_z = FALSE, rows_are_time = TRUE, gamma = 0.0, voxel_dim = NULL, spatial_beta = 0.0, target_k_global = -1L, target_k_per_slice = -1L, z_mult = 0.0, w_threshold = 0.0, dct_frequencies = NULL, dct_weights = NULL) {
     .Call('_neurocluster_slice_msf_runwise', PACKAGE = 'neurocluster', TS, mask, vol_dim, r, fh_scale, min_size, nbhd, stitch_z, rows_are_time, gamma, voxel_dim, spatial_beta, target_k_global, target_k_per_slice, z_mult, w_threshold, dct_frequencies, dct_weights)
 }
 

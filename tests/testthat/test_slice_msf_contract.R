@@ -68,7 +68,7 @@ slice_msf_all_connected <- function(cluster_map, connectivity = 6L) {
   }, logical(1L)))
 }
 
-test_that("Slice-MSF ensemble is diverse, seeded, and gamma affects labels", {
+test_that("Slice-MSF ensemble is diverse, seeded, and gamma fails closed", {
   fixture <- slice_msf_contract_fixture()
   fit <- slice_msf(
     fixture$vec, fixture$mask,
@@ -86,7 +86,7 @@ test_that("Slice-MSF ensemble is diverse, seeded, and gamma affects labels", {
     fit$runs, function(run) paste(run$labels, collapse = ","), character(1L)
   )
 
-  expect_gt(length(unique(signatures)), 1L)
+  expect_gte(length(unique(signatures)), 3L)
   expect_identical(fit$cluster, replay$cluster)
   expect_identical(fit$metadata$ensemble$runs, replay$metadata$ensemble$runs)
 
@@ -95,16 +95,16 @@ test_that("Slice-MSF ensemble is diverse, seeded, and gamma affects labels", {
     r = 8L, compactness = 10, min_size = 2L,
     num_runs = 1L, consensus = FALSE, gamma = 0
   )
-  gamma_four <- slice_msf(
-    fixture$vec, fixture$mask,
-    r = 8L, compactness = 10, min_size = 2L,
-    num_runs = 1L, consensus = FALSE, gamma = 4
+  expect_equal(gamma_zero$metadata$native$gamma, 0)
+  expect_error(
+    slice_msf(
+      fixture$vec, fixture$mask,
+      r = 8L, compactness = 10, min_size = 2L,
+      num_runs = 1L, consensus = FALSE, gamma = 4
+    ),
+    "gamma must be zero",
+    class = "slice_msf_unsupported_gamma"
   )
-  expect_false(identical(gamma_zero$cluster, gamma_four$cluster))
-  expect_false(identical(
-    gamma_zero$metadata$native$gamma,
-    gamma_four$metadata$native$gamma
-  ))
 })
 
 test_that("Slice-MSF exact K splits, merges, and preserves 3-D connectivity", {
@@ -175,12 +175,12 @@ test_that("retained Slice-MSF controls reach their declared intermediates", {
   base <- slice_msf_single(
     fixture$vec, fixture$mask,
     r = 4L, k = 0.2, min_size = 2L, nbhd = 6L,
-    stitch_z = TRUE, gamma = 1, z_mult = 0
+    stitch_z = TRUE, gamma = 0, z_mult = 0
   )
   changed <- slice_msf_single(
     fixture$vec, fixture$mask,
     r = 4L, k = 0.4, min_size = 3L, nbhd = 8L,
-    stitch_z = FALSE, gamma = 2, z_mult = 0.25,
+    stitch_z = FALSE, gamma = 0, z_mult = 0.25,
     dct_frequencies = c(1L, 3L, 5L, 7L),
     dct_weights = c(1, 2, 1, 0.5)
   )
@@ -189,7 +189,7 @@ test_that("retained Slice-MSF controls reach their declared intermediates", {
   expect_equal(changed$params$min_size, 3L)
   expect_equal(changed$params$nbhd, 8L)
   expect_false(changed$params$stitch_z)
-  expect_equal(changed$params$gamma, 2)
+  expect_equal(changed$params$gamma, 0)
   expect_equal(changed$params$z_mult, 0.25)
   expect_equal(changed$params$dct_frequencies, c(1L, 3L, 5L, 7L))
   expect_false(isTRUE(all.equal(base$sketch, changed$sketch)))
@@ -203,6 +203,23 @@ test_that("retained Slice-MSF controls reach their declared intermediates", {
     unname(fused$params[c("nbhd", "fh_scale", "min_size", "use_features",
                           "lambda", "stitch_z")]),
     list(4L, 0.25, 2L, TRUE, 0.35, TRUE)
+  )
+  expect_equal(fused$params$run_weighting, "uniform")
+  altered_diagnostics <- list(base, changed)
+  altered_diagnostics[[1L]]$temporal_smoothness[] <- -100
+  altered_diagnostics[[2L]]$temporal_smoothness[] <- 100
+  fused_altered <- slice_msf_consensus(
+    altered_diagnostics, fixture$mask,
+    nbhd = 6L, k_fuse = 0.25, min_size_fuse = 2L,
+    use_features = TRUE, lambda = 0.35, stitch_z = TRUE
+  )
+  expect_identical(fused$labels, fused_altered$labels)
+  expect_error(
+    slice_msf_consensus(
+      list(base, changed), fixture$mask, min_size_fuse = 2L, gamma = 1
+    ),
+    "gamma must be zero",
+    class = "slice_msf_unsupported_gamma"
   )
 
   seed_a <- slice_msf(

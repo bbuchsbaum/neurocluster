@@ -54,7 +54,16 @@ test_that("independent R preprocessing and FH oracle match native gamma-zero pat
     )
   }, numeric(length(frequencies)))
   expect_equal(native$sketch, expected_sketch, tolerance = 1e-11)
-  expect_equal(native$weights, rep(1, prod(dims)), tolerance = 0)
+  expected_smoothness <- vapply(seq_len(prod(dims)), function(voxel) {
+    coordinate <- arrayInd(voxel, dims)
+    slice_msf_oracle_adjacent_correlation(
+      slice_msf_oracle_detrend_zscore(
+        values[coordinate[[1L]], coordinate[[2L]], coordinate[[3L]], ]
+      )
+    )
+  }, numeric(1L))
+  expect_equal(native$temporal_smoothness, expected_smoothness, tolerance = 1e-12)
+  expect_equal(native$params$feature_distance, "1-cosine")
 
   edges <- slice_msf_oracle_edges(mask, expected_sketch, 8L, TRUE)
   expected_labels <- slice_msf_oracle_fh(
@@ -68,6 +77,10 @@ test_that("independent R preprocessing and FH oracle match native gamma-zero pat
 })
 
 test_that("supported Slice-MSF defaults recover the spherical estimand", {
+  expect_identical(formals(slice_msf)$gamma, 0)
+  expect_identical(formals(slice_msf)$z_mult, 0.0)
+  expect_identical(formals(cluster4d_slice_msf)$gamma, 0)
+  expect_identical(formals(cluster4d_slice_msf)$z_mult, 0)
   fixture <- slice_msf_make_spherical_fixture()
   direct <- slice_msf(
     fixture$vec, fixture$mask,
@@ -91,10 +104,19 @@ test_that("supported Slice-MSF defaults recover the spherical estimand", {
   expect_gte(clustering_accuracy(wrapped$cluster, fixture$truth)$ari, 0.80)
   expect_gte(clustering_accuracy(ablation$cluster, fixture$truth)$ari, 0.80)
   expect_gte(min(tabulate(wrapped$cluster)), 2L)
+  expect_equal(wrapped$parameters$fh_scale, 0.4, tolerance = 1e-12)
   expect_error(
     slice_msf(
       fixture$vec, fixture$mask, num_runs = 1L, consensus = FALSE,
       min_size = 2L, gamma = 1e-6
+    ),
+    "gamma must be zero",
+    class = "slice_msf_unsupported_gamma"
+  )
+  expect_error(
+    cluster4d(
+      fixture$vec, fixture$mask, n_clusters = 8L, method = "slice_msf",
+      gamma = 1, verbose = FALSE
     ),
     "gamma must be zero",
     class = "slice_msf_unsupported_gamma"
@@ -112,4 +134,21 @@ test_that("adjacent-correlation diagnostics cannot define feature distance", {
   expect_lte(slice_msf_oracle_adjacent_correlation(alternating), 0)
   expect_lte(slice_msf_oracle_adjacent_correlation(zero_diagnostic), 0)
   expect_gt(distance, 0)
+
+  dims <- c(2L, 1L, 1L)
+  n_time <- 20L
+  phase <- seq(0, 2 * pi, length.out = n_time / 2L)
+  first <- as.vector(rbind(sin(phase), -sin(phase)))
+  second <- as.vector(rbind(cos(phase), -cos(phase)))
+  values <- array(0, c(dims, n_time))
+  values[1L, 1L, 1L, ] <- first
+  values[2L, 1L, 1L, ] <- second
+  mask <- neuroim2::NeuroVol(array(1, dims), neuroim2::NeuroSpace(dims))
+  vec <- neuroim2::NeuroVec(values, neuroim2::NeuroSpace(c(dims, n_time)))
+  native <- slice_msf_single(
+    vec, mask, r = 6L, k = 1e-6, min_size = 1L,
+    nbhd = 4L, stitch_z = TRUE, gamma = 0, z_mult = 0
+  )
+  expect_true(all(native$temporal_smoothness < 0))
+  expect_equal(length(unique(native$labels)), 2L)
 })

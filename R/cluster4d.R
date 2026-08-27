@@ -1253,7 +1253,7 @@ cluster4d_brsslic <- function(vec, mask, n_clusters = 100,
 #' @param consensus Use consensus fusion
 #' @param stitch_z Whether graph edges may cross axial slices.
 #' @param r Number of non-DC DCT modes.
-#' @param gamma Reliability exponent used in feature edge distances.
+#' @param gamma Reserved compatibility parameter; must be zero.
 #' @param z_mult Optional axial sketch-smoothing fraction in `[0, 1]`.
 #' @param min_size Minimum component size after connectivity enforcement. Default NULL (auto).
 #' @param seed Integer seed for multi-run DCT subspaces.
@@ -1271,8 +1271,8 @@ cluster4d_slice_msf <- function(vec, mask, n_clusters = 100,
                                consensus = FALSE,
                                stitch_z = TRUE,
                                r = 12,
-                               gamma = 1.0,
-                               z_mult = 0.5,
+                               gamma = 0,
+                               z_mult = 0,
                                min_size = NULL,
                                seed = 1L,
                                ensemble_fraction = 0.8,

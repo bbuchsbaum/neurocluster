@@ -37,12 +37,32 @@
   })
 }
 
+.slice_msf_validate_gamma <- function(gamma, method) {
+  gamma <- .cluster4d_scalar_number(gamma, "gamma", method, lower = 0)
+  if (gamma != 0) {
+    condition <- structure(
+      list(
+        message = paste0(
+          method,
+          ": gamma must be zero; reliability weighting is unsupported because ",
+          "it can turn non-identical feature vectors into zero-distance edges"
+        ),
+        call = NULL,
+        gamma = gamma
+      ),
+      class = c("slice_msf_unsupported_gamma", "error", "condition")
+    )
+    stop(condition)
+  }
+  0
+}
+
 #' Volumetric DCT minimum-spanning-forest clustering
 #'
-#' Compresses each voxel time series into a non-DC DCT sketch, weights feature
-#' distances by split-half reliability, and applies Felzenszwalb-Huttenlocher
-#' segmentation on a masked 3-D neighborhood graph. Multi-run fits use seeded
-#' DCT subspace and mode-weight resampling followed by consensus segmentation.
+#' Compresses each voxel time series into a non-DC DCT sketch, uses cosine
+#' dissimilarity on a masked 3-D neighborhood graph, and applies
+#' Felzenszwalb-Huttenlocher segmentation. Multi-run fits use seeded DCT
+#' subspace and mode-weight resampling followed by uniformly weighted consensus.
 #'
 #' @param vec A `NeuroVec` or `SparseNeuroVec` containing the time series.
 #' @param mask A `NeuroVol`; exactly finite values greater than zero are included.
@@ -58,8 +78,9 @@
 #'   slices are independent and a global exact-K target is unavailable.
 #' @param nbhd `4`, `6`, or `8`. Values `4` and `6` select axial neighbors;
 #'   `8` selects the full diagonal neighborhood.
-#' @param gamma Non-negative exponent applied to positive split-half reliability;
-#'   it directly scales feature edge distances.
+#' @param gamma Reserved compatibility parameter. It must be zero; positive
+#'   reliability weighting is rejected because it can collapse non-identical
+#'   feature vectors to zero-distance edges.
 #' @param k_fuse Positive FH scale for consensus; defaults to the run scale.
 #' @param min_size_fuse Positive minimum consensus component size; defaults to
 #'   `min_size`.
@@ -90,7 +111,7 @@ slice_msf <- function(vec, mask,
                       consensus = TRUE,
                       stitch_z = TRUE,
                       nbhd = 8,
-                      gamma = 1.5,
+                      gamma = 0,
                       k_fuse = NULL,
                       min_size_fuse = NULL,
                       use_features = FALSE,
@@ -114,7 +135,7 @@ slice_msf <- function(vec, mask,
   nbhd <- .cluster4d_scalar_number(nbhd, "nbhd", method, integer = TRUE)
   if (!nbhd %in% c(4L, 6L, 8L)) stop("slice_msf: nbhd must be 4, 6, or 8")
   if (nbhd == 6L) nbhd <- 4L
-  gamma <- .cluster4d_scalar_number(gamma, "gamma", method, lower = 0)
+  gamma <- .slice_msf_validate_gamma(gamma, method)
   lambda <- .cluster4d_scalar_number(lambda, "lambda", method, lower = 0, upper = 1)
   use_features <- .cluster4d_scalar_logical(
     use_features, "use_features", method
@@ -344,15 +365,17 @@ slice_msf <- function(vec, mask,
 
 #' Run one Slice-MSF segmentation
 #'
-#' Low-level diagnostic interface returning native full-volume labels, split-half
-#' reliability weights, and an `r_used` by voxel DCT sketch.
+#' Low-level diagnostic interface returning native full-volume labels, a signed
+#' adjacent-pair temporal-smoothness diagnostic, and an `r_used` by voxel DCT
+#' sketch. Temporal smoothness does not affect segmentation.
 #'
 #' @inheritParams slice_msf
 #' @param k Positive FH segmentation scale.
 #' @param dct_frequencies Optional unique non-DC DCT frequencies in `[1, T - 1]`.
 #' @param dct_weights Optional positive weights paired with `dct_frequencies`.
 #'
-#' @return A list with full-volume `labels`, `weights`, `sketch`, and `params`.
+#' @return A list with full-volume `labels`, `temporal_smoothness`, `sketch`, and
+#'   `params`.
 #' @export
 slice_msf_single <- function(vec, mask, 
                             r = 12,
@@ -360,7 +383,7 @@ slice_msf_single <- function(vec, mask,
                             min_size = 80,
                             nbhd = 8,
                             stitch_z = TRUE,
-                            gamma = 1.5,
+                            gamma = 0,
                             z_mult = 0.0,
                             dct_frequencies = NULL,
                             dct_weights = NULL) {
@@ -379,7 +402,7 @@ slice_msf_single <- function(vec, mask,
   }
   if (nbhd == 6L) nbhd <- 4L
   stitch_z <- .cluster4d_scalar_logical(stitch_z, "stitch_z", method)
-  gamma <- .cluster4d_scalar_number(gamma, "gamma", method, lower = 0)
+  gamma <- .slice_msf_validate_gamma(gamma, method)
   z_mult <- .cluster4d_scalar_number(
     z_mult, "z_mult", method, lower = 0, upper = 1
   )
@@ -455,6 +478,7 @@ slice_msf_single <- function(vec, mask,
 #' @param use_features Whether DCT-sketch similarity contributes to edges.
 #' @param lambda Mixture in `[0, 1]`; active when `use_features = TRUE`.
 #' @param stitch_z Whether consensus edges may cross axial slices.
+#' @param gamma Reserved compatibility parameter. It must be zero.
 #'
 #' @return A list with full-volume consensus `labels` and complete `params`.
 #' @export
@@ -464,7 +488,8 @@ slice_msf_consensus <- function(run_results, mask,
                                min_size_fuse = 80,
                                use_features = FALSE,
                                lambda = 0.7,
-                               stitch_z = TRUE) {
+                               stitch_z = TRUE,
+                               gamma = 0) {
   method <- "slice_msf_consensus"
   if (!inherits(mask, "NeuroVol")) {
     stop("slice_msf_consensus: mask must be a NeuroVol", call. = FALSE)
@@ -490,6 +515,7 @@ slice_msf_consensus <- function(run_results, mask,
     lambda, "lambda", method, lower = 0, upper = 1
   )
   stitch_z <- .cluster4d_scalar_logical(stitch_z, "stitch_z", method)
+  gamma <- .slice_msf_validate_gamma(gamma, method)
 
   vol_dim <- dim(mask)
   voxel_dim <- spacing(mask)
@@ -510,7 +536,9 @@ slice_msf_consensus <- function(run_results, mask,
       )
     }
     run$labels[!included] <- 0L
-    if (!is.null(run$weights)) run$weights[!included] <- 0
+    if (!is.null(run$temporal_smoothness)) {
+      run$temporal_smoothness[!included] <- 0
+    }
     if (!is.null(run$sketch)) run$sketch[, !included] <- 0
     run
   })

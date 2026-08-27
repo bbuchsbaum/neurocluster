@@ -164,7 +164,7 @@ inline void detrend_and_zscore(const double* y, int T, std::vector<double> &z) {
   for (int t=0;t<T;++t) z[t] = (z[t]-m)/sd;
 }
 
-inline double split_half_corr(const std::vector<double> &z) {
+inline double adjacent_pair_correlation(const std::vector<double> &z) {
   int T = (int)z.size();
   int n = T/2;
   if (n < 2) return 0.0;
@@ -219,16 +219,16 @@ struct SliceSketchWorker : public Worker {
   const std::vector<double> phi;
   const int nx, ny, nz, T, r;
   const bool rows_are_time;
-  const double gamma;
   std::vector<double> &U_flat; // N x r, row-major per voxel
-  NumericVector &W; // N
+  NumericVector &temporal_smoothness; // signed adjacent-pair correlation; diagnostic only
 
   SliceSketchWorker(const NumericMatrix &TS_, const IntegerVector &mask_,
                     const std::vector<double> &phi_,
                     int nx_, int ny_, int nz_, int T_, int r_, bool rows_are_time_,
-                    double gamma_, std::vector<double> &U_flat_, NumericVector &W_)
+                    std::vector<double> &U_flat_, NumericVector &temporal_smoothness_)
     : TS(TS_), mask(mask_), phi(phi_), nx(nx_), ny(ny_), nz(nz_), T(T_), r(r_),
-      rows_are_time(rows_are_time_), gamma(gamma_), U_flat(U_flat_), W(W_) {}
+      rows_are_time(rows_are_time_), U_flat(U_flat_),
+      temporal_smoothness(temporal_smoothness_) {}
 
   inline void get_ts(int v, std::vector<double> &buf) const {
     // buf already sized T
@@ -250,9 +250,7 @@ struct SliceSketchWorker : public Worker {
         if (!mask[g]) continue;
         get_ts(g, ts);
         detrend_and_zscore(ts.data(), T, zsig);
-        double rrel = split_half_corr(zsig);
-        double w = std::pow(std::max(0.0, rrel), gamma);
-        W[g] = w;
+        temporal_smoothness[g] = adjacent_pair_correlation(zsig);
 
         // DCT sketch (k=1..r), L2-normalize
         double norm2=0.0;
@@ -319,8 +317,7 @@ struct ZSmoothWorker : public Worker {
 inline void build_3d_edges(
   const IntegerVector &mask, const std::vector<double> &U_flat,
   int nx, int ny, int nz, int r, int nbhd,
-  const NumericVector &voxdim, double spatial_beta,
-  const NumericVector &reliability, bool allow_vertical,
+  const NumericVector &voxdim, double spatial_beta, bool allow_vertical,
   std::vector<int> &gids, std::vector<Edge> &edges
 ) {
   gids.clear();
@@ -384,13 +381,10 @@ inline void build_3d_edges(
 
       double sim = dot_voxel(U_flat, g, gn, r);
       sim = std::max(-1.0, std::min(1.0, sim));
-      const double rel = std::sqrt(std::max(
-        0.0, static_cast<double>(reliability[g]) *
-          static_cast<double>(reliability[gn])
-      ));
-      // Low-reliability feature differences are shrunk toward the spatial
-      // prior (merge), while reliable differences retain their full distance.
-      double d = rel * (1.0 - sim);
+      // Temporal smoothness is diagnostic only. Feature geometry is the
+      // canonical cosine dissimilarity and cannot collapse because a separate
+      // diagnostic happens to be zero or negative.
+      double d = 1.0 - sim;
 
       double len = std::sqrt((double)o[0]*o[0]*dx*dx +
                              (double)o[1]*o[1]*dy*dy +
@@ -768,7 +762,7 @@ Rcpp::List slice_msf_runwise(
     int nbhd = 8,               // 4 -> 6-neigh, 8 -> 26-neigh (forward)
     bool stitch_z = false,      // include vertical graph edges
     bool rows_are_time = true,
-    double gamma = 1.5,
+    double gamma = 0.0,
     Rcpp::NumericVector voxel_dim = R_NilValue, // c(dx,dy,dz)
     double spatial_beta = 0.0,
     int target_k_global = -1,   // exact-K across volume (2-D if !stitch_z, else 3-D)
@@ -797,7 +791,9 @@ Rcpp::List slice_msf_runwise(
   if (fh_scale<=0.0) stop("fh_scale must be >0");
   if (min_size < 1) stop("min_size must be >=1");
   if (T < 2) stop("SLiCE-MSF requires at least two timepoints");
-  if (!std::isfinite(gamma) || gamma < 0.0) stop("gamma must be finite and >= 0");
+  if (!std::isfinite(gamma) || gamma != 0.0) {
+    stop("gamma must be zero; reliability weighting is unsupported");
+  }
   if (!std::isfinite(spatial_beta) || spatial_beta < 0.0) {
     stop("spatial_beta must be finite and >= 0");
   }
@@ -806,8 +802,8 @@ Rcpp::List slice_msf_runwise(
     stop("exact-K targets must be -1 or positive");
   }
   if (!std::isfinite(z_mult) || z_mult < 0.0 || z_mult > 1.0) stop("z_mult must be in [0, 1]");
-  if (!std::isfinite(w_threshold) || w_threshold < 0.0 || w_threshold > 1.0) {
-    stop("w_threshold must be in [0, 1]");
+  if (!std::isfinite(w_threshold) || w_threshold != 0.0) {
+    stop("w_threshold must be zero; temporal smoothness is diagnostic only");
   }
 
   const int r_input = r;
@@ -865,12 +861,15 @@ Rcpp::List slice_msf_runwise(
     }
   }
 
-  // --- sketches & weights (slice-parallel) ---
-  NumericVector W(N);
+  // --- sketches and signed temporal-smoothness diagnostic (slice-parallel) ---
+  NumericVector temporal_smoothness(N);
   std::vector<double> U_flat((size_t)N * r_work, 0.0); // voxel-major contiguous
   std::vector<double> phi;
   build_dct_basis(T, frequencies, mode_weights, phi);
-  SliceSketchWorker skw(TS, mask, phi, nx, ny, nz, T, r_work, rows_are_time, gamma, U_flat, W);
+  SliceSketchWorker skw(
+    TS, mask, phi, nx, ny, nz, T, r_work, rows_are_time,
+    U_flat, temporal_smoothness
+  );
   parallelFor(0, nz, skw);
 
   if (z_mult > 0.0) {
@@ -879,20 +878,15 @@ Rcpp::List slice_msf_runwise(
     parallelFor(0, r_work, zsw);
   }
 
-  // --- reliability-based masking (drop low-W voxels) ---
+  // Temporal smoothness is deliberately not used for masking or edge costs.
   IntegerVector work_mask = clone(mask);
-  if (w_threshold > 0.0) {
-    for (int i = 0; i < N; ++i) {
-      if (work_mask[i] && W[i] < w_threshold) work_mask[i] = 0;
-    }
-  }
 
   // --- volumetric FH segmentation ---
   std::vector<int> gids;
   std::vector<Edge> edges;
   build_3d_edges(
     work_mask, U_flat, nx, ny, nz, r_work, nbhd, voxdim,
-    spatial_beta, W, stitch_z, gids, edges
+    spatial_beta, stitch_z, gids, edges
   );
   std::vector<int> labs_local;
   segment_slice_fh((int)gids.size(), edges, fh_scale, min_size, labs_local);
@@ -983,7 +977,7 @@ Rcpp::List slice_msf_runwise(
 
   // zero out features outside mask (for cleanliness)
   for (int v=0; v<N; ++v) if (!work_mask[v]) {
-    W[v]=0.0;
+    temporal_smoothness[v]=0.0;
     for (int k0=0;k0<r_work;++k0) U_flat[(size_t)v * r_work + k0]=0.0;
   }
 
@@ -997,7 +991,7 @@ Rcpp::List slice_msf_runwise(
 
   return List::create(
     _["labels"]  = labels,
-    _["weights"] = W,
+    _["temporal_smoothness"] = temporal_smoothness,
     _["sketch"]  = U_out,
     _["params"]  = List::create(
       _["r"]=r_work, _["r_requested"]=r_input, _["r_used"]=r_work,
@@ -1009,7 +1003,8 @@ Rcpp::List slice_msf_runwise(
       _["z_mult"] = z_mult, _["w_threshold"]=w_threshold,
       _["n_components_fh"] = G,
       _["n_components_final"] = n_conn,
-      _["reliability_distance"] = "sqrt(w_i*w_j)*(1-cosine)",
+      _["feature_distance"] = "1-cosine",
+      _["temporal_smoothness"] = "adjacent-pair correlation (diagnostic only)",
       _["r_work"] = r_work
     )
   );
@@ -1020,107 +1015,6 @@ Rcpp::List slice_msf_runwise(
 // If exact-K is requested, set use_features=TRUE so we can build
 // a fused per-voxel sketch to drive merges robustly.
 // ---------------------------------------------------------------
-
-namespace {
-
-struct FuseSliceWorker : public Worker {
-  const int nx, ny, nz, r, nbhd;
-  const std::vector< RMatrix<double> > sketches; // r x N per run (optional)
-  const std::vector< RVector<int> > labels;      // length N per run
-  const std::vector< RVector<double> > weights;  // length N per run (optional)
-  const RVector<int> mask;
-  const double fh_scale;
-  const int min_size;
-  const bool use_features;
-  const double lambda;
-  const NumericVector voxdim;
-  const double spatial_beta;
-  RVector<int> out_labels;
-
-  FuseSliceWorker(
-    int nx_, int ny_, int nz_, int r_, int nbhd_,
-    const std::vector< RMatrix<double> > &sketches_,
-    const std::vector< RVector<int> > &labels_,
-    const std::vector< RVector<double> > &weights_,
-    const IntegerVector &mask_,
-    double fh_scale_, int min_size_,
-    bool use_features_, double lambda_,
-    const NumericVector &voxdim_, double spatial_beta_,
-    IntegerVector &out_labels_
-  )
-  : nx(nx_), ny(ny_), nz(nz_), r(r_), nbhd(nbhd_),
-    sketches(sketches_), labels(labels_), weights(weights_), mask(mask_),
-    fh_scale(fh_scale_), min_size(min_size_),
-    use_features(use_features_), lambda(lambda_),
-    voxdim(voxdim_), spatial_beta(spatial_beta_), out_labels(out_labels_) {}
-
-  void operator()(std::size_t z0, std::size_t z1) {
-    const int R = (int)labels.size();
-    const double dx = (voxdim.size()>=1)?(double)voxdim[0]:1.0;
-    const double dy = (voxdim.size()>=2)?(double)voxdim[1]:1.0;
-    const double minlen = std::min(dx, dy);
-
-    for (std::size_t z=z0; z<z1; ++z) {
-      std::vector<int> gids; gids.reserve(nx*ny);
-      std::vector<int> loc(nx*ny, -1);
-      for (int y=0;y<ny;++y) for (int x=0;x<nx;++x) {
-        int g = idx3d(x,y,z,nx,ny);
-        if (mask[g]) { loc[x+nx*y]=(int)gids.size(); gids.push_back(g); }
-      }
-      int ns=(int)gids.size(); if (ns==0) continue;
-
-      // neighbor offsets
-      std::vector<std::pair<int,int>> offs; offs.emplace_back(1,0); offs.emplace_back(0,1);
-      if (nbhd==8){ offs.emplace_back(1,1); offs.emplace_back(1,-1); }
-
-      std::vector<Edge> edges; edges.reserve((size_t)ns*(nbhd==8?4:2));
-      for (int y=0;y<ny;++y) for (int x=0;x<nx;++x) {
-        int i = loc[x+nx*y]; if (i<0) continue;
-        int gi=gids[i];
-        for (auto &p:offs) {
-          int xn=x+p.first, yn=y+p.second;
-          if (xn<0||xn>=nx||yn<0||yn>=ny) continue;
-          int j=loc[xn+nx*yn]; if (j<0) continue;
-          int gj=gids[j];
-
-          double Z=0.0, C=0.0, Rh=0.0, Zf=0.0;
-          for (int rr=0; rr<R; ++rr) {
-            double wi = (weights[rr].size()==0) ? 1.0 : weights[rr][gi];
-            double wj = (weights[rr].size()==0) ? 1.0 : weights[rr][gj];
-            double a = wi*wj; if (a<=0.0) continue;
-            Z += a;
-            if (labels[rr][gi]!=0 && labels[rr][gj]!=0 &&
-                labels[rr][gi]==labels[rr][gj]) C += a;
-            if (use_features && sketches[rr].ncol()>gj && sketches[rr].nrow()==r) {
-              const double *pi=&sketches[rr](0,gi), *pj=&sketches[rr](0,gj);
-              double dot=0.0; for (int k0=0;k0<r;++k0) dot+=pi[k0]*pj[k0];
-              Rh += a*dot; Zf += a;
-            }
-          }
-          double s = (Z>0.0) ? (C/Z) : 0.0;
-          double d = 1.0 - s;
-          if (use_features) {
-            double rho = (Zf>0.0) ? (Rh/Zf) : 0.0;
-            d = lambda*(1.0 - s) + (1.0 - lambda)*(1.0 - rho);
-          }
-          // spatial penalty
-          double len = std::sqrt((p.first?dx*dx:0.0)+(p.second?dy*dy:0.0));
-          double factor=1.0 + spatial_beta*(len/minlen - 1.0);
-          d *= factor;
-
-          Edge e; e.a=i; e.b=j; e.w=(float)std::max(0.0, std::min(2.0, d)); e.wq=quantize16(e.w);
-          edges.push_back(e);
-        }
-      }
-
-      std::vector<int> labs_local;
-      segment_slice_fh(ns, edges, fh_scale, min_size, labs_local);
-      for (int li=0; li<ns; ++li) out_labels[gids[li]] = labs_local[li];
-    }
-  }
-};
-
-} // namespace
 
 // [[Rcpp::export]]
 Rcpp::List slice_fuse_consensus(
@@ -1162,7 +1056,6 @@ Rcpp::List slice_fuse_consensus(
 
   // Collect views
   std::vector< RVector<int> > Ls;     Ls.reserve(R);
-  std::vector< RVector<double> > Ws;  Ws.reserve(R);
   std::vector< RMatrix<double> > Us;  Us.reserve(R);
 
   // union mask (voxels that are labeled in all runs OR at least one run?)
@@ -1175,17 +1068,6 @@ Rcpp::List slice_fuse_consensus(
     IntegerVector L = one["labels"]; if ((int)L.size()!=N) stop("labels length mismatch");
     Ls.emplace_back(L);
 
-    if (one.containsElementNamed("weights")) {
-      NumericVector W = one["weights"]; if ((int)W.size()!=N) stop("weights length mismatch");
-      for (int v = 0; v < N; ++v) {
-        if (!std::isfinite(W[v]) || W[v] < 0.0) {
-          stop("weights must contain finite non-negative values");
-        }
-      }
-      Ws.emplace_back(W);
-    } else {
-      NumericVector empty(0); Ws.emplace_back(empty);
-    }
     if (use_features) {
       if (!one.containsElementNamed("sketch")) stop("use_features=TRUE requires 'sketch' in each run");
       NumericMatrix U = one["sketch"]; if ((int)U.ncol()!=N) stop("sketch ncol mismatch");
@@ -1265,30 +1147,24 @@ Rcpp::List slice_fuse_consensus(
       const int neighbor = glob2loc[static_cast<size_t>(gj)];
       if (neighbor < 0) continue;
 
-      double agreement_num = 0.0, agreement_den = 0.0;
-      double feature_num = 0.0, feature_den = 0.0;
+      double agreement_num = 0.0;
+      double feature_num = 0.0;
       for (int rr = 0; rr < R; ++rr) {
-        const double wi = Ws[rr].size() == 0 ? 1.0 : Ws[rr][gi];
-        const double wj = Ws[rr].size() == 0 ? 1.0 : Ws[rr][gj];
-        const double pair_weight = wi * wj;
-        if (pair_weight <= 0.0) continue;
-        agreement_den += pair_weight;
         if (Ls[rr][gi] != 0 && Ls[rr][gi] == Ls[rr][gj]) {
-          agreement_num += pair_weight;
+          agreement_num += 1.0;
         }
         if (use_features) {
           double dot = 0.0;
           for (int k0 = 0; k0 < r; ++k0) {
             dot += Us[rr](k0, gi) * Us[rr](k0, gj);
           }
-          feature_num += pair_weight * dot;
-          feature_den += pair_weight;
+          feature_num += dot;
         }
       }
-      const double agreement = agreement_den > 0.0 ? agreement_num / agreement_den : 0.0;
+      const double agreement = agreement_num / static_cast<double>(R);
       double distance = 1.0 - agreement;
       if (use_features) {
-        const double feature = feature_den > 0.0 ? feature_num / feature_den : 0.0;
+        const double feature = feature_num / static_cast<double>(R);
         distance = lambda * (1.0 - agreement) + (1.0 - lambda) * (1.0 - feature);
       }
       const double length = std::sqrt(
@@ -1318,18 +1194,15 @@ Rcpp::List slice_fuse_consensus(
     stop("Exact-K in consensus requires use_features=TRUE (to drive merges).");
   }
   if (use_features && (target_k_global>0 || target_k_per_slice>0)) {
-    // Build a fused per-voxel sketch: weighted average over runs, then L2-normalize
+    // Build a uniformly averaged per-voxel sketch, then L2-normalize.
     NumericMatrix Ubar(r, N);
     for (int v=0; v<N; ++v) {
       if (!mask[v]) continue;
-      double wsum = 0.0;
       for (int rr=0; rr<R; ++rr) {
-        double wv = (Ws[rr].size()==0) ? 1.0 : Ws[rr][v];
-        wsum += wv;
         const double *p = &Us[rr](0,v);
-        for (int k0=0;k0<r;++k0) Ubar(k0,v) += wv * p[k0];
+        for (int k0=0;k0<r;++k0) Ubar(k0,v) += p[k0];
       }
-      if (wsum > 0.0) for (int k0=0;k0<r;++k0) Ubar(k0,v) /= wsum;
+      for (int k0=0;k0<r;++k0) Ubar(k0,v) /= static_cast<double>(R);
       // L2 normalize
       double n2=0.0; for (int k0=0;k0<r;++k0) n2 += Ubar(k0,v)*Ubar(k0,v);
       n2 = std::sqrt(std::max(1e-12, n2));
@@ -1388,7 +1261,8 @@ Rcpp::List slice_fuse_consensus(
       _["nbhd"]=nbhd, _["fh_scale"]=fh_scale, _["min_size"]=min_size,
       _["use_features"]=use_features, _["lambda"]=lambda,
       _["target_k_global"]=target_k_global, _["target_k_per_slice"]=target_k_per_slice,
-      _["stitch_z"]=stitch_z
+      _["stitch_z"]=stitch_z,
+      _["run_weighting"]="uniform"
     )
   );
 }

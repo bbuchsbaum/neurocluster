@@ -66,7 +66,7 @@ run_one <- function(spec) {
   slice_msf_single(
     fixture$vec, fixture$mask,
     r = 8L, k = 2 / 11, min_size = 3L, nbhd = 8L,
-    stitch_z = TRUE, gamma = 1.5,
+    stitch_z = TRUE, gamma = 0,
     dct_frequencies = spec$frequencies,
     dct_weights = spec$weights
   )
@@ -134,7 +134,7 @@ metrics <- data.frame(
 )
 
 print(metrics, row.names = FALSE)
-if (metrics$value[metrics$metric == "distinct_raw_partitions"] < 2) {
+if (metrics$value[metrics$metric == "distinct_raw_partitions"] < 3) {
   stop("ensemble diversity contract failed")
 }
 if (!isTRUE(as.logical(metrics$value[metrics$metric == "seeded_replay_exact"]))) {

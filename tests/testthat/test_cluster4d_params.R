@@ -100,7 +100,7 @@ test_that("method-specific parameters are properly passed through", {
                                         consensus = TRUE,  # slice_msf-specific
                                         stitch_z = TRUE,  # required for exact global K
                                         r = 6,  # slice_msf-specific
-                                        gamma = 2.0,  # slice_msf-specific
+                                        gamma = 0,  # reliability weighting is fail-closed
                                         z_mult = 0.4,
                                         ensemble_fraction = 0.75,
                                         verbose = FALSE))

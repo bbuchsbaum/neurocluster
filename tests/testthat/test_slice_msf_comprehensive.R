@@ -272,25 +272,18 @@ test_that("slice_msf handles edge cases gracefully", {
   expect_equal(length(result_single$cluster), nvox_single)
 })
 
-test_that("slice_msf reliability weighting works", {
+test_that("slice_msf rejects reliability weighting", {
   data <- create_slice_test_data(dims = c(8, 8, 4), n_time = 40, seed = 111)
-  
-  # Test different gamma values
   gammas <- c(0.5, 1.0, 1.5, 2.0, 2.5)
-  
   for (g in gammas) {
-    result <- slice_msf(
-      vec = data$vec,
-      mask = data$mask,
-      gamma = g,
-      num_runs = 2,
-      consensus = TRUE,
-      r = 6,
-      min_size = 15
+    expect_error(
+      slice_msf(
+        vec = data$vec, mask = data$mask, gamma = g,
+        num_runs = 2, consensus = TRUE, r = 6, min_size = 15
+      ),
+      "gamma must be zero",
+      class = "slice_msf_unsupported_gamma"
     )
-    
-    expect_s3_class(result, "slice_msf_cluster_result")
-    expect_equal(length(result$cluster), data$nvox)
   }
 })
 
@@ -443,7 +436,7 @@ test_that("z-axis smoothing increases vertical feature agreement", {
     nbhd = 4,
     stitch_z = TRUE,
     rows_are_time = TRUE,
-    gamma = 1.0,
+    gamma = 0,
     voxel_dim = voxel_dim,
     spatial_beta = 0.0,
     target_k_global = -1,
@@ -461,7 +454,7 @@ test_that("z-axis smoothing increases vertical feature agreement", {
     nbhd = 4,
     stitch_z = TRUE,
     rows_are_time = TRUE,
-    gamma = 1.0,
+    gamma = 0,
     voxel_dim = voxel_dim,
     spatial_beta = 0.0,
     target_k_global = -1,

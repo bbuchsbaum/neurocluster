@@ -182,9 +182,9 @@ method_grid <- list(
   ),
   slice_msf = list(
     # Use volumetric (3-D) graph version by always enabling z connectivity.
-    list(param_id = 1, r = 12, min_size = 2, compactness = 2.5, gamma = 1.0, nbhd = 8, z_mult = 0.5, stitch_z = TRUE, num_runs = 1, consensus = FALSE),
-    list(param_id = 2, r = 8, min_size = 2, compactness = 1.5, gamma = 1.0, nbhd = 8, z_mult = 0.5, stitch_z = TRUE, num_runs = 1, consensus = FALSE),
-    list(param_id = 3, r = 12, min_size = 2, compactness = 2.5, gamma = 1.0, nbhd = 4, z_mult = 0.0, stitch_z = TRUE, num_runs = 1, consensus = FALSE)
+    list(param_id = 1, r = 12, min_size = 2, compactness = 2.5, gamma = 0.0, nbhd = 8, z_mult = 0.0, stitch_z = TRUE, num_runs = 1, consensus = FALSE),
+    list(param_id = 2, r = 8, min_size = 2, compactness = 1.5, gamma = 0.0, nbhd = 8, z_mult = 0.0, stitch_z = TRUE, num_runs = 1, consensus = FALSE),
+    list(param_id = 3, r = 12, min_size = 2, compactness = 2.5, gamma = 0.0, nbhd = 4, z_mult = 0.0, stitch_z = TRUE, num_runs = 1, consensus = FALSE)
   ),
   supervoxels = list(
     list(param_id = 1, alpha = 0.3, iterations = 30, sigma1 = 1.0, sigma2 = 1.8, use_gradient = FALSE, connectivity = 6),
@@ -375,7 +375,7 @@ for (dname in names(datasets)) {
           num_runs = if (!is.null(p$num_runs)) p$num_runs else 1,
           consensus = if (!is.null(p$consensus)) p$consensus else FALSE,
           nbhd = if (!is.null(p$nbhd)) p$nbhd else 8,
-          gamma = if (!is.null(p$gamma)) p$gamma else 1.5,
+          gamma = if (!is.null(p$gamma)) p$gamma else 0,
           z_mult = if (!is.null(p$z_mult)) p$z_mult else 0.0,
           target_k_global = base_k
         )
