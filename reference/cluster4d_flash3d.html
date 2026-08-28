@@ -26,6 +26,7 @@
     <li><a class="dropdown-item" href="../articles/speed-parallel.html">Speed &amp; Parallel</a></li>
     <li><a class="dropdown-item" href="../articles/visualize-export.html">Visualize &amp; Export</a></li>
     <li><a class="dropdown-item" href="../articles/consensus-stitch.html">Consensus &amp; Stitching</a></li>
+    <li><a class="dropdown-item" href="../articles/slice-msf.html">Evaluate Slice-MSF (Experimental)</a></li>
     <li><a class="dropdown-item" href="../articles/validate-compare.html">Validate &amp; Compare</a></li>
     <li><a class="dropdown-item" href="../articles/legacy-apis.html">Legacy APIs</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Explanations</h6></li>
@@ -95,9 +96,11 @@ may produce slightly different numbers of clusters due to algorithmic constraint
 
 
 <dt id="arg-spatial-weight">spatial_weight<a class="anchor" aria-label="anchor" href="#arg-spatial-weight"></a></dt>
-<dd><p>Balance between spatial and feature similarity (0-1).
-Both endpoints are supported: 0 disables the spatial term and 1 disables
-the feature term. Higher values emphasize spatial compactness. Default 0.5.
+<dd><p>Method-specific spatial control in <code>[0, 1]</code>. For methods
+that define a convex feature/spatial blend, zero disables the spatial term
+and one disables the feature term. Other methods use the value as a bounded
+mapping to a native scale; their endpoints do not have that blend meaning.
+Default 0.5.
 This parameter is inactive for <code>"rena"</code> and <code>"rena_plus"</code>;
 supplying it explicitly for either method is an error.
 Maps to method-specific parameters:</p><ul><li><p>supervoxels: <code>alpha = 1 - spatial_weight</code> (0 = all spatial, 1 = all feature)</p></li>
@@ -105,7 +108,9 @@ Maps to method-specific parameters:</p><ul><li><p>supervoxels: <code>alpha = 1 -
 <li><p>slic: <code>compactness = spatial_weight * 20</code> (typical range 1-20)</p></li>
 <li><p>corr_slic/brs_slic: direct convex blend between correlation and
 scaled spatial distance</p></li>
-<li><p>slice_msf: <code>compactness = spatial_weight * 10</code> (typical range 1-10)</p></li>
+<li><p>slice_msf: <code>compactness = spatial_weight * 10</code>, followed by
+FH component scale <code>2 / (compactness + 1)</code>. This changes the
+graph-segmentation scale; it is not a convex spatial/feature blend.</p></li>
 <li><p>flash3d: <code>lambda_s = spatial_weight</code> (direct mapping)</p></li>
 <li><p>mcl: direct blend between feature and spatial edge similarities</p></li>
 </ul></dd>

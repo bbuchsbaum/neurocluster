@@ -1,7 +1,8 @@
 # Suggest cluster4d parameters based on data characteristics
 
 Provides parameter recommendations based on data size and user
-priorities.
+priorities. Experimental methods are reported separately and are never
+returned as the recommended method.
 
 ## Usage
 
@@ -29,7 +30,9 @@ suggest_cluster4d_params(
 
 ## Value
 
-A list with suggested parameters for each method
+A list with suggested parameters for supported methods plus
+`experimental_methods` and an `experimental_note`. Experimental methods
+are not recommended or assigned suggested parameter sets.
 
 ## Examples
 
@@ -44,7 +47,7 @@ print(params$n_clusters)
 # Speed-optimized parameters for large dataset
 speed_params <- suggest_cluster4d_params(100000, 300, priority = "speed")
 print(speed_params$recommended_method)
-#> [1] "slice_msf"
+#> [1] "flash3d"
 
 # Quality-optimized parameters for smaller dataset
 quality_params <- suggest_cluster4d_params(10000, 150, priority = "quality")

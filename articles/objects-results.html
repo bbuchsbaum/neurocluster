@@ -5,15 +5,15 @@
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-<title>Objects and results • neurocluster</title>
+<title>Read, validate, and save clustering results • neurocluster</title>
 <script src="../deps/jquery-3.6.0/jquery-3.6.0.min.js"></script><meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 <link href="../deps/bootstrap-5.3.8/bootstrap.min.css" rel="stylesheet">
 <script src="../deps/bootstrap-5.3.8/bootstrap.bundle.min.js"></script><link href="../deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
 <link href="../deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
 <script src="../deps/headroom-0.11.0/headroom.min.js"></script><script src="../deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="../deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="../deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="../deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="../deps/search-1.0.0/fuse.min.js"></script><script src="../deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="../pkgdown.js"></script><link href="../extra.css" rel="stylesheet">
-<script src="../extra.js"></script><meta property="og:title" content="Objects and results">
-<meta name="description" content="cluster4d_result structure, S3 methods, and neuroim2 objects.">
-<meta property="og:description" content="cluster4d_result structure, S3 methods, and neuroim2 objects.">
+<script src="../extra.js"></script><meta property="og:title" content="Read, validate, and save clustering results">
+<meta name="description" content="Interpret the cluster4d_result contract and preserve its provenance.">
+<meta property="og:description" content="Interpret the cluster4d_result contract and preserve its provenance.">
 </head>
 <body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -44,6 +44,7 @@
     <li><a class="dropdown-item" href="../articles/speed-parallel.html">Speed &amp; Parallel</a></li>
     <li><a class="dropdown-item" href="../articles/visualize-export.html">Visualize &amp; Export</a></li>
     <li><a class="dropdown-item" href="../articles/consensus-stitch.html">Consensus &amp; Stitching</a></li>
+    <li><a class="dropdown-item" href="../articles/slice-msf.html">Evaluate Slice-MSF (Experimental)</a></li>
     <li><a class="dropdown-item" href="../articles/validate-compare.html">Validate &amp; Compare</a></li>
     <li><a class="dropdown-item" href="../articles/legacy-apis.html">Legacy APIs</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Explanations</h6></li>
@@ -76,7 +77,7 @@
 <div class="row">
   <main id="main" class="col-md-9"><div class="page-header">
 
-      <h1>Objects and results</h1>
+      <h1>Read, validate, and save clustering results</h1>
             
       
       <small class="dont-index">Source: <a href="https://github.com/bbuchsbaum/neurocluster/blob/master/vignettes/objects-results.Rmd" class="external-link"><code>vignettes/objects-results.Rmd</code></a></small>
@@ -85,157 +86,150 @@
 
     
     
+<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-red","preset-homage");});</script><style>:root{--content:72ch}</style>
+<p>A clustering is useful only if its labels can be tied back to the
+mask, feature space, and physical geometry that produced them.
+<code>cluster4d_result</code> keeps those pieces together. Use its
+public fields and validate the object against the original inputs before
+interpretation or export.</p>
 <div class="section level2">
-<h2 id="cluster4d-result">cluster4d_result<a class="anchor" aria-label="anchor" href="#cluster4d-result"></a>
+<h2 id="what-does-a-valid-result-look-like">What does a valid result look like?<a class="anchor" aria-label="anchor" href="#what-does-a-valid-result-look-like"></a>
 </h2>
-<style>
-/* ---------- Homage family: default = Homage-Red ---------- */
-:root{
-  /* Semantic roles */
-  --ink:#111111;                 /* body text */
-  --bg:#ffffff;                  /* page background */
-  --muted:#6b7280;
-  --border:#e5e7eb;
-  --code-bg:#f6f8fa;
-  --content: 72ch;               /* content column width */
-  --anchor-offset: 72px;         /* scroll offset for anchored headings */
-
-  /* Homage palette tokens (default family: Red) */
-  --A900:#CD2D26;  /* core / deepest */
-  --A700:#DC3925;
-  --A500:#E44926;
-  --A300:#E35B2D;
-
-  /* Role aliases derived from tones */
-  --accent-ink-light: var(--A900); /* link text, focus outline in light */
-  --accent-ink-dark:  var(--A300); /* link text, focus outline in dark  */
-  --accent-ink: var(--accent-ink-light);
-  --accent-strong: var(--A700);
-  --accent: var(--A500);     /* general accent if needed */
-  --accent-tint: color-mix(in srgb, var(--A300) 8%, transparent); /* quiet background */
-}
-
-/* Optional palette families via body class */
-.palette-lapis{ --A900:#1B2A74; --A700:#20399C; --A500:#2C4FCC; --A300:#4968D6; }
-.palette-ochre{ --A900:#6F5200; --A700:#8B6700; --A500:#B48900; --A300:#D7A700; }
-.palette-teal{  --A900:#0D4A4A; --A700:#0F5E5E; --A500:#127373; --A300:#2F8C8C; }
-.palette-green{ --A900:#1B5E20; --A700:#2E7D32; --A500:#388E3C; --A300:#66BB6A; }
-.palette-violet{ --A900:#4A148C; --A700:#6A1B9A; --A500:#8E24AA; --A300:#BA68C8; --accent-ink-dark:#BA68C8; }
-
-/* Dark mode flips link/readability choices */
-@media (prefers-color-scheme: dark){
-  :root{
-    --bg:#0b0c0e; --ink:#e6e6e6; --muted:#9aa0a6; --border:#2a2f36; --code-bg:#161b22;
-    --accent-ink: var(--accent-ink-dark);                /* ensure AA in dark */
-    --accent-tint: color-mix(in srgb, var(--A700) 18%, transparent);
-  }
-}
-
-/* Core typography & layout */
-html,body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;line-height:1.6;font-size:17.5px;}
-main,.content,.container,.page-content,.vignette,.contents{max-width:var(--content);margin-inline:auto;padding-inline:clamp(16px,2vw,32px);} 
-p{margin-block:16px;}
-h1,h2,h3{font-weight:600;line-height:1.25;margin-top:32px;margin-bottom:12px;}
-h1{font-size:1.9rem; text-wrap:balance;} h2{font-size:1.4rem;} h3{font-size:1.2rem;}
-h2, h3{position:relative; padding-right:1.25em; scroll-margin-top: var(--anchor-offset);} 
-
-/* Links */
-a, a:visited{color:var(--accent-ink) !important; text-decoration:underline; text-decoration-thickness:.08em; text-underline-offset:2px; text-decoration-skip-ink:auto;}
-a:hover{color:color-mix(in srgb, var(--accent-ink) 85%, black);} /* light-mode darken */
-@media (prefers-color-scheme: dark){ a:hover{ color: color-mix(in srgb, var(--accent-ink) 85%, white); } }
-a:focus-visible{outline:2px solid var(--accent-ink); outline-offset:2px;}
-a:focus{outline:none;}
-
-/* Code blocks + copy button */
-code,pre,kbd,samp{font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono","Roboto Mono",monospace;font-size:0.95em; line-height:1.45;}
-pre{background:var(--code-bg); border:1px solid var(--border); padding:24px; border-radius:6px; overflow:auto; margin-block:24px; position:relative; box-shadow:none; tab-size:2; -moz-tab-size:2;}
-pre code{background:transparent; border:none; padding:0; word-break:normal; overflow-wrap:anywhere;}
-button.copy-code{position:absolute; top:8px; right:8px; border:1px solid var(--border); background:var(--accent-tint); color:var(--ink); padding:4px 8px; border-radius:4px; font:600 12px system-ui; cursor:pointer;}
-button.copy-code:focus{outline:2px solid var(--accent-ink); outline-offset:2px;}
-p code{background:var(--code-bg); padding:0.12em 0.38em; border-radius:4px; border:1px solid var(--border);} 
-
-/* Tables */
-table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;}
-th,td{border-bottom:1px solid var(--border); padding:10px 8px;}
-thead th{font-weight:600;}
-tbody tr:nth-child(odd){background: color-mix(in srgb, var(--A300) 8%, transparent);} 
-caption{caption-side:bottom; color:var(--muted); padding-top:12px; font-size:0.95em;}
-
-/* Callouts (Homage tint) */
-blockquote,.callout{border-left:3px solid var(--A500); background:var(--accent-tint); padding:16px 24px; margin-block:24px; border-radius:6px;}
-blockquote p{margin:0;}
-
-/* Anchors (square) at H2/H3 */
-h2:hover .anchor, h3:hover .anchor{opacity:1;}
-h2:focus-within .anchor, h3:focus-within .anchor{opacity:1;}
-.anchor{opacity:0; position:absolute; right:0; top:50%; transform:translateY(-50%); text-decoration:none; color:var(--A500); font-weight:700; line-height:1; transition:opacity .15s ease-in-out;}
-
-/* “Homage” hero tile (optional) */
-.homage-hero{ aspect-ratio:3/2; background:var(--bg); box-shadow: inset 0 0 0 84px var(--A300), inset 0 0 0 56px var(--A500), inset 0 0 0 28px var(--A700), inset 0 0 0 0 var(--A900); border-radius:4px; margin-block:24px; }
-/* Letterbox variant for calmer presence */
-.homage-hero--letterbox{ aspect-ratio:6/1; background:var(--bg); box-shadow: inset 0 0 0 48px var(--A300), inset 0 0 0 32px var(--A500), inset 0 0 0 16px var(--A700), inset 0 0 0 0 var(--A900); border-radius:4px; margin-block:16px 8px; }
-
-/* Hairline rules with square notch */
-.hr-notch{position:relative; height:1px; background:var(--border); margin:24px 0;}
-.hr-notch::before{content:""; position:absolute; left:0; top:-4px; width:8px; height:8px; background:var(--A500);} 
-
-/* Optional square bullets in overview lists */
-.overview ul{list-style:square;}
-
-/* Code blocks: add homage square corner */
-pre::before{content:""; position:absolute; left:10px; top:10px; width:10px; height:10px; background:var(--A500); border-radius:2px;}
-
-/* Nav active: tiny square */
-.navbar .nav-link.active::after, .navbar .active > a::after{content:""; display:inline-block; width:6px; height:6px; background:var(--A700); margin-left:6px; vertical-align:middle;}
-
-/* Print */
-@media print{ a{text-decoration:none; color:inherit;} pre{page-break-inside:avoid;} .navbar, .sidebar, .toc, .page-header{display:none!important;} }
-
-/* Prevent layout shift when scrollbars appear */
-:root { scrollbar-gutter: stable both-edges; }
-
-/* Small screens: maintain comfort */
-@media (max-width: 880px){
-  html, body { font-size: 17px; }
-  :root{ --anchor-offset: 64px; }
-}
-
-/* Prefer higher contrast if requested */
-@media (prefers-contrast: more){
-  :root{ --border: color-mix(in srgb, var(--A500) 28%, white); }
-  .hr-notch::before { background: var(--A700); }
-}
-</style>
-<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-lapis");});</script><style>:root{--content:72ch}</style>
-<p>Canonical fields: <code>labels</code> (with identical
-backward-compatible alias <code>cluster</code>), <code>clusvol</code>,
-<code>centers</code>, <code>coord_centers</code>, <code>actual_k</code>
-(with alias <code>n_clusters</code>), <code>label_ids</code>,
-<code>method</code>, <code>parameters</code>, typed
-<code>provenance</code>, and method-specific <code>metadata</code>.</p>
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">fit</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/cluster4d.html">cluster4d</a></span><span class="op">(</span></span>
+<span>  <span class="va">syn</span><span class="op">$</span><span class="va">vec</span>, <span class="va">syn</span><span class="op">$</span><span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">4</span>,</span>
+<span>  method <span class="op">=</span> <span class="st">"slic"</span>, preserve_k <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  max_iterations <span class="op">=</span> <span class="fl">6</span>, parallel <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">receipt</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/validate_cluster4d.html">validate_cluster4d</a></span><span class="op">(</span><span class="va">fit</span>, <span class="va">syn</span><span class="op">$</span><span class="va">vec</span>, <span class="va">syn</span><span class="op">$</span><span class="va">mask</span><span class="op">)</span></span>
+<span><span class="va">receipt</span><span class="op">$</span><span class="va">summary</span></span>
+<span><span class="co">#&gt; $n_clusters</span></span>
+<span><span class="co">#&gt; [1] 4</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $n_voxels</span></span>
+<span><span class="co">#&gt; [1] 576</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $cluster_size_range</span></span>
+<span><span class="co">#&gt; [1] 132 155</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $has_centers</span></span>
+<span><span class="co">#&gt; [1] TRUE</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $has_spatial_centers</span></span>
+<span><span class="co">#&gt; [1] TRUE</span></span></code></pre></div>
+<p>The validation call independently checks the label schema, centers,
+physical centroids, mask ordering, and geometry. Calling it without
+<code>vec</code> and <code>mask</code> cannot certify all of those
+relationships.</p>
 </div>
 <div class="section level2">
-<h2 id="plot-print-summary">Print/plot/summary<a class="anchor" aria-label="anchor" href="#plot-print-summary"></a>
+<h2 id="how-are-labels-related-to-centers">How are labels related to centers?<a class="anchor" aria-label="anchor" href="#how-are-labels-related-to-centers"></a>
 </h2>
-<ul>
-<li>
-<code>print(x)</code>: method, counts, cluster size stats</li>
-<li>
-<code>summary(x)</code>: parameters, cluster size distribution,
-ranges</li>
-<li>
-<code>plot(x)</code>: axial/sagittal/coronal slices</li>
-</ul>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>Field</th>
+<th>Meaning</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>labels</code></td>
+<td>Contiguous positive IDs in included-mask voxel order</td>
+</tr>
+<tr class="even">
+<td><code>cluster</code></td>
+<td>An identical compatibility alias of <code>labels</code>
+</td>
+</tr>
+<tr class="odd">
+<td><code>label_ids</code></td>
+<td>The label represented by each row of both center matrices</td>
+</tr>
+<tr class="even">
+<td><code>centers</code></td>
+<td>Means in the original feature space; rows are labels</td>
+</tr>
+<tr class="odd">
+<td><code>coord_centers</code></td>
+<td>Mean physical coordinates in millimetres; rows are labels</td>
+</tr>
+<tr class="even">
+<td><code>actual_k</code></td>
+<td>Number of final labels; may differ from a requested target when
+topology makes the target infeasible</td>
+</tr>
+<tr class="odd">
+<td><code>clusvol</code></td>
+<td>A <code><a href="https://bbuchsbaum.github.io/neuroim2/reference/ClusteredNeuroVol-class.html" class="external-link">neuroim2::ClusteredNeuroVol</a></code> carrying labels and mask
+geometry</td>
+</tr>
+</tbody>
+</table>
+<p>Never index a center matrix by an undocumented label ordering. The
+explicit <code>label_ids</code> mapping is the contract.</p>
 </div>
 <div class="section level2">
-<h2 id="neuroim2-objects">neuroim2 objects<a class="anchor" aria-label="anchor" href="#neuroim2-objects"></a>
+<h2 id="what-should-you-notice-in-a-slice">What should you notice in a slice?<a class="anchor" aria-label="anchor" href="#what-should-you-notice-in-a-slice"></a>
 </h2>
-<ul>
-<li>
-<code>NeuroVol</code>, <code>NeuroVec</code>,
-<code>ClusteredNeuroVol</code>, helpers (<code>series</code>,
-<code>index_to_coord</code>, <code>spacing</code>)</li>
-</ul>
+<div class="figure" style="text-align: center">
+<img src="objects-results_files/figure-html/result-plot-1.png" class="r-plt" alt="Axial grid divided into four colored regions; connectivity through other slices cannot be inferred from this panel alone." width="100%"><p class="caption">
+One axial slice of the validated SLIC fit. Colours identify labels, not
+an ordering or effect magnitude. A slice is a visual screen, not proof
+of 3-D connectivity.
+</p>
+</div>
+<p><strong>What to notice.</strong> The figure screens label coverage
+and gross spatial shape, but it cannot establish that each label has one
+connected component in 3-D. Colour numbers are arbitrary; compare
+partitions with defined metrics, not by matching hues.</p>
+<table class="table">
+<caption>Observed 26-neighbor component count for every final
+label.</caption>
+<thead><tr class="header">
+<th align="right">label</th>
+<th align="right">voxels</th>
+<th align="right">components_26</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td align="right">1</td>
+<td align="right">134</td>
+<td align="right">1</td>
+</tr>
+<tr class="even">
+<td align="right">2</td>
+<td align="right">155</td>
+<td align="right">1</td>
+</tr>
+<tr class="odd">
+<td align="right">3</td>
+<td align="right">155</td>
+<td align="right">1</td>
+</tr>
+<tr class="even">
+<td align="right">4</td>
+<td align="right">132</td>
+<td align="right">1</td>
+</tr>
+</tbody>
+</table>
+<p>The fitted result has one 26-neighbor component per label on this
+fixture. That statement comes from an explicit whole-volume traversal
+and hidden assertion, not from the middle slice. Use the connectivity
+definition declared by the method when reproducing this diagnostic.</p>
+</div>
+<div class="section level2">
+<h2 id="what-belongs-in-a-saved-receipt">What belongs in a saved receipt?<a class="anchor" aria-label="anchor" href="#what-belongs-in-a-saved-receipt"></a>
+</h2>
+<p>Save the fitted object together with the original mask identity and
+analysis metadata. At minimum retain <code>method</code>,
+<code>parameters</code>, <code>actual_k</code>, <code>provenance</code>,
+and the result of <code><a href="../reference/validate_cluster4d.html">validate_cluster4d()</a></code>. For comparison and
+export workflows, continue to <a href="validate-compare.html">Validate
+and compare clusterings</a> and <a href="visualize-export.html">Visualize and export results</a>.</p>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

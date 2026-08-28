@@ -54,8 +54,8 @@ cluster4d(
   - `"brs_slic"`: Boundary-Refined Sketch SLIC (coarse sketch + boundary
     exact-correlation refinement)
 
-  - `"slice_msf"`: Slice-wise Minimum Spanning Forest (fast but may show
-    z-artifacts)
+  - `"slice_msf"`: Experimental Slice-wise Minimum Spanning Forest,
+    available for explicit evaluation but not recommended
 
   - `"flash3d"`: Fast Low-rank Approximate Superclusters
 
@@ -72,12 +72,13 @@ cluster4d(
 
 - spatial_weight:
 
-  Balance between spatial and feature similarity (0-1). Both endpoints
-  are supported: 0 disables the spatial term and 1 disables the feature
-  term. Higher values emphasize spatial compactness. Default 0.5. This
-  parameter is inactive for `"rena"` and `"rena_plus"`; supplying it
-  explicitly for either method is an error. Maps to method-specific
-  parameters:
+  Method-specific spatial control in `[0, 1]`. For methods that define a
+  convex feature/spatial blend, zero disables the spatial term and one
+  disables the feature term. Other methods use the value as a bounded
+  mapping to a native scale; their endpoints do not have that blend
+  meaning. Default 0.5. This parameter is inactive for `"rena"` and
+  `"rena_plus"`; supplying it explicitly for either method is an error.
+  Maps to method-specific parameters:
 
   - supervoxels: `alpha = 1 - spatial_weight` (0 = all spatial, 1 = all
     feature)
@@ -89,7 +90,9 @@ cluster4d(
   - corr_slic/brs_slic: direct convex blend between correlation and
     scaled spatial distance
 
-  - slice_msf: `compactness = spatial_weight * 10` (typical range 1-10)
+  - slice_msf: `compactness = spatial_weight * 10`, followed by FH
+    component scale `2 / (compactness + 1)`. This changes the
+    graph-segmentation scale; it is not a convex spatial/feature blend.
 
   - flash3d: `lambda_s = spatial_weight` (direct mapping)
 
@@ -187,8 +190,8 @@ containing:
 | **Method** | **Speed** | **3D Continuity** | **Memory** | **Parallel** | **Best For** | supervoxels |
 | Slow | Excellent | High | Yes | Small-medium data, smooth parcels | snic | Fast |
 | Good | Low | No | Large data, non-iterative | slic | Fast | Good |
-| Medium | Yes | Balanced speed/quality | slice_msf | Very Fast | Moderate | Low |
-| No | High-res data, accept z-artifacts | flash3d | Fast | Good | Medium | No |
+| Medium | Yes | Balanced speed/quality | slice_msf | Experimental | 3-D when stitched | Low |
+| No | Explicit evaluation only | flash3d | Fast | Good | Medium | No |
 | Large data, hash-based | rena | Fast | Excellent | Low | No | Balanced clusters, topology-aware |
 | mcl | Fast | Good | Medium | No | Sparse graph clustering with tunable granularity |  |
 
@@ -212,7 +215,7 @@ containing:
 
 **For high-resolution data (\< 2mm):**
 
-- method: "slice_msf" or "flash3d" for speed
+- method: "flash3d" for speed; Slice-MSF remains experimental
 
 - n_clusters: Scale with voxel count (roughly n_voxels/200)
 
@@ -264,7 +267,7 @@ result <- cluster4d(vec, mask, n_clusters = 100, method = "flash3d")
 # Emphasize spatial compactness
 result <- cluster4d(vec, mask, n_clusters = 100, spatial_weight = 0.8)
 
-# Use specific method with custom parameters
+# Explicitly evaluate the experimental Slice-MSF method
 result <- cluster4d(vec, mask, n_clusters = 100, 
                    method = "slice_msf",
                    num_runs = 3,  # slice_msf-specific parameter

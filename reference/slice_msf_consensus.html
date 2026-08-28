@@ -28,6 +28,7 @@ optionally mixes those scores with DCT-sketch similarity."></head><body>
     <li><a class="dropdown-item" href="../articles/speed-parallel.html">Speed &amp; Parallel</a></li>
     <li><a class="dropdown-item" href="../articles/visualize-export.html">Visualize &amp; Export</a></li>
     <li><a class="dropdown-item" href="../articles/consensus-stitch.html">Consensus &amp; Stitching</a></li>
+    <li><a class="dropdown-item" href="../articles/slice-msf.html">Evaluate Slice-MSF (Experimental)</a></li>
     <li><a class="dropdown-item" href="../articles/validate-compare.html">Validate &amp; Compare</a></li>
     <li><a class="dropdown-item" href="../articles/legacy-apis.html">Legacy APIs</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Explanations</h6></li>
@@ -71,7 +72,8 @@ optionally mixes those scores with DCT-sketch similarity.</p>
 <span>  min_size_fuse <span class="op">=</span> <span class="fl">80</span>,</span>
 <span>  use_features <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  lambda <span class="op">=</span> <span class="fl">0.7</span>,</span>
-<span>  stitch_z <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span>  stitch_z <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  gamma <span class="op">=</span> <span class="fl">0</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -109,6 +111,10 @@ optionally mixes those scores with DCT-sketch similarity.</p>
 
 <dt id="arg-stitch-z">stitch_z<a class="anchor" aria-label="anchor" href="#arg-stitch-z"></a></dt>
 <dd><p>Whether consensus edges may cross axial slices.</p></dd>
+
+
+<dt id="arg-gamma">gamma<a class="anchor" aria-label="anchor" href="#arg-gamma"></a></dt>
+<dd><p>Reserved compatibility parameter. It must be zero.</p></dd>
 
 </dl></div>
     <div class="section level2">

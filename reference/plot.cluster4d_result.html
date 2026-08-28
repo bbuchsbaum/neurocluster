@@ -28,6 +28,7 @@ coronal slices through the clustered volume."></head><body>
     <li><a class="dropdown-item" href="../articles/speed-parallel.html">Speed &amp; Parallel</a></li>
     <li><a class="dropdown-item" href="../articles/visualize-export.html">Visualize &amp; Export</a></li>
     <li><a class="dropdown-item" href="../articles/consensus-stitch.html">Consensus &amp; Stitching</a></li>
+    <li><a class="dropdown-item" href="../articles/slice-msf.html">Evaluate Slice-MSF (Experimental)</a></li>
     <li><a class="dropdown-item" href="../articles/validate-compare.html">Validate &amp; Compare</a></li>
     <li><a class="dropdown-item" href="../articles/legacy-apis.html">Legacy APIs</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Explanations</h6></li>
@@ -64,7 +65,7 @@ coronal slices through the clustered volume.</p>
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="co"># S3 method for class 'cluster4d_result'</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">x</span>, slice <span class="op">=</span> <span class="cn">NULL</span>, view <span class="op">=</span> <span class="st">"all"</span>, colors <span class="op">=</span> <span class="cn">NULL</span>, <span class="va">...</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">x</span>, slice <span class="op">=</span> <span class="cn">NULL</span>, view <span class="op">=</span> <span class="st">"all"</span>, colors <span class="op">=</span> <span class="cn">NULL</span>, zlim <span class="op">=</span> <span class="cn">NULL</span>, <span class="va">...</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -88,6 +89,12 @@ coronal slices through the clustered volume.</p>
 
 <dt id="arg-colors">colors<a class="anchor" aria-label="anchor" href="#arg-colors"></a></dt>
 <dd><p>Color palette for clusters. Default uses rainbow colors.</p></dd>
+
+
+<dt id="arg-zlim">zlim<a class="anchor" aria-label="anchor" href="#arg-zlim"></a></dt>
+<dd><p>Numeric length-two label range shared by every displayed plane.
+The default, <code>c(0.5, x$n_clusters + 0.5)</code>, keeps each positive integer
+label mapped to the same categorical color even when a slice omits labels.</p></dd>
 
 
 <dt id="arg--">...<a class="anchor" aria-label="anchor" href="#arg--"></a></dt>

@@ -5,80 +5,100 @@
 - [Getting started with
   neurocluster](https://bbuchsbaum.github.io/neurocluster/articles/getting-started.md):
 
-  Quick tour of the core workflow.
+  A first spatially constrained clustering, from data to a checked
+  result.
 
 - [Compare clustering
   methods](https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.md):
 
-  Run multiple methods on the same data and compare outputs.
+  Compare valid partitions using explicit, shared estimands.
 
 - [End-to-end: From NIfTI to
   clusters](https://bbuchsbaum.github.io/neurocluster/articles/end-to-end-export.md):
 
-  Load data, cluster, visualize, and export results.
+  Read 4D data and a mask, fit a checked partition, and round-trip its
+  NIfTI label map.
 
 ### How-tos
 
 - [Choose parameters for your
   data](https://bbuchsbaum.github.io/neurocluster/articles/choose-parameters.md):
 
-  Use suggestions and tune K, spatial weighting, and connectivity.
+  Learn how parcel count and spatial weighting change the estimand.
 
-- [Speed up and
-  parallelize](https://bbuchsbaum.github.io/neurocluster/articles/speed-parallel.md):
+- [Use parallel execution
+  responsibly](https://bbuchsbaum.github.io/neurocluster/articles/speed-parallel.md):
 
-  Threads, grain size, and method choices for big data.
+  Select per-call parallel controls and verify what the method actually
+  used.
 
 - [Visualize and export
   results](https://bbuchsbaum.github.io/neurocluster/articles/visualize-export.md):
 
-  Plot cluster slices and write NIfTI outputs.
+  Read parcel maps, inspect temporal summaries, and verify NIfTI export.
 
-- [Consensus and slice
-  stitching](https://bbuchsbaum.github.io/neurocluster/articles/consensus-stitch.md):
+- [Build consensus and stitch across
+  slices](https://bbuchsbaum.github.io/neurocluster/articles/consensus-stitch.md):
 
-  Use slice_msf with consensus and stitch clusters across z-slices.
+  Understand the two independent Slice-MSF controls for ensembles and
+  volumetric topology.
+
+- [Evaluate Slice-MSF
+  (experimental)](https://bbuchsbaum.github.io/neurocluster/articles/slice-msf.md):
+
+  Inspect Slice-MSF’s feature geometry, natural and exact-K modes,
+  feasibility gates, and provenance before deciding whether to evaluate
+  it.
 
 - [Validate and compare
   clusterings](https://bbuchsbaum.github.io/neurocluster/articles/validate-compare.md):
 
-  Quality checks, cluster sizes, and basic overlaps.
+  Separate structural validity, single-partition diagnostics, and
+  pairwise agreement.
 
-- [Legacy APIs and backward
-  compatibility](https://bbuchsbaum.github.io/neurocluster/articles/legacy-apis.md):
+- [Direct method APIs and
+  cluster4d](https://bbuchsbaum.github.io/neurocluster/articles/legacy-apis.md):
 
-  Map old interfaces to the unified cluster4d entry point.
+  Understand what the unified interface maps and what remains
+  method-specific.
 
 ### Explanations
 
-- [Spatially constrained
+- [Understand spatially constrained
   clustering](https://bbuchsbaum.github.io/neurocluster/articles/spatially-constrained-clustering.md):
 
-  Concepts: spatial vs. feature weighting, connectivity, and artifacts.
+  See how feature similarity, distance, and connectivity shape a parcel
+  map.
 
-- [Method deep
-  dives](https://bbuchsbaum.github.io/neurocluster/articles/method-deep-dives.md):
+- [How the clustering methods
+  differ](https://bbuchsbaum.github.io/neurocluster/articles/method-deep-dives.md):
 
-  Supervoxels, SNIC, SLIC, slice-MSF, and FLASH-3D—ideas and tradeoffs.
+  Compare algorithmic work units and controls without turning them into
+  universal rankings.
 
-- [Performance and memory
-  tradeoffs](https://bbuchsbaum.github.io/neurocluster/articles/performance-memory.md):
+- [Reason about performance and
+  memory](https://bbuchsbaum.github.io/neurocluster/articles/performance-memory.md):
 
-  Scaling rules, memory estimates, and method choices.
+  Define what can be estimated before measuring method-specific runtime
+  and memory.
 
 ### Benchmarks
 
-- [Benchmark
-  gallery](https://bbuchsbaum.github.io/neurocluster/articles/benchmarks.md):
+- [Benchmark with a reproducible
+  receipt](https://bbuchsbaum.github.io/neurocluster/articles/benchmarks.md):
+
+  Run a scoped micro-comparison and report enough context to reproduce
+  it.
 
 ### Reference Maps
 
-- [API
-  overview](https://bbuchsbaum.github.io/neurocluster/articles/api-overview.md):
+- [Choose the right neurocluster
+  interface](https://bbuchsbaum.github.io/neurocluster/articles/api-overview.md):
 
-  Group exported functions by task and link to details.
+  Start with cluster4d, then move to validation, comparison, or direct
+  method APIs.
 
-- [Objects and
+- [Read, validate, and save clustering
   results](https://bbuchsbaum.github.io/neurocluster/articles/objects-results.md):
 
-  cluster4d_result structure, S3 methods, and neuroim2 objects.
+  Interpret the cluster4d_result contract and preserve its provenance.

@@ -14,7 +14,8 @@ slice_msf_consensus(
   min_size_fuse = 80,
   use_features = FALSE,
   lambda = 0.7,
-  stitch_z = TRUE
+  stitch_z = TRUE,
+  gamma = 0
 )
 ```
 
@@ -53,6 +54,10 @@ slice_msf_consensus(
 - stitch_z:
 
   Whether consensus edges may cross axial slices.
+
+- gamma:
+
+  Reserved compatibility parameter. It must be zero.
 
 ## Value
 

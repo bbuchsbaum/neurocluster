@@ -37,12 +37,13 @@ cluster4d_commute(
 
 - spatial_weight:
 
-  Balance between spatial and feature similarity (0-1). Both endpoints
-  are supported: 0 disables the spatial term and 1 disables the feature
-  term. Higher values emphasize spatial compactness. Default 0.5. This
-  parameter is inactive for `"rena"` and `"rena_plus"`; supplying it
-  explicitly for either method is an error. Maps to method-specific
-  parameters:
+  Method-specific spatial control in `[0, 1]`. For methods that define a
+  convex feature/spatial blend, zero disables the spatial term and one
+  disables the feature term. Other methods use the value as a bounded
+  mapping to a native scale; their endpoints do not have that blend
+  meaning. Default 0.5. This parameter is inactive for `"rena"` and
+  `"rena_plus"`; supplying it explicitly for either method is an error.
+  Maps to method-specific parameters:
 
   - supervoxels: `alpha = 1 - spatial_weight` (0 = all spatial, 1 = all
     feature)
@@ -54,7 +55,9 @@ cluster4d_commute(
   - corr_slic/brs_slic: direct convex blend between correlation and
     scaled spatial distance
 
-  - slice_msf: `compactness = spatial_weight * 10` (typical range 1-10)
+  - slice_msf: `compactness = spatial_weight * 10`, followed by FH
+    component scale `2 / (compactness + 1)`. This changes the
+    graph-segmentation scale; it is not a convex spatial/feature blend.
 
   - flash3d: `lambda_s = spatial_weight` (direct mapping)
 

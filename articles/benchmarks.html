@@ -5,13 +5,15 @@
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-<title>Benchmark gallery • neurocluster</title>
+<title>Benchmark with a reproducible receipt • neurocluster</title>
 <script src="../deps/jquery-3.6.0/jquery-3.6.0.min.js"></script><meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 <link href="../deps/bootstrap-5.3.8/bootstrap.min.css" rel="stylesheet">
 <script src="../deps/bootstrap-5.3.8/bootstrap.bundle.min.js"></script><link href="../deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
 <link href="../deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
 <script src="../deps/headroom-0.11.0/headroom.min.js"></script><script src="../deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="../deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="../deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="../deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="../deps/search-1.0.0/fuse.min.js"></script><script src="../deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="../pkgdown.js"></script><link href="../extra.css" rel="stylesheet">
-<script src="../extra.js"></script><meta property="og:title" content="Benchmark gallery">
+<script src="../extra.js"></script><meta property="og:title" content="Benchmark with a reproducible receipt">
+<meta name="description" content="Run a scoped micro-comparison and report enough context to reproduce it.">
+<meta property="og:description" content="Run a scoped micro-comparison and report enough context to reproduce it.">
 </head>
 <body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -42,6 +44,7 @@
     <li><a class="dropdown-item" href="../articles/speed-parallel.html">Speed &amp; Parallel</a></li>
     <li><a class="dropdown-item" href="../articles/visualize-export.html">Visualize &amp; Export</a></li>
     <li><a class="dropdown-item" href="../articles/consensus-stitch.html">Consensus &amp; Stitching</a></li>
+    <li><a class="dropdown-item" href="../articles/slice-msf.html">Evaluate Slice-MSF (Experimental)</a></li>
     <li><a class="dropdown-item" href="../articles/validate-compare.html">Validate &amp; Compare</a></li>
     <li><a class="dropdown-item" href="../articles/legacy-apis.html">Legacy APIs</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Explanations</h6></li>
@@ -74,7 +77,7 @@
 <div class="row">
   <main id="main" class="col-md-9"><div class="page-header">
 
-      <h1>Benchmark gallery</h1>
+      <h1>Benchmark with a reproducible receipt</h1>
             
       
       <small class="dont-index">Source: <a href="https://github.com/bbuchsbaum/neurocluster/blob/master/vignettes/benchmarks.Rmd" class="external-link"><code>vignettes/benchmarks.Rmd</code></a></small>
@@ -83,113 +86,111 @@
 
     
     
+<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-red","preset-homage");});</script><style>:root{--content:72ch}</style>
+<p>A benchmark is evidence only for its measured workload. This article
+does not read a checked-in <code>results.csv</code> or present old
+machine timings as current. It runs a deliberately small comparison
+during rendering and shows the receipt needed to reproduce it. Use the
+pattern—not the tiny timings—to design a study for your data.</p>
 <div class="section level2">
-<h2 id="whats-in-here">What’s in here<a class="anchor" aria-label="anchor" href="#whats-in-here"></a>
+<h2 id="what-exactly-is-measured-here">What exactly is measured here?<a class="anchor" aria-label="anchor" href="#what-exactly-is-measured-here"></a>
 </h2>
-<ul>
-<li>Benchmarks of the core methods (snic, slice_msf, supervoxels,
-flash3d, rena, acsc)</li>
-<li>Shared synthetic datasets of increasing size/complexity</li>
-<li>A few common parameter settings per method to show how runtime and
-cluster count move</li>
-</ul>
-<p>The heavy lifting is done by
-<code>inst/benchmarks/bench_methods.R</code>. We keep that <strong>off
-by default</strong> so the vignette stays light; instead we read
-precomputed results if they exist.</p>
+<p>The estimand is elapsed wall-clock seconds for a complete
+<code><a href="../reference/cluster4d.html">cluster4d()</a></code> call on one generated 400-voxel, 18-time-point
+volume, after one warm-up call. We keep three repetitions for each
+method and require every fit to be valid and to produce the requested K.
+These are smoke-scale timings, not whole-brain performance claims.</p>
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">methods</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"snic"</span>, <span class="st">"slic"</span><span class="op">)</span></span>
+<span><span class="va">benchmark_order</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"snic"</span>, <span class="st">"slic"</span>, <span class="st">"slic"</span>, <span class="st">"snic"</span>, <span class="st">"snic"</span>, <span class="st">"slic"</span><span class="op">)</span></span>
+<span><span class="va">repetitions</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/integer.html" class="external-link">as.integer</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/ave.html" class="external-link">ave</a></span><span class="op">(</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq_along</a></span><span class="op">(</span><span class="va">benchmark_order</span><span class="op">)</span>, <span class="va">benchmark_order</span>, FUN <span class="op">=</span> <span class="va">seq_along</span></span>
+<span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>run <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq_along</a></span><span class="op">(</span><span class="va">benchmark_order</span><span class="op">)</span>, method <span class="op">=</span> <span class="va">benchmark_order</span>,</span>
+<span>           repetition <span class="op">=</span> <span class="va">repetitions</span><span class="op">)</span></span>
+<span><span class="co">#&gt;   run method repetition</span></span>
+<span><span class="co">#&gt; 1   1   snic          1</span></span>
+<span><span class="co">#&gt; 2   2   slic          1</span></span>
+<span><span class="co">#&gt; 3   3   slic          2</span></span>
+<span><span class="co">#&gt; 4   4   snic          2</span></span>
+<span><span class="co">#&gt; 5   5   snic          3</span></span>
+<span><span class="co">#&gt; 6   6   slic          3</span></span>
+<span></span>
+<span><span class="va">timings</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/do.call.html" class="external-link">do.call</a></span><span class="op">(</span><span class="va">rbind</span>, <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq_along</a></span><span class="op">(</span><span class="va">benchmark_order</span><span class="op">)</span>, <span class="kw">function</span><span class="op">(</span><span class="va">run</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">method</span> <span class="op">&lt;-</span> <span class="va">benchmark_order</span><span class="op">[</span><span class="va">run</span><span class="op">]</span></span>
+<span>  <span class="va">elapsed</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.time.html" class="external-link">system.time</a></span><span class="op">(</span><span class="va">fit</span> <span class="op">&lt;-</span> <span class="fu">fit_one</span><span class="op">(</span><span class="va">method</span><span class="op">)</span><span class="op">)</span><span class="op">[[</span><span class="st">"elapsed"</span><span class="op">]</span><span class="op">]</span></span>
+<span>  <span class="va">validation</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/validate_cluster4d.html">validate_cluster4d</a></span><span class="op">(</span><span class="va">fit</span>, <span class="va">syn</span><span class="op">$</span><span class="va">vec</span>, <span class="va">syn</span><span class="op">$</span><span class="va">mask</span><span class="op">)</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>    run <span class="op">=</span> <span class="va">run</span>, method <span class="op">=</span> <span class="va">method</span>, repetition <span class="op">=</span> <span class="va">repetitions</span><span class="op">[</span><span class="va">run</span><span class="op">]</span>,</span>
+<span>    elapsed_seconds <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/unname.html" class="external-link">unname</a></span><span class="op">(</span><span class="va">elapsed</span><span class="op">)</span>,</span>
+<span>    actual_k <span class="op">=</span> <span class="va">fit</span><span class="op">$</span><span class="va">actual_k</span>, valid <span class="op">=</span> <span class="va">validation</span><span class="op">$</span><span class="va">valid</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">timings</span></span>
+<span><span class="co">#&gt;   run method repetition elapsed_seconds actual_k valid</span></span>
+<span><span class="co">#&gt; 1   1   snic          1           0.045        4  TRUE</span></span>
+<span><span class="co">#&gt; 2   2   slic          1           0.008        4  TRUE</span></span>
+<span><span class="co">#&gt; 3   3   slic          2           0.008        4  TRUE</span></span>
+<span><span class="co">#&gt; 4   4   snic          2           0.047        4  TRUE</span></span>
+<span><span class="co">#&gt; 5   5   snic          3           0.047        4  TRUE</span></span>
+<span><span class="co">#&gt; 6   6   slic          3           0.007        4  TRUE</span></span></code></pre></div>
+<div class="figure" style="text-align: center">
+<img src="benchmarks_files/figure-html/benchmark-figure-1.png" class="r-plt" alt="Jittered timing points and median diamonds for SNIC and serial SLIC on a 400-voxel example." width="100%"><p class="caption">
+Three elapsed-time repetitions per method on the vignette’s tiny
+generated workload; diamonds are medians.
+</p>
+</div>
+<p><strong>What to notice.</strong> Repeated timings vary even on a tiny
+fixed input. The plot supports only this render’s workload and
+environment; it does not rank methods for a different volume, K,
+parameter set, or machine.</p>
 </div>
 <div class="section level2">
-<h2 id="how-to-reproduce-locally">How to reproduce locally<a class="anchor" aria-label="anchor" href="#how-to-reproduce-locally"></a>
-</h2>
-<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="co"># from the package root</span></span>
-<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>Rscript inst<span class="sc">/</span>benchmarks<span class="sc">/</span>bench_methods.R</span></code></pre></div>
-<p>This writes <code>inst/benchmarks/results.csv</code>. Re-knit this
-vignette to refresh the tables/plots.</p>
-</div>
-<div class="section level2">
-<h2 id="load-results-if-available">Load results (if available)<a class="anchor" aria-label="anchor" href="#load-results-if-available"></a>
+<h2 id="what-belongs-in-the-receipt">What belongs in the receipt?<a class="anchor" aria-label="anchor" href="#what-belongs-in-the-receipt"></a>
 </h2>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">res_path</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"benchmarks/results.csv"</span>, package <span class="op">=</span> <span class="st">"neurocluster"</span><span class="op">)</span></span>
-<span><span class="kw">if</span> <span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/files.html" class="external-link">file.exists</a></span><span class="op">(</span><span class="va">res_path</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/cat.html" class="external-link">cat</a></span><span class="op">(</span><span class="st">"Benchmark results not found. Run inst/benchmarks/bench_methods.R to generate them."</span><span class="op">)</span></span>
-<span>  <span class="va">has_results</span> <span class="op">&lt;-</span> <span class="cn">FALSE</span></span>
-<span><span class="op">}</span> <span class="kw">else</span> <span class="op">{</span></span>
-<span>  <span class="va">results</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/utils/read.table.html" class="external-link">read.csv</a></span><span class="op">(</span><span class="va">res_path</span>, stringsAsFactors <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
-<span>  <span class="va">results</span><span class="op">$</span><span class="va">elapsed_sec</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">results</span><span class="op">$</span><span class="va">elapsed_sec</span><span class="op">)</span></span>
-<span>  <span class="va">has_results</span> <span class="op">&lt;-</span> <span class="cn">TRUE</span></span>
-<span><span class="op">}</span></span></code></pre></div>
-</div>
-<div class="section level2">
-<h2 id="summary-table">Summary table<a class="anchor" aria-label="anchor" href="#summary-table"></a>
-</h2>
-<pre><code><span><span class="co">#&gt;        dataset n_vox n_time      method param_id</span></span>
-<span><span class="co">#&gt; 1  block_small   144     80        snic        1</span></span>
-<span><span class="co">#&gt; 2  block_small   144     80        snic        2</span></span>
-<span><span class="co">#&gt; 3  block_small   144     80        snic        3</span></span>
-<span><span class="co">#&gt; 4  block_small   144     80   slice_msf        1</span></span>
-<span><span class="co">#&gt; 5  block_small   144     80   slice_msf        2</span></span>
-<span><span class="co">#&gt; 6  block_small   144     80   slice_msf        3</span></span>
-<span><span class="co">#&gt; 7  block_small   144     80 supervoxels        1</span></span>
-<span><span class="co">#&gt; 8  block_small   144     80 supervoxels        2</span></span>
-<span><span class="co">#&gt; 9  block_small   144     80     flash3d        1</span></span>
-<span><span class="co">#&gt; 10 block_small   144     80     flash3d        2</span></span>
-<span><span class="co">#&gt; 11 block_small   144     80     flash3d        3</span></span>
-<span><span class="co">#&gt; 12 block_small   144     80        slic        1</span></span>
-<span><span class="co">#&gt;                                                                                                           params</span></span>
-<span><span class="co">#&gt; 1                                                                                     param_id 1;compactness 1.5</span></span>
-<span><span class="co">#&gt; 2                                                                                       param_id 2;compactness 3</span></span>
-<span><span class="co">#&gt; 3                                                                                     param_id 3;compactness 0.8</span></span>
-<span><span class="co">#&gt; 4  param_id 1;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE</span></span>
-<span><span class="co">#&gt; 5   param_id 2;r 8;min_size 2;compactness 1.5;gamma 1;nbhd 8;z_mult 0.5;stitch_z TRUE;num_runs 1;consensus FALSE</span></span>
-<span><span class="co">#&gt; 6    param_id 3;r 12;min_size 2;compactness 2.5;gamma 1;nbhd 4;z_mult 0;stitch_z TRUE;num_runs 1;consensus FALSE</span></span>
-<span><span class="co">#&gt; 7                       param_id 1;alpha 0.3;iterations 30;sigma1 1;sigma2 1.8;use_gradient FALSE;connectivity 6</span></span>
-<span><span class="co">#&gt; 8                        param_id 2;alpha 0.4;iterations 30;sigma1 1;sigma2 2;use_gradient FALSE;connectivity 18</span></span>
-<span><span class="co">#&gt; 9                                                    param_id 1;dctM 8;lambda_t 1;lambda_s 0.15;bits 64;rounds 2</span></span>
-<span><span class="co">#&gt; 10                                                param_id 2;dctM 16;lambda_t 1.4;lambda_s 0.35;bits 64;rounds 4</span></span>
-<span><span class="co">#&gt; 11                                                param_id 3;dctM 16;lambda_t 1.4;lambda_s 0.25;bits 64;rounds 4</span></span>
-<span><span class="co">#&gt; 12                                                                 param_id 1;spatial_weight 0.1;connectivity 26</span></span>
-<span><span class="co">#&gt;    elapsed_sec n_clusters        ari error</span></span>
-<span><span class="co">#&gt; 1        0.032          3 0.10867156  &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 2        0.062          3 0.13716840  &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 3        0.014          3 0.09154775  &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 4        0.003          3 0.14257445  &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 5        0.022          3 0.54805333  &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 6        0.003          3 0.03960234  &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 7        0.005          3 0.37124162  &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 8        0.069          3 0.37124162  &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 9        0.002          3 0.26052888  &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 10       0.034          3 0.34428091  &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 11       0.003          3 0.23977585  &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 12       0.002          3 0.03690433  &lt;NA&gt;</span></span></code></pre>
-</div>
-<div class="section level2">
-<h2 id="quick-plots">Quick plots<a class="anchor" aria-label="anchor" href="#quick-plots"></a>
-</h2>
-<p><img src="benchmarks_files/figure-html/plots-1.png" class="r-plt" alt="" width="672"><img src="benchmarks_files/figure-html/plots-2.png" class="r-plt" alt="" width="672"><img src="benchmarks_files/figure-html/plots-3.png" class="r-plt" alt="" width="672"><img src="benchmarks_files/figure-html/plots-4.png" class="r-plt" alt="" width="672"><img src="benchmarks_files/figure-html/plots-5.png" class="r-plt" alt="" width="672"></p>
-</div>
-<div class="section level2">
-<h2 id="notes-on-parameters">Notes on parameters<a class="anchor" aria-label="anchor" href="#notes-on-parameters"></a>
-</h2>
-<ul>
-<li>
-<strong>snic</strong>: compactness = {2, 5}</li>
-<li>
-<strong>slice_msf</strong>: r = {8, 12}, min_size tuned for
-small/medium data</li>
-<li>
-<strong>supervoxels</strong>: alpha = {0.4, 0.8}</li>
-<li>
-<strong>flash3d</strong>: dctM = {8, 12}</li>
-<li>
-<strong>rena</strong>: connectivity = {6, 26}</li>
-<li>
-<strong>acsc</strong>: lambda = {0.6, 1.0}</li>
-</ul>
-<p>These are not exhaustive sweeps—just representative settings to show
-trends without long runtimes. Adjust
-<code>inst/benchmarks/bench_methods.R</code> if you want deeper
-dives.</p>
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>  package_version <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/utils/packageDescription.html" class="external-link">packageVersion</a></span><span class="op">(</span><span class="st">"neurocluster"</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>  r_version <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span><span class="va">R.version</span><span class="op">$</span><span class="va">major</span>, <span class="va">R.version</span><span class="op">$</span><span class="va">minor</span>, sep <span class="op">=</span> <span class="st">"."</span><span class="op">)</span>,</span>
+<span>  platform <span class="op">=</span> <span class="va">R.version</span><span class="op">$</span><span class="va">platform</span>,</span>
+<span>  dimensions <span class="op">=</span> <span class="va">syn</span><span class="op">$</span><span class="va">dims</span>,</span>
+<span>  included_voxels <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">syn</span><span class="op">$</span><span class="va">truth</span><span class="op">)</span>,</span>
+<span>  time_points <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">ncol</a></span><span class="op">(</span><span class="va">syn</span><span class="op">$</span><span class="va">patterns</span><span class="op">)</span>,</span>
+<span>  requested_k <span class="op">=</span> <span class="fl">4L</span>,</span>
+<span>  repetitions <span class="op">=</span> <span class="fl">3L</span>,</span>
+<span>  run_order <span class="op">=</span> <span class="va">benchmark_order</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co">#&gt; $package_version</span></span>
+<span><span class="co">#&gt; [1] "0.1.0"</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $r_version</span></span>
+<span><span class="co">#&gt; [1] "4.6.1"</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $platform</span></span>
+<span><span class="co">#&gt; [1] "x86_64-pc-linux-gnu"</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $dimensions</span></span>
+<span><span class="co">#&gt; [1] 10 10  4</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $included_voxels</span></span>
+<span><span class="co">#&gt; [1] 400</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $time_points</span></span>
+<span><span class="co">#&gt; [1] 18</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $requested_k</span></span>
+<span><span class="co">#&gt; [1] 4</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $repetitions</span></span>
+<span><span class="co">#&gt; [1] 3</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $run_order</span></span>
+<span><span class="co">#&gt; [1] "snic" "slic" "slic" "snic" "snic" "slic"</span></span></code></pre></div>
+<p>For a real benchmark, also record the commit, CPU, RAM, operating
+system, thread backend and count, full method calls, warm-up policy,
+allocation or peak RSS measurement method, and every repetition.
+Predefine quality estimands when comparing approximation settings;
+elapsed time alone cannot establish a useful clustering. See <a href="performance-memory.html">Performance and memory</a> and <a href="validate-compare.html">Validate and compare clusterings</a>.</p>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

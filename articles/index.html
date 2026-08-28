@@ -26,6 +26,7 @@
     <li><a class="dropdown-item" href="../articles/speed-parallel.html">Speed &amp; Parallel</a></li>
     <li><a class="dropdown-item" href="../articles/visualize-export.html">Visualize &amp; Export</a></li>
     <li><a class="dropdown-item" href="../articles/consensus-stitch.html">Consensus &amp; Stitching</a></li>
+    <li><a class="dropdown-item" href="../articles/slice-msf.html">Evaluate Slice-MSF (Experimental)</a></li>
     <li><a class="dropdown-item" href="../articles/validate-compare.html">Validate &amp; Compare</a></li>
     <li><a class="dropdown-item" href="../articles/legacy-apis.html">Legacy APIs</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Explanations</h6></li>
@@ -57,55 +58,57 @@
       <div class="section-desc"></div>
 
       <dl><dt><a href="getting-started.html">Getting started with neurocluster</a></dt>
-        <dd><p>Quick tour of the core workflow.</p>
+        <dd><p>A first spatially constrained clustering, from data to a checked result.</p>
         </dd><dt><a href="compare-methods.html">Compare clustering methods</a></dt>
-        <dd><p>Run multiple methods on the same data and compare outputs.</p>
+        <dd><p>Compare valid partitions using explicit, shared estimands.</p>
         </dd><dt><a href="end-to-end-export.html">End-to-end: From NIfTI to clusters</a></dt>
-        <dd><p>Load data, cluster, visualize, and export results.</p>
+        <dd><p>Read 4D data and a mask, fit a checked partition, and round-trip its NIfTI label map.</p>
       </dd></dl></div>
     <div class="section ">
       <h3>How-tos</h3>
       <div class="section-desc"></div>
 
       <dl><dt><a href="choose-parameters.html">Choose parameters for your data</a></dt>
-        <dd><p>Use suggestions and tune K, spatial weighting, and connectivity.</p>
-        </dd><dt><a href="speed-parallel.html">Speed up and parallelize</a></dt>
-        <dd><p>Threads, grain size, and method choices for big data.</p>
+        <dd><p>Learn how parcel count and spatial weighting change the estimand.</p>
+        </dd><dt><a href="speed-parallel.html">Use parallel execution responsibly</a></dt>
+        <dd><p>Select per-call parallel controls and verify what the method actually used.</p>
         </dd><dt><a href="visualize-export.html">Visualize and export results</a></dt>
-        <dd><p>Plot cluster slices and write NIfTI outputs.</p>
-        </dd><dt><a href="consensus-stitch.html">Consensus and slice stitching</a></dt>
-        <dd><p>Use slice_msf with consensus and stitch clusters across z-slices.</p>
+        <dd><p>Read parcel maps, inspect temporal summaries, and verify NIfTI export.</p>
+        </dd><dt><a href="consensus-stitch.html">Build consensus and stitch across slices</a></dt>
+        <dd><p>Understand the two independent Slice-MSF controls for ensembles and volumetric topology.</p>
+        </dd><dt><a href="slice-msf.html">Evaluate Slice-MSF (experimental)</a></dt>
+        <dd><p>Inspect Slice-MSF’s feature geometry, natural and exact-K modes, feasibility gates, and provenance before deciding whether to evaluate it.</p>
         </dd><dt><a href="validate-compare.html">Validate and compare clusterings</a></dt>
-        <dd><p>Quality checks, cluster sizes, and basic overlaps.</p>
-        </dd><dt><a href="legacy-apis.html">Legacy APIs and backward compatibility</a></dt>
-        <dd><p>Map old interfaces to the unified cluster4d entry point.</p>
+        <dd><p>Separate structural validity, single-partition diagnostics, and pairwise agreement.</p>
+        </dd><dt><a href="legacy-apis.html">Direct method APIs and cluster4d</a></dt>
+        <dd><p>Understand what the unified interface maps and what remains method-specific.</p>
       </dd></dl></div>
     <div class="section ">
       <h3>Explanations</h3>
       <div class="section-desc"></div>
 
-      <dl><dt><a href="spatially-constrained-clustering.html">Spatially constrained clustering</a></dt>
-        <dd><p>Concepts: spatial vs. feature weighting, connectivity, and artifacts.</p>
-        </dd><dt><a href="method-deep-dives.html">Method deep dives</a></dt>
-        <dd><p>Supervoxels, SNIC, SLIC, slice-MSF, and FLASH-3D—ideas and tradeoffs.</p>
-        </dd><dt><a href="performance-memory.html">Performance and memory tradeoffs</a></dt>
-        <dd><p>Scaling rules, memory estimates, and method choices.</p>
+      <dl><dt><a href="spatially-constrained-clustering.html">Understand spatially constrained clustering</a></dt>
+        <dd><p>See how feature similarity, distance, and connectivity shape a parcel map.</p>
+        </dd><dt><a href="method-deep-dives.html">How the clustering methods differ</a></dt>
+        <dd><p>Compare algorithmic work units and controls without turning them into universal rankings.</p>
+        </dd><dt><a href="performance-memory.html">Reason about performance and memory</a></dt>
+        <dd><p>Define what can be estimated before measuring method-specific runtime and memory.</p>
       </dd></dl></div>
     <div class="section ">
       <h3>Benchmarks</h3>
       <div class="section-desc"></div>
 
-      <dl><dt><a href="benchmarks.html">Benchmark gallery</a></dt>
-        <dd>
+      <dl><dt><a href="benchmarks.html">Benchmark with a reproducible receipt</a></dt>
+        <dd><p>Run a scoped micro-comparison and report enough context to reproduce it.</p>
       </dd></dl></div>
     <div class="section ">
       <h3>Reference Maps</h3>
       <div class="section-desc"></div>
 
-      <dl><dt><a href="api-overview.html">API overview</a></dt>
-        <dd><p>Group exported functions by task and link to details.</p>
-        </dd><dt><a href="objects-results.html">Objects and results</a></dt>
-        <dd><p>cluster4d_result structure, S3 methods, and neuroim2 objects.</p>
+      <dl><dt><a href="api-overview.html">Choose the right neurocluster interface</a></dt>
+        <dd><p>Start with cluster4d, then move to validation, comparison, or direct method APIs.</p>
+        </dd><dt><a href="objects-results.html">Read, validate, and save clustering results</a></dt>
+        <dd><p>Interpret the cluster4d_result contract and preserve its provenance.</p>
       </dd></dl></div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside></div>

@@ -44,6 +44,7 @@
     <li><a class="dropdown-item" href="articles/speed-parallel.html">Speed &amp; Parallel</a></li>
     <li><a class="dropdown-item" href="articles/visualize-export.html">Visualize &amp; Export</a></li>
     <li><a class="dropdown-item" href="articles/consensus-stitch.html">Consensus &amp; Stitching</a></li>
+    <li><a class="dropdown-item" href="articles/slice-msf.html">Evaluate Slice-MSF (Experimental)</a></li>
     <li><a class="dropdown-item" href="articles/validate-compare.html">Validate &amp; Compare</a></li>
     <li><a class="dropdown-item" href="articles/legacy-apis.html">Legacy APIs</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Explanations</h6></li>
@@ -73,386 +74,249 @@
   <main id="main" class="col-md-9"><div class="section level1">
 <div class="page-header"><h1 id="neurocluster">neurocluster<a class="anchor" aria-label="anchor" href="#neurocluster"></a>
 </h1></div>
-<p>R package for spatially constrained clustering of neuroimaging data.</p>
+<p><a href="https://bbuchsbaum.github.io/neurocluster/articles/getting-started.html">Getting started</a> · <a href="https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.html">Choose a method</a> · <a href="https://bbuchsbaum.github.io/neurocluster/articles/validate-compare.html">Validate results</a> · <a href="https://bbuchsbaum.github.io/neurocluster/articles/api-overview.html">API map</a></p>
+<p><strong>neurocluster</strong> is an R package for turning masked 3D images and 4D neuroimaging series into spatially constrained parcels. Its <code><a href="reference/cluster4d.html">cluster4d()</a></code> front door runs several clustering families through one interface and returns one result contract: contiguous voxel labels, feature means, physical centroids, and mask and geometry provenance.</p>
+<p>Use it to construct supervoxels or exploratory parcellations when both signal similarity and spatial organization matter.</p>
+<blockquote>
+<p><strong>Status:</strong> Development version <code>0.1.0</code>, distributed from source. Interfaces and defaults may change as the package matures.</p>
+</blockquote>
 <div class="section level2">
-<h2 id="overview">Overview<a class="anchor" aria-label="anchor" href="#overview"></a>
+<h2 id="install">Install<a class="anchor" aria-label="anchor" href="#install"></a>
 </h2>
-<p>The <code>neurocluster</code> package provides multiple algorithms for clustering 4D neuroimaging data (3D space + time) while respecting spatial structure. All algorithms balance between feature similarity (e.g., time series correlation) and spatial proximity to produce coherent, interpretable clusters.</p>
+<p>The package is not currently distributed through CRAN. Install the development version from GitHub; its runtime dependencies are resolved from CRAN:</p>
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="st">"remotes"</span><span class="op">)</span></span>
+<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu">install_github</span><span class="op">(</span><span class="st">"bbuchsbaum/neurocluster"</span><span class="op">)</span></span></code></pre></div>
+<p>Installation compiles C++ code, so it requires the usual R package build tools for your platform.</p>
 </div>
 <div class="section level2">
-<h2 id="installation">Installation<a class="anchor" aria-label="anchor" href="#installation"></a>
+<h2 id="quick-start">Quick start<a class="anchor" aria-label="anchor" href="#quick-start"></a>
 </h2>
-<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="co"># Install from local source</span></span>
-<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>devtools<span class="sc">::</span><span class="fu">install</span>()</span>
-<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a></span>
-<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a><span class="co"># Or build and install</span></span>
-<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a>R CMD build .</span>
-<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a>R CMD INSTALL neurocluster_<span class="sc">*</span>.tar.gz</span></code></pre></div>
-</div>
-<div class="section level2">
-<h2 id="quick-start">Quick Start<a class="anchor" aria-label="anchor" href="#quick-start"></a>
-</h2>
-<p>The package provides a unified <code><a href="reference/cluster4d.html">cluster4d()</a></code> interface for all clustering methods:</p>
+<p>This complete example generates data with known regions, clusters it with the deterministic ReNA backend, validates the returned object against its inputs, and checks recovery against the known partition.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://bbuchsbaum.github.io/neurocluster/">neurocluster</a></span><span class="op">)</span></span>
-<span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/bbuchsbaum/neuroim2" class="external-link">neuroim2</a></span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># Load your data</span></span>
-<span><span class="va">mask</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/read_vol.html" class="external-link">read_vol</a></span><span class="op">(</span><span class="st">"brain_mask.nii"</span><span class="op">)</span></span>
-<span><span class="va">vec</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/read_vec.html" class="external-link">read_vec</a></span><span class="op">(</span><span class="st">"fmri_data.nii.gz"</span><span class="op">)</span></span>
+<span><span class="va">syn</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/generate_synthetic_volume.html">generate_synthetic_volume</a></span><span class="op">(</span></span>
+<span>  <span class="st">"gaussian_blobs"</span>,</span>
+<span>  dims <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">16</span>, <span class="fl">16</span>, <span class="fl">8</span><span class="op">)</span>,</span>
+<span>  n_clusters <span class="op">=</span> <span class="fl">4</span>,</span>
+<span>  n_time <span class="op">=</span> <span class="fl">40</span>,</span>
+<span>  noise_sd <span class="op">=</span> <span class="fl">0.08</span>,</span>
+<span>  seed <span class="op">=</span> <span class="fl">42</span></span>
+<span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># Cluster with default method (supervoxels)</span></span>
-<span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">100</span><span class="op">)</span></span>
+<span><span class="va">fit</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/cluster4d.html">cluster4d</a></span><span class="op">(</span></span>
+<span>  <span class="va">syn</span><span class="op">$</span><span class="va">vec</span>,</span>
+<span>  <span class="va">syn</span><span class="op">$</span><span class="va">mask</span>,</span>
+<span>  n_clusters <span class="op">=</span> <span class="fl">4</span>,</span>
+<span>  method <span class="op">=</span> <span class="st">"rena"</span></span>
+<span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># 3D convenience: you can pass a single-volume NeuroVol directly;</span></span>
-<span><span class="co"># it will be wrapped to a one-frame NeuroVec internally</span></span>
-<span><span class="va">vol</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/read_vol.html" class="external-link">read_vol</a></span><span class="op">(</span><span class="st">"anatomical.nii.gz"</span><span class="op">)</span></span>
-<span><span class="va">vol_mask</span> <span class="op">&lt;-</span> <span class="va">vol</span> <span class="op">&gt;</span> <span class="fl">0</span></span>
-<span><span class="va">result_3d</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">vol</span>, <span class="va">vol_mask</span>, n_clusters <span class="op">=</span> <span class="fl">200</span>, method <span class="op">=</span> <span class="st">"slic"</span><span class="op">)</span></span>
+<span><span class="va">audit</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/validate_cluster4d.html">validate_cluster4d</a></span><span class="op">(</span><span class="va">fit</span>, <span class="va">syn</span><span class="op">$</span><span class="va">vec</span>, <span class="va">syn</span><span class="op">$</span><span class="va">mask</span><span class="op">)</span></span>
+<span><span class="va">quality</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/cluster_metrics.html">cluster_metrics</a></span><span class="op">(</span><span class="va">fit</span>, truth <span class="op">=</span> <span class="va">syn</span><span class="op">$</span><span class="va">truth</span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># Try different methods</span></span>
-<span><span class="va">result_snic</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">100</span>, method <span class="op">=</span> <span class="st">"snic"</span><span class="op">)</span></span>
-<span><span class="va">result_msf</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">100</span>, method <span class="op">=</span> <span class="st">"slice_msf"</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>  actual_k <span class="op">=</span> <span class="va">fit</span><span class="op">$</span><span class="va">actual_k</span>,</span>
+<span>  min_cluster_size <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Extremes.html" class="external-link">min</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">fit</span><span class="op">$</span><span class="va">labels</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>  valid <span class="op">=</span> <span class="va">audit</span><span class="op">$</span><span class="va">valid</span>,</span>
+<span>  ari <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">round</a></span><span class="op">(</span><span class="va">quality</span><span class="op">$</span><span class="va">ari_truth</span>, <span class="fl">3</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co">#&gt; $actual_k</span></span>
+<span><span class="co">#&gt; [1] 4</span></span>
+<span><span class="co">#&gt;</span></span>
+<span><span class="co">#&gt; $min_cluster_size</span></span>
+<span><span class="co">#&gt; [1] 303</span></span>
+<span><span class="co">#&gt;</span></span>
+<span><span class="co">#&gt; $valid</span></span>
+<span><span class="co">#&gt; [1] TRUE</span></span>
+<span><span class="co">#&gt;</span></span>
+<span><span class="co">#&gt; $ari</span></span>
+<span><span class="co">#&gt; [1] 1</span></span></code></pre></div>
+<p>The adjusted Rand index is available here because the synthetic fixture has ground truth; real neuroimaging data generally do not. <code><a href="reference/validate_cluster4d.html">validate_cluster4d()</a></code> tests the structural and numerical result contract—it does not establish that a parcellation is scientifically meaningful.</p>
+<div class="float">
+<img src="reference/figures/neurocluster-workflow.png" alt="A synthetic neurocluster workflow showing four distinct temporal signatures, the known spatial regions on an axial slice, and the ReNA parcellation with perfect partition agreement on this fixture."><div class="figcaption">A synthetic neurocluster workflow showing four distinct temporal signatures, the known spatial regions on an axial slice, and the ReNA parcellation with perfect partition agreement on this fixture.</div>
+</div>
+<p>The figure is rebuilt by <code>tools/render-readme-figure.R</code> from the same public workflow. Perfect agreement describes this deliberately separable synthetic fixture; it is not a benchmark or a claim about empirical neuroimaging data.</p>
 </div>
 <div class="section level2">
-<h2 id="available-methods">Available Methods<a class="anchor" aria-label="anchor" href="#available-methods"></a>
+<h2 id="read-the-result">Read the result<a class="anchor" aria-label="anchor" href="#read-the-result"></a>
 </h2>
-<div class="section level3">
-<h3 id="id_1-supervoxels-method--supervoxels">1. Supervoxels (<code>method = "supervoxels"</code>)<a class="anchor" aria-label="anchor" href="#id_1-supervoxels-method--supervoxels"></a>
-</h3>
-<ul>
-<li>
-<strong>Best for</strong>: General purpose, high-quality clusters</li>
-<li>
-<strong>Characteristics</strong>: Iterative refinement using heat kernels</li>
-<li>
-<strong>Key parameters</strong>: <code>sigma1</code> (feature bandwidth), <code>sigma2</code> (spatial bandwidth)</li>
-<li>
-<strong>Parallelized</strong>: Yes</li>
-</ul>
-</div>
-<div class="section level3">
-<h3 id="id_2-snic---simple-non-iterative-clustering-method--snic">2. SNIC - Simple Non-Iterative Clustering (<code>method = "snic"</code>)<a class="anchor" aria-label="anchor" href="#id_2-snic---simple-non-iterative-clustering-method--snic"></a>
-</h3>
-<ul>
-<li>
-<strong>Best for</strong>: Fast results, moderate-sized data</li>
-<li>
-<strong>Characteristics</strong>: Priority queue-based, single pass</li>
-<li>
-<strong>Key parameters</strong>: <code>compactness</code>
-</li>
-<li>
-<strong>Parallelized</strong>: No (inherently sequential)</li>
-<li>
-<strong>Single-volume note</strong>: When input is a 3D <code>NeuroVol</code>, features are left unscaled to preserve raw Euclidean intensities for superpixel-style clustering.</li>
-</ul>
-</div>
-<div class="section level3">
-<h3 id="id_3-slic---simple-linear-iterative-clustering-method--slic">3. SLIC - Simple Linear Iterative Clustering (<code>method = "slic"</code>)<a class="anchor" aria-label="anchor" href="#id_3-slic---simple-linear-iterative-clustering-method--slic"></a>
-</h3>
-<ul>
-<li>
-<strong>Best for</strong>: Consistent cluster sizes, preservation of K</li>
-<li>
-<strong>Characteristics</strong>: Iterative with local search windows</li>
-<li>
-<strong>Key parameters</strong>: <code>compactness</code>, <code>preserve_k</code>
-</li>
-<li>
-<strong>Parallelized</strong>: Yes</li>
-<li>
-<strong>Note</strong>: Requires slic4d_core C++ implementation</li>
-<li>
-<strong>Single-volume note</strong>: Feature normalization defaults to per-timepoint z-scoring; with one timepoint this just mean-centers intensities, keeping Euclidean distances intact.</li>
-</ul>
-</div>
-<div class="section level3">
-<h3 id="id_4-slice-msf-method--slice_msf">4. Slice-MSF (<code>method = "slice_msf"</code>)<a class="anchor" aria-label="anchor" href="#id_4-slice-msf-method--slice_msf"></a>
-</h3>
-<ul>
-<li>
-<strong>Best for</strong>: Large datasets, fast slice-wise processing</li>
-<li>
-<strong>Characteristics</strong>: Slice-wise processing with consensus</li>
-<li>
-<strong>Key parameters</strong>: <code>num_runs</code>, <code>consensus</code>, <code>stitch_z</code>
-</li>
-<li>
-<strong>Parallelized</strong>: No in the unified interface</li>
-</ul>
-</div>
-<div class="section level3">
-<h3 id="id_5-flash-3d-method--flash3d">5. FLASH-3D (<code>method = "flash3d"</code>)<a class="anchor" aria-label="anchor" href="#id_5-flash-3d-method--flash3d"></a>
-</h3>
-<ul>
-<li>
-<strong>Best for</strong>: Fast processing, temporal coherence</li>
-<li>
-<strong>Characteristics</strong>: DCT-based compression</li>
-<li>
-<strong>Key parameters</strong>: <code>lambda_t</code>, <code>bits</code>, <code>dctM</code>
-</li>
-<li>
-<strong>Parallelized</strong>: No in the unified interface</li>
-</ul>
-</div>
+<p>Every unified method returns the same core fields:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>labels</code></td>
+<td>Contiguous positive labels in included-mask voxel order</td>
+</tr>
+<tr>
+<td><code>actual_k</code></td>
+<td>Number of clusters actually returned</td>
+</tr>
+<tr>
+<td><code>centers</code></td>
+<td>
+<code>actual_k</code> × time/features means in the original feature space</td>
+</tr>
+<tr>
+<td><code>coord_centers</code></td>
+<td>
+<code>actual_k</code> × 3 centroids in physical millimetres</td>
+</tr>
+<tr>
+<td><code>clusvol</code></td>
+<td>A <code><a href="https://bbuchsbaum.github.io/neuroim2/reference/ClusteredNeuroVol-class.html" class="external-link">neuroim2::ClusteredNeuroVol</a></code> for plotting or export</td>
+</tr>
+<tr>
+<td><code>provenance</code></td>
+<td>Label mapping, feature summary, geometry, and mask contract</td>
+</tr>
+</tbody>
+</table>
+<p><code>cluster</code> and <code>n_clusters</code> remain aliases for <code>labels</code> and <code>actual_k</code>. Prefer the explicit names in new code.</p>
 </div>
 <div class="section level2">
-<h2 id="common-parameters">Common Parameters<a class="anchor" aria-label="anchor" href="#common-parameters"></a>
+<h2 id="choose-a-method">Choose a method<a class="anchor" aria-label="anchor" href="#choose-a-method"></a>
 </h2>
-<p>The unified interface exposes these standardized parameters, but each method accepts only the parameters that affect its algorithm; inactive parameters are rejected rather than silently ignored:</p>
+<p>There is no universally superior clustering algorithm. The useful choice depends on the similarity model, topology, desired cluster-count policy, and computational scale. This table describes mechanisms and decision signals, not benchmark rankings.</p>
+<table class="table">
+<colgroup>
+<col width="33%">
+<col width="33%">
+<col width="33%">
+</colgroup>
+<thead><tr>
+<th><code>method</code></th>
+<th>Mechanism</th>
+<th>Consider it when…</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>supervoxels</code></td>
+<td>Iterative feature and spatial heat-kernel reassignment</td>
+<td>You want separate feature and coordinate bandwidths and optional gradient seeding</td>
+</tr>
+<tr>
+<td><code>snic</code></td>
+<td>Single-pass priority-queue region growing</td>
+<td>You want a non-iterative spatial growth process</td>
+</tr>
+<tr>
+<td><code>slic</code></td>
+<td>Local Euclidean SLIC assignment and refinement</td>
+<td>Local search and optional connected exact-K repair fit the data model</td>
+</tr>
+<tr>
+<td><code>corr_slic</code></td>
+<td>Correlation-aware SLIC using a compact embedding, with optional exact refinement</td>
+<td>Correlation is the relevant temporal similarity and the series is long</td>
+</tr>
+<tr>
+<td><code>brs_slic</code></td>
+<td>Sketched coarse SLIC followed by exact-correlation boundary refinement</td>
+<td>You want to spend exact-correlation work mainly near parcel boundaries</td>
+</tr>
+<tr>
+<td><code>slice_msf</code></td>
+<td>Experimental DCT/cosine minimum-spanning forest with optional consensus and z stitching</td>
+<td>Explicit evaluation only; it is not currently recommended for production use</td>
+</tr>
+<tr>
+<td><code>flash3d</code></td>
+<td>Low-DCT temporal hashing and 3D jump-flood propagation</td>
+<td>A compressed temporal signature is appropriate and hash length is a useful control</td>
+</tr>
+<tr>
+<td><code>g3s</code></td>
+<td>Low-gradient seeds and multi-source geodesic propagation on the masked grid</td>
+<td>Grid connectivity and a feature/spatial path objective should drive the parcels</td>
+</tr>
+<tr>
+<td><code>rena</code></td>
+<td>Recursive 1-nearest-neighbor graph agglomeration</td>
+<td>You want deterministic, topology-constrained aggregation and exact K when feasible</td>
+</tr>
+<tr>
+<td><code>rena_plus</code></td>
+<td>Reciprocal-neighbor coarsening followed by spatial Ward refinement</td>
+<td>You want an edge-aware coarse-to-fine hierarchy with exact K</td>
+</tr>
+<tr>
+<td><code>mcl</code></td>
+<td>Sparse Markov flow expansion and inflation</td>
+<td>Graph-flow communities are the model; choose natural-K search or request exact-K repair</td>
+</tr>
+<tr>
+<td><code>acsc</code></td>
+<td>Correlation block graph, Louvain communities, and optional boundary refinement</td>
+<td>You need Pearson, Spearman, or robust correlation with graph-community structure</td>
+</tr>
+<tr>
+<td><code>commute</code></td>
+<td>Physical k-nearest-neighbor graph, commute-time embedding, and k-means</td>
+<td>A spectral graph embedding is appropriate for a data size that permits dense eigendecomposition</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Slice-MSF status.</strong> Earlier reliability weighting could collapse distinct features to zero-distance edges, and its former exact-K repair could peel off singletons. Those paths have been rejected or replaced, and local package recertification passes at this source revision. Slice-MSF remains experimental while broader real-data validation and hosted release evidence are pending; the parameter suggester will not recommend it. If you are evaluating it explicitly, begin with <code><a href="articles/slice-msf.html">vignette("slice-msf")</a></code> and retain its natural/exact-K provenance.</p>
+<p>Start with the <a href="https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.html">method comparison</a>, then use <a href="https://bbuchsbaum.github.io/neurocluster/articles/choose-parameters.html">parameter guidance</a> to translate a scientific goal into controls. Method-specific arguments belong in <code>...</code>; unsupported common arguments are rejected rather than silently ignored.</p>
+</div>
+<div class="section level2">
+<h2 id="fit-and-boundaries">Fit and boundaries<a class="anchor" aria-label="anchor" href="#fit-and-boundaries"></a>
+</h2>
+<p>neurocluster is a good fit when the analysis unit is a finite positive mask over a <code><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroVol.html" class="external-link">neuroim2::NeuroVol</a></code> or <code>NeuroVec</code>, and spatially coherent parcels are an intermediate representation for exploration or downstream modelling. A single-volume <code>NeuroVol</code> is accepted for 3D clustering.</p>
+<p>Keep these boundaries visible:</p>
 <ul>
 <li>
-<code>n_clusters</code>: Target number of clusters</li>
+<code>n_clusters</code> is a target. Read <code>actual_k</code>; exact K can be topologically infeasible, particularly on disconnected masks.</li>
+<li>Cluster IDs are arbitrary identifiers, not ordered values or anatomical labels. Do not interpret their numeric order.</li>
+<li>Algorithms may standardize, compress, or embed features internally. Public <code>centers</code> are nevertheless recomputed from final labels in the original input feature space.</li>
 <li>
-<code>spatial_weight</code>: Balance between spatial and feature similarity (0-1)</li>
-<li>
-<code>max_iterations</code>: Iteration limit for iterative methods; unsupported by SNIC, Slice-MSF, and commute-time clustering</li>
-<li>
-<code>connectivity</code>: Method-specific neighborhood structure</li>
-<li>
-<code>parallel</code>: Enable parallel processing (where supported)</li>
-<li>
-<code>verbose</code>: Print progress information</li>
+<code>spatial_weight</code>, <code>connectivity</code>, <code>max_iterations</code>, and <code>parallel</code> are method-capability dependent. The unified API fails closed on unsupported explicit settings.</li>
+<li>A structurally valid result is not a validation of biological truth. Use held-out data, stability analysis, registered estimands, or external labels appropriate to the scientific question.</li>
+<li>Compare results only over the same included voxels and physical geometry. <code><a href="reference/compare_cluster4d.html">compare_cluster4d()</a></code> enforces that support and reports explicitly defined estimands.</li>
 </ul>
 </div>
 <div class="section level2">
-<h2 id="examples">Examples<a class="anchor" aria-label="anchor" href="#examples"></a>
+<h2 id="learning-path">Learning path<a class="anchor" aria-label="anchor" href="#learning-path"></a>
 </h2>
-<div class="section level3">
-<h3 id="basic-usage">Basic Usage<a class="anchor" aria-label="anchor" href="#basic-usage"></a>
-</h3>
-<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Load test data</span></span>
-<span><span class="va">mask</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroVol.html" class="external-link">NeuroVol</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/array.html" class="external-link">array</a></span><span class="op">(</span><span class="fl">1</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">64</span>,<span class="fl">64</span>,<span class="fl">32</span><span class="op">)</span><span class="op">)</span>, <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroSpace.html" class="external-link">NeuroSpace</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">64</span>,<span class="fl">64</span>,<span class="fl">32</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="va">vec</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">replicate</a></span><span class="op">(</span><span class="fl">100</span>, <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroVol.html" class="external-link">NeuroVol</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/array.html" class="external-link">array</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="fl">64</span><span class="op">*</span><span class="fl">64</span><span class="op">*</span><span class="fl">32</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">64</span>,<span class="fl">64</span>,<span class="fl">32</span><span class="op">)</span><span class="op">)</span>,</span>
-<span>                 <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroSpace.html" class="external-link">NeuroSpace</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">64</span>,<span class="fl">64</span>,<span class="fl">32</span><span class="op">)</span><span class="op">)</span><span class="op">)</span>, simplify<span class="op">=</span><span class="cn">FALSE</span><span class="op">)</span></span>
-<span><span class="va">vec</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/do.call.html" class="external-link">do.call</a></span><span class="op">(</span><span class="va">concat</span>, <span class="va">vec</span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Cluster with balanced spatial/feature weighting</span></span>
-<span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, </span>
-<span>                   n_clusters <span class="op">=</span> <span class="fl">50</span>,</span>
-<span>                   spatial_weight <span class="op">=</span> <span class="fl">0.5</span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Access results</span></span>
-<span><span class="va">clusters</span> <span class="op">&lt;-</span> <span class="va">result</span><span class="op">$</span><span class="va">cluster</span>          <span class="co"># Cluster assignments</span></span>
-<span><span class="va">centers</span> <span class="op">&lt;-</span> <span class="va">result</span><span class="op">$</span><span class="va">centers</span>            <span class="co"># Feature centers</span></span>
-<span><span class="va">spatial_centers</span> <span class="op">&lt;-</span> <span class="va">result</span><span class="op">$</span><span class="va">coord_centers</span>  <span class="co"># Spatial centroids</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="choosing-parameters">Choosing Parameters<a class="anchor" aria-label="anchor" href="#choosing-parameters"></a>
-</h3>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Get intelligent parameter suggestions</span></span>
-<span><span class="va">n_voxels</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">mask</span> <span class="op">&gt;</span> <span class="fl">0</span><span class="op">)</span></span>
-<span><span class="va">n_timepoints</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/dim.html" class="external-link">dim</a></span><span class="op">(</span><span class="va">vec</span><span class="op">)</span><span class="op">[</span><span class="fl">4</span><span class="op">]</span></span>
-<span></span>
-<span><span class="co"># Get balanced recommendations</span></span>
-<span><span class="va">params</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/suggest_cluster4d_params.html">suggest_cluster4d_params</a></span><span class="op">(</span><span class="va">n_voxels</span>, <span class="va">n_timepoints</span>, </span>
-<span>                                   priority <span class="op">=</span> <span class="st">"balanced"</span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Use recommended settings</span></span>
-<span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, </span>
-<span>                   n_clusters <span class="op">=</span> <span class="va">params</span><span class="op">$</span><span class="va">n_clusters</span>,</span>
-<span>                   method <span class="op">=</span> <span class="va">params</span><span class="op">$</span><span class="va">recommended_method</span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="method-specific-features">Method-Specific Features<a class="anchor" aria-label="anchor" href="#method-specific-features"></a>
-</h3>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Supervoxels with custom kernel bandwidths</span></span>
-<span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">100</span>,</span>
-<span>                   method <span class="op">=</span> <span class="st">"supervoxels"</span>,</span>
-<span>                   sigma1 <span class="op">=</span> <span class="fl">2.0</span>,    <span class="co"># Feature kernel</span></span>
-<span>                   sigma2 <span class="op">=</span> <span class="fl">3.0</span>,    <span class="co"># Spatial kernel</span></span>
-<span>                   use_gradient <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Slice-MSF with consensus clustering</span></span>
-<span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">100</span>,</span>
-<span>                   method <span class="op">=</span> <span class="st">"slice_msf"</span>,</span>
-<span>                   num_runs <span class="op">=</span> <span class="fl">5</span>,      <span class="co"># Multiple runs</span></span>
-<span>                   consensus <span class="op">=</span> <span class="cn">TRUE</span>,  <span class="co"># Consensus clustering</span></span>
-<span>                   stitch_z <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span>   <span class="co"># Reduce z-plane artifacts</span></span>
-<span></span>
-<span><span class="co"># FLASH-3D with temporal smoothing</span></span>
-<span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">100</span>,</span>
-<span>                   method <span class="op">=</span> <span class="st">"flash3d"</span>,</span>
-<span>                   lambda_t <span class="op">=</span> <span class="fl">1.5</span>,    <span class="co"># Temporal regularization</span></span>
-<span>                   bits <span class="op">=</span> <span class="fl">128</span><span class="op">)</span>        <span class="co"># Quantization precision</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="comparing-methods">Comparing Methods<a class="anchor" aria-label="anchor" href="#comparing-methods"></a>
-</h3>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Run multiple methods</span></span>
-<span><span class="va">methods</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"supervoxels"</span>, <span class="st">"snic"</span>, <span class="st">"slice_msf"</span><span class="op">)</span></span>
-<span><span class="va">results</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="va">methods</span>, <span class="kw">function</span><span class="op">(</span><span class="va">m</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="fu"><a href="reference/cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">50</span>, method <span class="op">=</span> <span class="va">m</span><span class="op">)</span></span>
-<span><span class="op">}</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">results</span><span class="op">)</span> <span class="op">&lt;-</span> <span class="va">methods</span></span>
-<span></span>
-<span><span class="co"># Compare results</span></span>
-<span><span class="va">comparison</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/compare_cluster4d.html">compare_cluster4d</a></span><span class="op">(</span><span class="va">results</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">comparison</span><span class="op">)</span></span></code></pre></div>
-</div>
-</div>
-<div class="section level2">
-<h2 id="performance-considerations">Performance Considerations<a class="anchor" aria-label="anchor" href="#performance-considerations"></a>
-</h2>
-<div class="section level3">
-<h3 id="small-datasets--10000-voxels">Small Datasets (&lt; 10,000 voxels)<a class="anchor" aria-label="anchor" href="#small-datasets--10000-voxels"></a>
-</h3>
-<ul>
-<li>Use <code>supervoxels</code> for quality</li>
-<li>Use <code>snic</code> for speed</li>
-<li>Parallel processing overhead may not be worth it</li>
-</ul>
-</div>
-<div class="section level3">
-<h3 id="medium-datasets-10000---100000-voxels">Medium Datasets (10,000 - 100,000 voxels)<a class="anchor" aria-label="anchor" href="#medium-datasets-10000---100000-voxels"></a>
-</h3>
 <ul>
 <li>
-<code>supervoxels</code> with <code>parallel = TRUE</code>
-</li>
+<a href="https://bbuchsbaum.github.io/neurocluster/articles/getting-started.html">Getting started</a> — build, inspect, plot, and export a first result.</li>
 <li>
-<code>slice_msf</code> with <code>num_runs = 1</code> for speed</li>
+<a href="https://bbuchsbaum.github.io/neurocluster/articles/spatially-constrained-clustering.html">Spatially constrained clustering</a> — understand the feature-versus-space objective.</li>
 <li>
-<code>flash3d</code> for balanced speed/quality</li>
+<strong>Evaluate Slice-MSF</strong> — run <code><a href="articles/slice-msf.html">vignette("slice-msf")</a></code> to inspect the experimental similarity, exact-K, feasibility, and metadata contract.</li>
+<li>
+<a href="https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.html">Compare methods</a> and <a href="https://bbuchsbaum.github.io/neurocluster/articles/choose-parameters.html">choose parameters</a> — make a method choice from evidence rather than labels such as “fast” or “best.”</li>
+<li>
+<a href="https://bbuchsbaum.github.io/neurocluster/articles/objects-results.html">Objects and results</a> — interpret labels, centers, coordinates, and provenance.</li>
+<li>
+<a href="https://bbuchsbaum.github.io/neurocluster/articles/validate-compare.html">Validate and compare</a> — check contracts and use explicit comparison estimands.</li>
+<li>
+<a href="https://bbuchsbaum.github.io/neurocluster/articles/visualize-export.html">Visualize and export</a> and <a href="https://bbuchsbaum.github.io/neurocluster/articles/end-to-end-export.html">end-to-end NIfTI export</a> — move from result objects to figures and files.</li>
+<li>
+<a href="https://bbuchsbaum.github.io/neurocluster/articles/method-deep-dives.html">Method deep dives</a>, <a href="https://bbuchsbaum.github.io/neurocluster/articles/performance-memory.html">performance and memory</a>, and <a href="https://bbuchsbaum.github.io/neurocluster/articles/benchmarks.html">benchmark methodology</a> — inspect mechanisms, scaling considerations, and the limits of performance claims.</li>
+<li>
+<a href="https://bbuchsbaum.github.io/neurocluster/articles/api-overview.html">API overview</a> — find unified and specialist entry points.</li>
 </ul>
 </div>
-<div class="section level3">
-<h3 id="large-datasets--100000-voxels">Large Datasets (&gt; 100,000 voxels)<a class="anchor" aria-label="anchor" href="#large-datasets--100000-voxels"></a>
-</h3>
-<ul>
-<li>
-<code>slice_msf</code> with <code>num_runs = 1</code> for fast slice-wise processing</li>
-<li>
-<code>flash3d</code> for fastest results</li>
-<li>Consider reducing <code>n_clusters</code> for tractability</li>
-</ul>
-</div>
-<div class="section level3">
-<h3 id="memory-constraints">Memory Constraints<a class="anchor" aria-label="anchor" href="#memory-constraints"></a>
-</h3>
-<ul>
-<li>Use <code>snic</code> (non-iterative, low memory)</li>
-<li>Use <code>slice_msf</code> (processes slices independently)</li>
-<li>Reduce time series length if possible</li>
-</ul>
-</div>
-</div>
 <div class="section level2">
-<h2 id="advanced-usage">Advanced Usage<a class="anchor" aria-label="anchor" href="#advanced-usage"></a>
+<h2 id="development">Development<a class="anchor" aria-label="anchor" href="#development"></a>
 </h2>
-<div class="section level3">
-<h3 id="custom-initialization">Custom Initialization<a class="anchor" aria-label="anchor" href="#custom-initialization"></a>
-</h3>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Use gradient-based initialization for better seeds</span></span>
-<span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">100</span>,</span>
-<span>                   method <span class="op">=</span> <span class="st">"supervoxels"</span>,</span>
-<span>                   use_gradient <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="working-with-results">Working with Results<a class="anchor" aria-label="anchor" href="#working-with-results"></a>
-</h3>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Extract ClusteredNeuroVol</span></span>
-<span><span class="va">clusvol</span> <span class="op">&lt;-</span> <span class="va">result</span><span class="op">$</span><span class="va">clusvol</span></span>
-<span></span>
-<span><span class="co"># Get cluster sizes</span></span>
-<span><span class="va">cluster_sizes</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">result</span><span class="op">$</span><span class="va">cluster</span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Find cluster for specific voxel</span></span>
-<span><span class="va">voxel_coord</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">32</span>, <span class="fl">32</span>, <span class="fl">16</span><span class="op">)</span></span>
-<span><span class="va">voxel_idx</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/coord_to_index-methods.html" class="external-link">coord_to_index</a></span><span class="op">(</span><span class="va">mask</span>, <span class="va">voxel_coord</span><span class="op">)</span></span>
-<span><span class="va">voxel_cluster</span> <span class="op">&lt;-</span> <span class="va">result</span><span class="op">$</span><span class="va">cluster</span><span class="op">[</span><span class="va">voxel_idx</span><span class="op">]</span></span>
-<span></span>
-<span><span class="co"># Extract time series for a cluster</span></span>
-<span><span class="va">cluster_id</span> <span class="op">&lt;-</span> <span class="fl">5</span></span>
-<span><span class="va">cluster_mask</span> <span class="op">&lt;-</span> <span class="va">result</span><span class="op">$</span><span class="va">cluster</span> <span class="op">==</span> <span class="va">cluster_id</span></span>
-<span><span class="va">cluster_timeseries</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/series-methods.html" class="external-link">series</a></span><span class="op">(</span><span class="va">vec</span>, <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">cluster_mask</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="visualization">Visualization<a class="anchor" aria-label="anchor" href="#visualization"></a>
-</h3>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Plot cluster centers</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">result</span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Visualize spatial distribution</span></span>
-<span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/bbuchsbaum/neuroim2" class="external-link">neuroim2</a></span><span class="op">)</span></span>
-<span><span class="fu">writeVol</span><span class="op">(</span><span class="va">result</span><span class="op">$</span><span class="va">clusvol</span>, <span class="st">"clusters.nii.gz"</span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># View specific cluster</span></span>
-<span><span class="va">cluster_vol</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/NeuroVol.html" class="external-link">NeuroVol</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/array.html" class="external-link">array</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fu"><a href="https://rdrr.io/r/base/dim.html" class="external-link">dim</a></span><span class="op">(</span><span class="va">mask</span><span class="op">)</span><span class="op">)</span>, <span class="fu"><a href="https://bbuchsbaum.github.io/neuroim2/reference/space-methods.html" class="external-link">space</a></span><span class="op">(</span><span class="va">mask</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="va">cluster_vol</span><span class="op">[</span><span class="va">result</span><span class="op">$</span><span class="va">cluster</span> <span class="op">==</span> <span class="fl">5</span><span class="op">]</span> <span class="op">&lt;-</span> <span class="fl">1</span></span>
-<span><span class="fu">writeVol</span><span class="op">(</span><span class="va">cluster_vol</span>, <span class="st">"cluster_5.nii.gz"</span><span class="op">)</span></span></code></pre></div>
-</div>
-</div>
-<div class="section level2">
-<h2 id="backward-compatibility">Backward Compatibility<a class="anchor" aria-label="anchor" href="#backward-compatibility"></a>
-</h2>
-<p>The original function interfaces are still available:</p>
-<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Original supervoxels syntax</span></span>
-<span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/supervoxels.html">supervoxels</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, K <span class="op">=</span> <span class="fl">100</span>, alpha <span class="op">=</span> <span class="fl">0.3</span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Original SNIC syntax  </span></span>
-<span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/snic.html">snic</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, K <span class="op">=</span> <span class="fl">100</span>, compactness <span class="op">=</span> <span class="fl">5</span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Original slice_msf syntax</span></span>
-<span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/slice_msf.html">slice_msf</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, target_k_global <span class="op">=</span> <span class="fl">100</span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level2">
-<h2 id="citation">Citation<a class="anchor" aria-label="anchor" href="#citation"></a>
-</h2>
-<p>If you use this package in your research, please cite:</p>
-<pre><code>@software{neurocluster,
-  title = {neurocluster: Spatially Constrained Clustering for Neuroimaging},
-  author = {Your Name},
-  year = {2024},
-  url = {https://github.com/yourusername/neurocluster}
-}</code></pre>
-</div>
-<div class="section level2">
-<h2 id="contributing">Contributing<a class="anchor" aria-label="anchor" href="#contributing"></a>
-</h2>
-<p>Contributions are welcome! Please submit issues and pull requests on GitHub.</p>
+<p>For a source checkout, use <code>devtools::load_all()</code> for interactive development, <code>devtools::test()</code> for the test suite, and <code>devtools::check()</code> for package-level checks. Please report reproducible issues at <a href="https://github.com/bbuchsbaum/neurocluster/issues" class="external-link">bbuchsbaum/neurocluster</a>.</p>
 </div>
 <div class="section level2">
 <h2 id="license">License<a class="anchor" aria-label="anchor" href="#license"></a>
 </h2>
-<p>This package is licensed under <a href="#license">LICENSE</a>.</p>
-</div>
-<div class="section level2">
-<h2 id="see-also">See Also<a class="anchor" aria-label="anchor" href="#see-also"></a>
-</h2>
-<ul>
-<li>
-<a href="https://github.com/bbuchsbaum/neuroim2" class="external-link">neuroim2</a>: Neuroimaging data structures</li>
-<li>
-<a href="https://github.com/bbuchsbaum/neurosurf" class="external-link">neurosurf</a>: Surface-based clustering</li>
-<li>
-<a href="https://github.com/bbuchsbaum/graphweights" class="external-link">neighborweights</a>: Spatial weight matrices</li>
-</ul>
-</div>
-<div class="section level2">
-<h2 id="albers-theme">Albers theme<a class="anchor" aria-label="anchor" href="#albers-theme"></a>
-</h2>
-<p>This package uses the albersdown theme. Vignettes are styled with <code>vignettes/albers.css</code> and a local <code>vignettes/albers.js</code>; the palette family is provided via <code>params$family</code> (default ‘red’). The pkgdown site uses <code>template: { package: albersdown }</code>.</p>
-</div>
-<div class="section level2">
-<h2 id="albers-theme-1">Albers theme<a class="anchor" aria-label="anchor" href="#albers-theme-1"></a>
-</h2>
-<p>This package uses the albersdown theme. Vignettes are styled with <code>vignettes/albers.css</code> and a local <code>vignettes/albers.js</code>; the palette family is provided via <code>params$family</code> (default ‘red’). The pkgdown site uses <code>template: { package: albersdown }</code>.</p>
-</div>
-<div class="section level2">
-<h2 id="albers-theme-2">Albers theme<a class="anchor" aria-label="anchor" href="#albers-theme-2"></a>
-</h2>
-<p>This package uses the albersdown theme. Vignettes are styled with <code>vignettes/albers.css</code> and a local <code>vignettes/albers.js</code>; the palette family is provided via <code>params$family</code> (default ‘red’). The pkgdown site uses <code>template: { package: albersdown }</code>.</p>
+<p>neurocluster is licensed under GPL (&gt;= 3), as declared in <code>DESCRIPTION</code>.</p>
 </div>
 </div>
   </main><aside class="col-md-3"><div class="links">

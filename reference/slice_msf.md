@@ -1,10 +1,12 @@
 # Volumetric DCT minimum-spanning-forest clustering
 
-Compresses each voxel time series into a non-DC DCT sketch, weights
-feature distances by split-half reliability, and applies
-Felzenszwalb-Huttenlocher segmentation on a masked 3-D neighborhood
-graph. Multi-run fits use seeded DCT subspace and mode-weight resampling
-followed by consensus segmentation.
+Compresses each voxel time series into a non-DC DCT sketch, uses cosine
+dissimilarity on a masked 3-D neighborhood graph, and applies
+Felzenszwalb-Huttenlocher segmentation. Multi-run fits use seeded DCT
+subspace and mode-weight resampling followed by uniformly weighted
+consensus. Nonzero sketches are normalized to unit length. A
+zero-information sketch remains zero and therefore has edge
+dissimilarity one to every neighbor.
 
 ## Usage
 
@@ -20,7 +22,7 @@ slice_msf(
   consensus = TRUE,
   stitch_z = TRUE,
   nbhd = 8,
-  gamma = 1.5,
+  gamma = 0,
   k_fuse = NULL,
   min_size_fuse = NULL,
   use_features = FALSE,
@@ -79,8 +81,9 @@ slice_msf(
 
 - gamma:
 
-  Non-negative exponent applied to positive split-half reliability; it
-  directly scales feature edge distances.
+  Reserved compatibility parameter. It must be zero; positive
+  reliability weighting is rejected because it can collapse
+  non-identical feature vectors to zero-distance edges.
 
 - k_fuse:
 
@@ -117,8 +120,22 @@ slice_msf(
 
 A `slice_msf_cluster_result` and `cluster4d_result`. `cluster` is in
 mask order, `centers` is K by T, and `coord_centers` is K by 3.
-Multi-run results also contain native `runs` and complete ensemble
-provenance in `metadata`.
+Multi-run results also contain native `runs`. `metadata$exact_k_repair`
+records the natural and requested K, pre/post sizes, whether and how
+repair ran, connectivity, minimum size, and effective gamma, z
+smoothing, seed, run count, and consensus controls for both natural and
+exact-K calls.
+
+## Experimental status
+
+`slice_msf()` is available for explicit evaluation but is not a
+recommended production method. A previous reliability-weighting path
+collapsed distinct feature vectors to zero-distance edges, and the
+former exact-K repair could create singleton-dominated partitions. Those
+paths are now rejected or replaced and covered by regression tests, but
+release-level recertification is still pending. See
+[`vignette("slice-msf")`](https://bbuchsbaum.github.io/neurocluster/articles/slice-msf.md)
+for the evaluation contract.
 
 ## References
 

@@ -30,6 +30,7 @@ cluster IDs create artificial gradients that can be misleading."></head><body>
     <li><a class="dropdown-item" href="../articles/speed-parallel.html">Speed &amp; Parallel</a></li>
     <li><a class="dropdown-item" href="../articles/visualize-export.html">Visualize &amp; Export</a></li>
     <li><a class="dropdown-item" href="../articles/consensus-stitch.html">Consensus &amp; Stitching</a></li>
+    <li><a class="dropdown-item" href="../articles/slice-msf.html">Evaluate Slice-MSF (Experimental)</a></li>
     <li><a class="dropdown-item" href="../articles/validate-compare.html">Validate &amp; Compare</a></li>
     <li><a class="dropdown-item" href="../articles/legacy-apis.html">Legacy APIs</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Explanations</h6></li>
@@ -126,9 +127,9 @@ maintaining all cluster memberships and properties.</p>
 <span class="r-in"><span><span class="co"># Randomized IDs show distinct color patches</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">result_random</span><span class="op">$</span><span class="va">clusvol</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span><span class="co"># Works with any clustering method</span></span></span>
-<span class="r-in"><span><span class="va">result_msf</span> <span class="op">&lt;-</span> <span class="fu"><a href="cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, K <span class="op">=</span> <span class="fl">100</span>, method <span class="op">=</span> <span class="st">"slice_msf"</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="va">result_msf_random</span> <span class="op">&lt;-</span> <span class="fu">randomize_cluster_ids</span><span class="op">(</span><span class="va">result_msf</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="co"># Works with other supported clustering methods</span></span></span>
+<span class="r-in"><span><span class="va">result_snic</span> <span class="op">&lt;-</span> <span class="fu"><a href="cluster4d.html">cluster4d</a></span><span class="op">(</span><span class="va">vec</span>, <span class="va">mask</span>, n_clusters <span class="op">=</span> <span class="fl">100</span>, method <span class="op">=</span> <span class="st">"snic"</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">result_snic_random</span> <span class="op">&lt;-</span> <span class="fu">randomize_cluster_ids</span><span class="op">(</span><span class="va">result_snic</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
 <span class="r-in"><span></span></span>
 </code></pre></div>

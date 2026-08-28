@@ -5,15 +5,15 @@
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-<title>API overview • neurocluster</title>
+<title>Choose the right neurocluster interface • neurocluster</title>
 <script src="../deps/jquery-3.6.0/jquery-3.6.0.min.js"></script><meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 <link href="../deps/bootstrap-5.3.8/bootstrap.min.css" rel="stylesheet">
 <script src="../deps/bootstrap-5.3.8/bootstrap.bundle.min.js"></script><link href="../deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
 <link href="../deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
 <script src="../deps/headroom-0.11.0/headroom.min.js"></script><script src="../deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="../deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="../deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="../deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="../deps/search-1.0.0/fuse.min.js"></script><script src="../deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="../pkgdown.js"></script><link href="../extra.css" rel="stylesheet">
-<script src="../extra.js"></script><meta property="og:title" content="API overview">
-<meta name="description" content="Group exported functions by task and link to details.">
-<meta property="og:description" content="Group exported functions by task and link to details.">
+<script src="../extra.js"></script><meta property="og:title" content="Choose the right neurocluster interface">
+<meta name="description" content="Start with cluster4d, then move to validation, comparison, or direct method APIs.">
+<meta property="og:description" content="Start with cluster4d, then move to validation, comparison, or direct method APIs.">
 </head>
 <body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -44,6 +44,7 @@
     <li><a class="dropdown-item" href="../articles/speed-parallel.html">Speed &amp; Parallel</a></li>
     <li><a class="dropdown-item" href="../articles/visualize-export.html">Visualize &amp; Export</a></li>
     <li><a class="dropdown-item" href="../articles/consensus-stitch.html">Consensus &amp; Stitching</a></li>
+    <li><a class="dropdown-item" href="../articles/slice-msf.html">Evaluate Slice-MSF (Experimental)</a></li>
     <li><a class="dropdown-item" href="../articles/validate-compare.html">Validate &amp; Compare</a></li>
     <li><a class="dropdown-item" href="../articles/legacy-apis.html">Legacy APIs</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Explanations</h6></li>
@@ -76,7 +77,7 @@
 <div class="row">
   <main id="main" class="col-md-9"><div class="page-header">
 
-      <h1>API overview</h1>
+      <h1>Choose the right neurocluster interface</h1>
             
       
       <small class="dont-index">Source: <a href="https://github.com/bbuchsbaum/neurocluster/blob/master/vignettes/api-overview.Rmd" class="external-link"><code>vignettes/api-overview.Rmd</code></a></small>
@@ -85,170 +86,111 @@
 
     
     
-<style>
-/* ---------- Homage family: default = Homage-Red ---------- */
-:root{
-  /* Semantic roles */
-  --ink:#111111;                 /* body text */
-  --bg:#ffffff;                  /* page background */
-  --muted:#6b7280;
-  --border:#e5e7eb;
-  --code-bg:#f6f8fa;
-  --content: 72ch;               /* content column width */
-  --anchor-offset: 72px;         /* scroll offset for anchored headings */
-
-  /* Homage palette tokens (default family: Red) */
-  --A900:#CD2D26;  /* core / deepest */
-  --A700:#DC3925;
-  --A500:#E44926;
-  --A300:#E35B2D;
-
-  /* Role aliases derived from tones */
-  --accent-ink-light: var(--A900); /* link text, focus outline in light */
-  --accent-ink-dark:  var(--A300); /* link text, focus outline in dark  */
-  --accent-ink: var(--accent-ink-light);
-  --accent-strong: var(--A700);
-  --accent: var(--A500);     /* general accent if needed */
-  --accent-tint: color-mix(in srgb, var(--A300) 8%, transparent); /* quiet background */
-}
-
-/* Optional palette families via body class */
-.palette-lapis{ --A900:#1B2A74; --A700:#20399C; --A500:#2C4FCC; --A300:#4968D6; }
-.palette-ochre{ --A900:#6F5200; --A700:#8B6700; --A500:#B48900; --A300:#D7A700; }
-.palette-teal{  --A900:#0D4A4A; --A700:#0F5E5E; --A500:#127373; --A300:#2F8C8C; }
-.palette-green{ --A900:#1B5E20; --A700:#2E7D32; --A500:#388E3C; --A300:#66BB6A; }
-.palette-violet{ --A900:#4A148C; --A700:#6A1B9A; --A500:#8E24AA; --A300:#BA68C8; --accent-ink-dark:#BA68C8; }
-
-/* Dark mode flips link/readability choices */
-@media (prefers-color-scheme: dark){
-  :root{
-    --bg:#0b0c0e; --ink:#e6e6e6; --muted:#9aa0a6; --border:#2a2f36; --code-bg:#161b22;
-    --accent-ink: var(--accent-ink-dark);                /* ensure AA in dark */
-    --accent-tint: color-mix(in srgb, var(--A700) 18%, transparent);
-  }
-}
-
-/* Core typography & layout */
-html,body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;line-height:1.6;font-size:17.5px;}
-main,.content,.container,.page-content,.vignette,.contents{max-width:var(--content);margin-inline:auto;padding-inline:clamp(16px,2vw,32px);} 
-p{margin-block:16px;}
-h1,h2,h3{font-weight:600;line-height:1.25;margin-top:32px;margin-bottom:12px;}
-h1{font-size:1.9rem; text-wrap:balance;} h2{font-size:1.4rem;} h3{font-size:1.2rem;}
-h2, h3{position:relative; padding-right:1.25em; scroll-margin-top: var(--anchor-offset);} 
-
-/* Links */
-a, a:visited{color:var(--accent-ink) !important; text-decoration:underline; text-decoration-thickness:.08em; text-underline-offset:2px; text-decoration-skip-ink:auto;}
-a:hover{color:color-mix(in srgb, var(--accent-ink) 85%, black);} /* light-mode darken */
-@media (prefers-color-scheme: dark){ a:hover{ color: color-mix(in srgb, var(--accent-ink) 85%, white); } }
-a:focus-visible{outline:2px solid var(--accent-ink); outline-offset:2px;}
-a:focus{outline:none;}
-
-/* Code blocks + copy button */
-code,pre,kbd,samp{font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono","Roboto Mono",monospace;font-size:0.95em; line-height:1.45;}
-pre{background:var(--code-bg); border:1px solid var(--border); padding:24px; border-radius:6px; overflow:auto; margin-block:24px; position:relative; box-shadow:none; tab-size:2; -moz-tab-size:2;}
-pre code{background:transparent; border:none; padding:0; word-break:normal; overflow-wrap:anywhere;}
-button.copy-code{position:absolute; top:8px; right:8px; border:1px solid var(--border); background:var(--accent-tint); color:var(--ink); padding:4px 8px; border-radius:4px; font:600 12px system-ui; cursor:pointer;}
-button.copy-code:focus{outline:2px solid var(--accent-ink); outline-offset:2px;}
-p code{background:var(--code-bg); padding:0.12em 0.38em; border-radius:4px; border:1px solid var(--border);} 
-
-/* Tables */
-table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;}
-th,td{border-bottom:1px solid var(--border); padding:10px 8px;}
-thead th{font-weight:600;}
-tbody tr:nth-child(odd){background: color-mix(in srgb, var(--A300) 8%, transparent);} 
-caption{caption-side:bottom; color:var(--muted); padding-top:12px; font-size:0.95em;}
-
-/* Callouts (Homage tint) */
-blockquote,.callout{border-left:3px solid var(--A500); background:var(--accent-tint); padding:16px 24px; margin-block:24px; border-radius:6px;}
-blockquote p{margin:0;}
-
-/* Anchors (square) at H2/H3 */
-h2:hover .anchor, h3:hover .anchor{opacity:1;}
-h2:focus-within .anchor, h3:focus-within .anchor{opacity:1;}
-.anchor{opacity:0; position:absolute; right:0; top:50%; transform:translateY(-50%); text-decoration:none; color:var(--A500); font-weight:700; line-height:1; transition:opacity .15s ease-in-out;}
-
-/* “Homage” hero tile (optional) */
-.homage-hero{ aspect-ratio:3/2; background:var(--bg); box-shadow: inset 0 0 0 84px var(--A300), inset 0 0 0 56px var(--A500), inset 0 0 0 28px var(--A700), inset 0 0 0 0 var(--A900); border-radius:4px; margin-block:24px; }
-/* Letterbox variant for calmer presence */
-.homage-hero--letterbox{ aspect-ratio:6/1; background:var(--bg); box-shadow: inset 0 0 0 48px var(--A300), inset 0 0 0 32px var(--A500), inset 0 0 0 16px var(--A700), inset 0 0 0 0 var(--A900); border-radius:4px; margin-block:16px 8px; }
-
-/* Hairline rules with square notch */
-.hr-notch{position:relative; height:1px; background:var(--border); margin:24px 0;}
-.hr-notch::before{content:""; position:absolute; left:0; top:-4px; width:8px; height:8px; background:var(--A500);} 
-
-/* Optional square bullets in overview lists */
-.overview ul{list-style:square;}
-
-/* Code blocks: add homage square corner */
-pre::before{content:""; position:absolute; left:10px; top:10px; width:10px; height:10px; background:var(--A500); border-radius:2px;}
-
-/* Nav active: tiny square */
-.navbar .nav-link.active::after, .navbar .active > a::after{content:""; display:inline-block; width:6px; height:6px; background:var(--A700); margin-left:6px; vertical-align:middle;}
-
-/* Print */
-@media print{ a{text-decoration:none; color:inherit;} pre{page-break-inside:avoid;} .navbar, .sidebar, .toc, .page-header{display:none!important;} }
-
-/* Prevent layout shift when scrollbars appear */
-:root { scrollbar-gutter: stable both-edges; }
-
-/* Small screens: maintain comfort */
-@media (max-width: 880px){
-  html, body { font-size: 17px; }
-  :root{ --anchor-offset: 64px; }
-}
-
-/* Prefer higher contrast if requested */
-@media (prefers-contrast: more){
-  :root{ --border: color-mix(in srgb, var(--A500) 28%, white); }
-  .hr-notch::before { background: var(--A700); }
-}
-</style>
-<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-red");});</script><style>:root{--content:72ch}</style>
+<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-red","preset-homage");});</script><style>:root{--content:72ch}</style>
+<p><code>neurocluster</code> has one main workflow and several
+specialist surfaces. If you are starting an analysis, use
+<code><a href="../reference/cluster4d.html">cluster4d()</a></code>: it gives every method the same input checks
+and the same result contract. Move to a direct method function only when
+you need controls that the unified interface intentionally does not
+standardize.</p>
 <div class="section level2">
-<h2 id="interfaces">Interfaces<a class="anchor" aria-label="anchor" href="#interfaces"></a>
+<h2 id="what-is-the-shortest-successful-path">What is the shortest successful path?<a class="anchor" aria-label="anchor" href="#what-is-the-shortest-successful-path"></a>
 </h2>
-<ul>
-<li>Unified entry: <code><a href="../reference/cluster4d.html">cluster4d()</a></code>
-</li>
-<li>Wrappers: <code>cluster4d_supervoxels</code>,
-<code>cluster4d_snic</code>, <code>cluster4d_slic</code>,
-<code>cluster4d_slice_msf</code>, <code>cluster4d_flash3d</code>
-</li>
-</ul>
+<table class="table">
+<colgroup>
+<col width="33%">
+<col width="33%">
+<col width="33%">
+</colgroup>
+<thead><tr class="header">
+<th>Task</th>
+<th>Start here</th>
+<th>What comes back</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td>Fit one spatial clustering</td>
+<td><code><a href="../reference/cluster4d.html">cluster4d()</a></code></td>
+<td>A validated-shape <code>cluster4d_result</code>
+</td>
+</tr>
+<tr class="even">
+<td>Check a fitted result against its inputs</td>
+<td><code><a href="../reference/validate_cluster4d.html">validate_cluster4d()</a></code></td>
+<td>Errors, warnings, and a compact summary</td>
+</tr>
+<tr class="odd">
+<td>Compare compatible fits</td>
+<td><code><a href="../reference/compare_cluster4d.html">compare_cluster4d()</a></code></td>
+<td>Explicit size, dispersion, coherence, or agreement estimands</td>
+</tr>
+<tr class="even">
+<td>Choose a defensible setting</td>
+<td><code><a href="../reference/suggest_cluster4d_params.html">suggest_cluster4d_params()</a></code></td>
+<td>A starting point to validate on your own data</td>
+</tr>
+<tr class="odd">
+<td>Create a reproducible example</td>
+<td><code><a href="../reference/generate_synthetic_volume.html">generate_synthetic_volume()</a></code></td>
+<td>Data, mask, and known latent labels</td>
+</tr>
+</tbody>
+</table>
+<p>The complete first-use journey is in <a href="getting-started.html">Getting started</a>. Parameter effects and
+validation are covered by <a href="choose-parameters.html">Choose
+parameters</a> and <a href="validate-compare.html">Validate and compare
+clusterings</a>.</p>
 </div>
 <div class="section level2">
-<h2 id="algorithms">Algorithms<a class="anchor" aria-label="anchor" href="#algorithms"></a>
+<h2 id="which-methods-share-the-unified-interface">Which methods share the unified interface?<a class="anchor" aria-label="anchor" href="#which-methods-share-the-unified-interface"></a>
 </h2>
-<ul>
-<li>Legacy cores: <code>supervoxels</code>, <code>snic</code>,
-<code>slic4d_supervoxels</code>, <code>slice_msf</code>,
-<code>supervoxels_flash3d</code>
-</li>
-</ul>
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">methods</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/eval.html" class="external-link">eval</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/formals.html" class="external-link">formals</a></span><span class="op">(</span><span class="va">cluster4d</span><span class="op">)</span><span class="op">$</span><span class="va">method</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span><span class="va">methods</span>, collapse <span class="op">=</span> <span class="st">", "</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "supervoxels, snic, slic, corr_slic, brs_slic, slice_msf, flash3d, g3s, rena, rena_plus, mcl, acsc, commute"</span></span></code></pre></div>
+<p>The list above is read from the installed function, so it cannot
+silently drift from the current API. Method names select
+implementations; they are not a performance ranking or endorsement. In
+particular, <code>slice_msf</code> remains experimental, is excluded
+from automatic recommendations, and should only be used for explicit
+evaluation under its <a href="slice-msf.html">documented contract</a>.
+See <a href="compare-methods.html">Compare clustering methods</a> for a
+scoped comparison and <a href="method-deep-dives.html">Method deep
+dives</a> for algorithmic distinctions.</p>
 </div>
 <div class="section level2">
-<h2 id="utilities">Utilities<a class="anchor" aria-label="anchor" href="#utilities"></a>
+<h2 id="when-should-you-use-a-direct-function">When should you use a direct function?<a class="anchor" aria-label="anchor" href="#when-should-you-use-a-direct-function"></a>
 </h2>
-<ul>
-<li>Validation &amp; comparison: <code>validate_cluster4d</code>,
-<code>compare_cluster4d</code>
-</li>
-<li>Helpers: <code>compute_centroids</code>, <code>knn_shrink</code>,
-<code>spatial_gradient</code>, <code>tesselate</code>
-</li>
-</ul>
+<p>Typed method-specific wrappers expose native controls while retaining
+the standard result contract. Examples include
+<code><a href="../reference/cluster4d_snic.html">cluster4d_snic()</a></code>, <code><a href="../reference/cluster4d_slic.html">cluster4d_slic()</a></code>,
+<code><a href="../reference/cluster4d_g3s.html">cluster4d_g3s()</a></code>, <code><a href="../reference/cluster4d_rena.html">cluster4d_rena()</a></code>,
+<code><a href="../reference/cluster4d_mcl.html">cluster4d_mcl()</a></code>, and <code><a href="../reference/cluster4d_acsc.html">cluster4d_acsc()</a></code>.</p>
+<p>The current <code><a href="../reference/cluster4d.html">cluster4d()</a></code> documentation classifies
+<code><a href="../reference/supervoxels.html">supervoxels()</a></code>, <code><a href="../reference/snic.html">snic()</a></code>,
+<code><a href="../reference/slic4d_supervoxels.html">slic4d_supervoxels()</a></code>, <code><a href="../reference/slice_msf.html">slice_msf()</a></code>, and
+<code><a href="../reference/supervoxels_flash3d.html">supervoxels_flash3d()</a></code> as legacy, deprecated entry points.
+They remain exported for compatibility, but new code should use
+<code><a href="../reference/cluster4d.html">cluster4d()</a></code> or a typed <code>cluster4d_*()</code> wrapper.
+Arguments and defaults need not match across lifecycle generations. The
+mapping guide is <a href="legacy-apis.html">Direct method APIs and
+cluster4d</a>.</p>
 </div>
 <div class="section level2">
-<h2 id="variants">Variants<a class="anchor" aria-label="anchor" href="#variants"></a>
+<h2 id="what-should-you-inspect-after-fitting">What should you inspect after fitting?<a class="anchor" aria-label="anchor" href="#what-should-you-inspect-after-fitting"></a>
 </h2>
-<ul>
-<li>Surfaces: <code>supervoxel_cluster_surface</code>
-</li>
-<li>Time: <code>supervoxel_cluster_time</code> includes: in_header: |-
-<link rel="stylesheet" href="albers.css">
-<script src="albers.js"></script>
-</li>
-</ul>
+<p>Use the result rather than reconstructing state from method
+internals:</p>
+<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">fit</span><span class="op">$</span><span class="va">labels</span>          <span class="co"># labels in included-mask voxel order</span></span>
+<span><span class="va">fit</span><span class="op">$</span><span class="va">actual_k</span>        <span class="co"># number of labels actually produced</span></span>
+<span><span class="va">fit</span><span class="op">$</span><span class="va">centers</span>         <span class="co"># cluster means in the original feature space</span></span>
+<span><span class="va">fit</span><span class="op">$</span><span class="va">coord_centers</span>   <span class="co"># cluster centroids in physical millimetres</span></span>
+<span><span class="va">fit</span><span class="op">$</span><span class="va">parameters</span>      <span class="co"># recorded fitting parameters</span></span>
+<span><span class="va">fit</span><span class="op">$</span><span class="va">provenance</span>      <span class="co"># geometry, mask, feature, and label provenance</span></span></code></pre></div>
+<p><a href="objects-results.html">Read clustering results</a> explains
+these fields and shows the validation receipt that should accompany a
+saved or exported fit.</p>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

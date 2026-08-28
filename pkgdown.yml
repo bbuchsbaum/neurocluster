@@ -13,11 +13,12 @@ articles:
   method-deep-dives: method-deep-dives.html
   objects-results: objects-results.html
   performance-memory: performance-memory.html
+  slice-msf: slice-msf.html
   spatially-constrained-clustering: spatially-constrained-clustering.html
   speed-parallel: speed-parallel.html
   validate-compare: validate-compare.html
   visualize-export: visualize-export.html
-last_built: 2026-08-27T02:19Z
+last_built: 2026-08-28T00:34Z
 urls:
   reference: https://bbuchsbaum.github.io/neurocluster/reference
   article: https://bbuchsbaum.github.io/neurocluster/articles

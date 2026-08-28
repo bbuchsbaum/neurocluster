@@ -1,136 +1,113 @@
 # Choose parameters for your data
 
-## Heuristics
+## Which decisions come first?
 
-The package’s helper
-[`suggest_cluster4d_params()`](https://bbuchsbaum.github.io/neurocluster/reference/suggest_cluster4d_params.md)
-derives a baseline K as `n_voxels / 250` (see source in
-`cluster4d_common.R`) and adjusts by priority. This is a starting point;
-actual K depends on analysis goals and mask size.
+Start with the scale of the scientific question, not with a search for
+the largest validation score. `n_clusters` sets the target granularity.
+The `spatial_weight` parameter sets how strongly feature similarity is
+traded against spatial proximity, but its exact mapping is
+method-specific. Both alter the partition you are estimating.
 
-## Suggestions
-
-``` r
-
-n_vox <- 50000
-n_time <- 200
-params <- suggest_cluster4d_params(n_vox, n_time, priority = "balanced")
-params$recommended_method
-params$n_clusters
-```
-
-## Tradeoffs
-
-- Quality: increase iterations; methods with iterative refinement (e.g.,
-  [`supervoxels()`](https://bbuchsbaum.github.io/neurocluster/reference/supervoxels.md),
-  [`cluster4d_slic()`](https://bbuchsbaum.github.io/neurocluster/reference/cluster4d_slic.md));
-  consider higher K.
-- Speed: `slice_msf` (slice-wise) or `flash3d` (hash/DCT) with fewer
-  iterations and lower K.
-- Memory:
-  [`snic()`](https://bbuchsbaum.github.io/neurocluster/reference/snic.md)
-  (single pass), `slice_msf` with fewer coefficients.
-
-## Recipes
-
-- Whole-brain (2–3 mm): start from `n_voxels/250`, `spatial_weight`
-  around 0.4–0.6, connectivity 26.
-- ROI: smaller K (e.g., 10–100), lower `spatial_weight` (0.2–0.4),
-  connectivity 6.
-
-## Toy data for illustrations
-
-To make parameter effects concrete, we use
-[`make_block_synthetic()`](https://bbuchsbaum.github.io/neurocluster/reference/make_block_synthetic.md)—three
-vertical bands with distinct time courses, light noise, and a single
-slice. It’s fast, deterministic, and spatially local.
-
-## Effect of K (number of clusters)
-
-Larger K produces finer partitions. Below we fix the method (`snic`) and
-compactness, varying only K.
+A sensible tuning exercise therefore holds the dataset and method fixed,
+changes one quantity at a time, and records several named diagnostics.
+The example below uses G3S and a known synthetic partition so that
+parameter effects are visible.
 
 ``` r
 
-par(mfrow = c(1, 3))
-res_k2 <- snic(toy$vec, toy$mask, K = 2, compactness = 3)
-plot(res_k2, slice = c(1, 1, 1), view = "axial"); title("K = 2")
+syn <- generate_synthetic_volume(
+  scenario = "gaussian_blobs", dims = c(16, 16, 8),
+  n_clusters = 4, n_time = 40, noise_sd = 0.08, seed = 42
+)
 ```
 
-![Three panels showing axial slices clustered with K=2, K=3, and
-K=5.](choose-parameters_files/figure-html/fig-k-1.png)
+## What does K change?
 
-Effect of K on a block synthetic (snic).
+K is a target parcel count, not a quality score. Fewer parcels make
+coarser summaries; more parcels make finer summaries and reduce
+observations per parcel. Some methods may return a different final
+count, so always retain `actual_k`.
 
 ``` r
 
-res_k3 <- snic(toy$vec, toy$mask, K = 3, compactness = 3)
-plot(res_k3, slice = c(1, 1, 1), view = "axial"); title("K = 3")
+k_grid <- c(3L, 4L, 6L)
+k_fits <- lapply(k_grid, function(k) {
+  cluster4d(
+    syn$vec, syn$mask, k, method = "g3s", spatial_weight = 0.5,
+    max_iterations = 5, connectivity = 26, parallel = FALSE
+  )
+})
 ```
 
-![Three panels showing axial slices clustered with K=2, K=3, and
-K=5.](choose-parameters_files/figure-html/fig-k-2.png)
+| Requested_K | Actual_K | ARI_to_known | Spatial_RMS_mm | Minimum_size |
+|------------:|---------:|-------------:|---------------:|-------------:|
+|           3 |        3 |        0.811 |          15.87 |          564 |
+|           4 |        4 |        0.624 |          14.04 |          345 |
+|           6 |        6 |        0.591 |          11.57 |          242 |
 
-Effect of K on a block synthetic (snic).
+Observed G3S diagnostics while changing only the target K. {.table}
+
+![Two line charts over K values 3, 4, and 6. Adjusted Rand index is
+highest at 3 and declines, while spatial RMS distance declines as K
+increases.](choose-parameters_files/figure-html/k-tradeoff-1.png)
+
+Changing target K changes both granularity and observed diagnostics on
+this fixture. The known partition has four regions, but the highest ARI
+here occurs at K = 3; matching a nominal count does not guarantee the
+best partition.
+
+## What does spatial weight change?
+
+For G3S, larger `spatial_weight` puts more emphasis on spatial proximity
+and less on feature similarity. That usually encourages compact parcels,
+but the effect and useful range depend on the data and method. Evaluate
+it rather than assuming that more compact is automatically better.
 
 ``` r
 
-res_k5 <- snic(toy$vec, toy$mask, K = 5, compactness = 3)
-plot(res_k5, slice = c(1, 1, 1), view = "axial"); title("K = 5")
+weight_grid <- c(0.2, 0.5, 0.8)
+weight_fits <- lapply(weight_grid, function(weight) {
+  cluster4d(
+    syn$vec, syn$mask, 4, method = "g3s", spatial_weight = weight,
+    max_iterations = 5, connectivity = 26, parallel = FALSE
+  )
+})
 ```
 
-![Three panels showing axial slices clustered with K=2, K=3, and
-K=5.](choose-parameters_files/figure-html/fig-k-3.png)
+| Spatial_weight | ARI_to_known | Spatial_RMS_mm |
+|---------------:|-------------:|---------------:|
+|            0.2 |        0.658 |          15.51 |
+|            0.5 |        0.624 |          14.04 |
+|            0.8 |        0.404 |          12.34 |
 
-Effect of K on a block synthetic (snic).
+Observed G3S diagnostics while changing only spatial weight. {.table}
 
-``` r
+![Three axial grid panels for spatial weights 0.2, 0.5, and 0.8. Each
+panel retains four distinct parcel colors; boundaries become more
+regular and compact from left to
+right.](choose-parameters_files/figure-html/weight-slices-1.png)
 
-par(mfrow = c(1,1))
-```
+Middle axial slices as G3S spatial weight increases. A one-to-one
+maximum-overlap assignment preserves a distinct color for every
+predicted parcel while aligning arbitrary IDs to the known synthetic
+colors. The rightmost partition is physically tighter but agrees less
+with the known feature-defined regions.
 
-## Effect of compactness (SNIC)
+On this fixture, increasing spatial weight reduces RMS distance from
+15.51 mm to 12.34 mm, while agreement with the known partition falls.
+The executable checks establish that observation for this example only.
 
-Higher `compactness` makes clusters more spatially tight; lower values
-follow feature patterns more closely.
+## How should you tune real data?
 
-``` r
+1.  Choose a scientifically meaningful range of parcel counts before
+    examining outcomes.
+2.  Hold preprocessing, mask, method, and geometry fixed while varying
+    one parameter.
+3.  Record `actual_k`, parcel-size distributions, spatial dispersion,
+    temporal coherence, and stability under perturbation.
+4.  Reject invalid or degenerate results before ranking diagnostics.
+5.  Report the full selection rule, not only the chosen setting.
 
-par(mfrow = c(1, 3))
-res_c2 <- snic(toy$vec, toy$mask, K = 3, compactness = 2)
-plot(res_c2, slice = c(1, 1, 1), view = "axial"); title("compactness = 2")
-```
-
-![Three panels with compactness 2, 4,
-6.](choose-parameters_files/figure-html/fig-compactness-1.png)
-
-Effect of compactness on the block synthetic (K=3, snic).
-
-``` r
-
-res_c4 <- snic(toy$vec, toy$mask, K = 3, compactness = 4)
-plot(res_c4, slice = c(1, 1, 1), view = "axial"); title("compactness = 4")
-```
-
-![Three panels with compactness 2, 4,
-6.](choose-parameters_files/figure-html/fig-compactness-2.png)
-
-Effect of compactness on the block synthetic (K=3, snic).
-
-``` r
-
-res_c6 <- snic(toy$vec, toy$mask, K = 3, compactness = 6)
-plot(res_c6, slice = c(1, 1, 1), view = "axial"); title("compactness = 6")
-```
-
-![Three panels with compactness 2, 4,
-6.](choose-parameters_files/figure-html/fig-compactness-3.png)
-
-Effect of compactness on the block synthetic (K=3, snic).
-
-``` r
-
-par(mfrow = c(1,1))
-```
-
-includes: in_header: \|-
+Continue with [Validate and
+compare](https://bbuchsbaum.github.io/neurocluster/articles/validate-compare.md)
+for the exact validation and comparison contracts.

@@ -1,98 +1,113 @@
 # Getting started with neurocluster
 
-## Goal
+## What problem are you solving?
 
-Cluster a small 4D volume (3D space × time) into a few spatially
-coherent parcels, inspect the result, and export a NIfTI file.
+A 4D neuroimaging dataset gives you a time series at every voxel. Many
+analyses become easier when neighboring voxels with similar signals are
+replaced by a smaller set of spatially coherent parcels.
+[`cluster4d()`](https://bbuchsbaum.github.io/neurocluster/reference/cluster4d.md)
+performs that reduction while retaining the mask geometry, final labels,
+feature means, and physical centroids needed downstream.
 
-## TL;DR
+This first workflow uses a small simulated brain volume with known
+parcels. The known answer lets you learn the object model and verify the
+result before moving to your own NIfTI data.
 
-``` r
+## What goes in?
 
-# Create a small but structured synthetic dataset
-syn <- generate_synthetic_volume(
-  scenario = "gaussian_blobs",
-  dims = c(10, 10, 6),
-  n_clusters = 4,
-  n_time = 24,
-  seed = 42
-)
-
-# Minimal clustering: SNIC is fast on small data
-result <- cluster4d(syn$vec, syn$mask, n_clusters = 4, method = "snic")
-```
-
-## Setup
+You need a `NeuroVec` containing x × y × z × time data and a `NeuroVol`
+mask. Only finite mask values greater than zero are included. Here, the
+generator returns both objects plus one ground-truth label per included
+voxel.
 
 ``` r
 
 syn <- generate_synthetic_volume(
-  scenario = "gaussian_blobs",
-  dims = c(10, 10, 6),
-  n_clusters = 4,
-  n_time = 24,
-  seed = 42
+  scenario = "gaussian_blobs", dims = c(16, 16, 8),
+  n_clusters = 4, n_time = 40, noise_sd = 0.08, seed = 42
 )
-brain_mask <- syn$mask
-vec  <- syn$vec
+c(spatial_dimensions = paste(syn$dims, collapse = " x "),
+  time_points = dim(syn$vec)[4], masked_voxels = length(syn$truth))
+#> spatial_dimensions        time_points      masked_voxels 
+#>      "16 x 16 x 8"               "40"             "2048"
 ```
 
-## Peek at the ground truth
+## How do you make a first parcellation?
+
+Choose a target number of parcels and a method. ReNA is a useful first
+pass for this example because it aggregates adjacent regions directly.
+The target is not a promise for every method, so inspect `actual_k`
+after fitting.
 
 ``` r
 
-# Display the ground truth cluster labels
-truth_array <- array(syn$truth, dim = syn$dims)
-image(truth_array[,,3], col = rainbow(syn$n_clusters),
-      main = "Ground Truth: Slice 3", axes = FALSE)
-```
-
-![Axial slice showing four distinct
-clusters.](getting-started_files/figure-html/truth-peek-1.png)
-
-Ground-truth Gaussian blobs (axial slice).
-
-## Walkthrough
-
-``` r
-
-result <- cluster4d(vec, mask, n_clusters = 4)
-print(result)
-summary(result)
-plot(result)
-```
-
-## Quick visual (toy blocks)
-
-Here’s a scikit-learn-style “blobs” example: three vertical bands with
-distinct time courses plus light noise. It’s tiny, deterministic, and
-easy to see what the algorithm is doing.
-
-``` r
-
-toy <- make_block_synthetic(dims = c(12, 12, 1), ntime = 60, noise = 0.1, seed = 7)
-toy_res <- cluster4d(
-  toy$vec, toy$mask, n_clusters = 3,
-  method = "snic"
+fit <- cluster4d(
+  syn$vec, syn$mask, n_clusters = 4, method = "rena",
+  connectivity = 26, parallel = FALSE
 )
-plot(toy_res, slice = c(1, 1, 1), view = "axial")
+c(method = fit$method, requested_k = fit$parameters$n_clusters_requested,
+  actual_k = fit$actual_k)
+#>      method requested_k    actual_k 
+#>      "rena"         "4"         "4"
 ```
 
-![Axial slice showing three contiguous colored
-bands.](getting-started_files/figure-html/quick-visual-1.png)
+![Two axial brain-grid panels. The known four-region partition is on the
+left and the fitted partition on the right; all four parcel colors and
+shapes match.](getting-started_files/figure-html/first-result-1.png)
 
-Blocky synthetic with three temporal signatures. SNIC recovers the
-spatial bands cleanly.
+Known simulated parcels and the fitted ReNA partition on the middle
+axial slice. A one-to-one maximum-overlap assignment aligns arbitrary
+fitted IDs to the known colors only for this diagnostic view.
 
-## Export
+On this deliberately easy fixture, the fitted partition matches the
+known partition exactly (adjusted Rand index = 1.000). That result
+checks the example; it is not a general performance claim about ReNA or
+evidence that four parcels is appropriate for real data.
+
+## How do you check the object?
+
+[`validate_cluster4d()`](https://bbuchsbaum.github.io/neurocluster/reference/validate_cluster4d.md)
+checks the result schema and independently recomputes centers and
+geometry when you supply the original inputs. It answers “is this a
+consistent result?”, not “is this a scientifically useful parcellation?”
 
 ``` r
 
-writeVol(result$clusvol, "clusters.nii.gz")
+check <- validate_cluster4d(fit, syn$vec, syn$mask)
+check[c("valid", "warnings", "errors")]
+#> $valid
+#> [1] TRUE
+#> 
+#> $warnings
+#> character(0)
+#> 
+#> $errors
+#> character(0)
 ```
 
-## See also
+The object contains contiguous voxel labels in mask order, a clustered
+volume for plotting or export, and final centers in the original
+time-series space.
 
-- Compare methods: articles/compare-methods.html#run-methods
-- Choose parameters: articles/choose-parameters.html#heuristics
-- Visualize & export: articles/visualize-export.html#plot
+``` r
+
+c(n_labels = length(fit$labels), n_centers = nrow(fit$centers),
+  center_time_points = ncol(fit$centers))
+#>           n_labels          n_centers center_time_points 
+#>               2048                  4                 40
+```
+
+## Where should you go next?
+
+- Read [Choose
+  parameters](https://bbuchsbaum.github.io/neurocluster/articles/choose-parameters.md)
+  to learn what K and spatial weighting change.
+- Read [Compare
+  methods](https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.md)
+  to compare methods on identical inputs.
+- Read [Validate and
+  compare](https://bbuchsbaum.github.io/neurocluster/articles/validate-compare.md)
+  to separate structural validity from quality estimands.
+- Read [Visualize and
+  export](https://bbuchsbaum.github.io/neurocluster/articles/visualize-export.md)
+  to inspect slices and write a NIfTI label map.

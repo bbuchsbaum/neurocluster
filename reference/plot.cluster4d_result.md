@@ -7,7 +7,7 @@ coronal slices through the clustered volume.
 
 ``` r
 # S3 method for class 'cluster4d_result'
-plot(x, slice = NULL, view = "all", colors = NULL, ...)
+plot(x, slice = NULL, view = "all", colors = NULL, zlim = NULL, ...)
 ```
 
 ## Arguments
@@ -33,6 +33,13 @@ plot(x, slice = NULL, view = "all", colors = NULL, ...)
 - colors:
 
   Color palette for clusters. Default uses rainbow colors.
+
+- zlim:
+
+  Numeric length-two label range shared by every displayed plane. The
+  default, `c(0.5, x$n_clusters + 0.5)`, keeps each positive integer
+  label mapped to the same categorical color even when a slice omits
+  labels.
 
 - ...:
 

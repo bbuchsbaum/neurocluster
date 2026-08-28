@@ -5,15 +5,15 @@
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-<title>Method deep dives • neurocluster</title>
+<title>How the clustering methods differ • neurocluster</title>
 <script src="../deps/jquery-3.6.0/jquery-3.6.0.min.js"></script><meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 <link href="../deps/bootstrap-5.3.8/bootstrap.min.css" rel="stylesheet">
 <script src="../deps/bootstrap-5.3.8/bootstrap.bundle.min.js"></script><link href="../deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
 <link href="../deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
 <script src="../deps/headroom-0.11.0/headroom.min.js"></script><script src="../deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="../deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="../deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="../deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="../deps/search-1.0.0/fuse.min.js"></script><script src="../deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="../pkgdown.js"></script><link href="../extra.css" rel="stylesheet">
-<script src="../extra.js"></script><meta property="og:title" content="Method deep dives">
-<meta name="description" content="Supervoxels, SNIC, SLIC, slice-MSF, and FLASH-3D—ideas and tradeoffs.">
-<meta property="og:description" content="Supervoxels, SNIC, SLIC, slice-MSF, and FLASH-3D—ideas and tradeoffs.">
+<script src="../extra.js"></script><meta property="og:title" content="How the clustering methods differ">
+<meta name="description" content="Compare algorithmic work units and controls without turning them into universal rankings.">
+<meta property="og:description" content="Compare algorithmic work units and controls without turning them into universal rankings.">
 </head>
 <body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -44,6 +44,7 @@
     <li><a class="dropdown-item" href="../articles/speed-parallel.html">Speed &amp; Parallel</a></li>
     <li><a class="dropdown-item" href="../articles/visualize-export.html">Visualize &amp; Export</a></li>
     <li><a class="dropdown-item" href="../articles/consensus-stitch.html">Consensus &amp; Stitching</a></li>
+    <li><a class="dropdown-item" href="../articles/slice-msf.html">Evaluate Slice-MSF (Experimental)</a></li>
     <li><a class="dropdown-item" href="../articles/validate-compare.html">Validate &amp; Compare</a></li>
     <li><a class="dropdown-item" href="../articles/legacy-apis.html">Legacy APIs</a></li>
     <li><h6 class="dropdown-header" data-toc-skip>Explanations</h6></li>
@@ -76,7 +77,7 @@
 <div class="row">
   <main id="main" class="col-md-9"><div class="page-header">
 
-      <h1>Method deep dives</h1>
+      <h1>How the clustering methods differ</h1>
             
       
       <small class="dont-index">Source: <a href="https://github.com/bbuchsbaum/neurocluster/blob/master/vignettes/method-deep-dives.Rmd" class="external-link"><code>vignettes/method-deep-dives.Rmd</code></a></small>
@@ -85,167 +86,171 @@
 
     
     
+<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-red","preset-homage");});</script><style>:root{--content:72ch}</style>
+<p>All methods turn voxel-wise features and spatial support into
+parcels, but they do not optimize the same objective. Choose a family
+because its assumptions and controls match the analysis—not because an
+unscoped label calls it “fast” or “high quality.”</p>
 <div class="section level2">
-<h2 id="supervoxels">Supervoxels<a class="anchor" aria-label="anchor" href="#supervoxels"></a>
+<h2 id="where-does-each-family-spend-its-work">Where does each family spend its work?<a class="anchor" aria-label="anchor" href="#where-does-each-family-spend-its-work"></a>
 </h2>
-<style>
-/* ---------- Homage family: default = Homage-Red ---------- */
-:root{
-  /* Semantic roles */
-  --ink:#111111;                 /* body text */
-  --bg:#ffffff;                  /* page background */
-  --muted:#6b7280;
-  --border:#e5e7eb;
-  --code-bg:#f6f8fa;
-  --content: 72ch;               /* content column width */
-  --anchor-offset: 72px;         /* scroll offset for anchored headings */
-
-  /* Homage palette tokens (default family: Red) */
-  --A900:#CD2D26;  /* core / deepest */
-  --A700:#DC3925;
-  --A500:#E44926;
-  --A300:#E35B2D;
-
-  /* Role aliases derived from tones */
-  --accent-ink-light: var(--A900); /* link text, focus outline in light */
-  --accent-ink-dark:  var(--A300); /* link text, focus outline in dark  */
-  --accent-ink: var(--accent-ink-light);
-  --accent-strong: var(--A700);
-  --accent: var(--A500);     /* general accent if needed */
-  --accent-tint: color-mix(in srgb, var(--A300) 8%, transparent); /* quiet background */
-}
-
-/* Optional palette families via body class */
-.palette-lapis{ --A900:#1B2A74; --A700:#20399C; --A500:#2C4FCC; --A300:#4968D6; }
-.palette-ochre{ --A900:#6F5200; --A700:#8B6700; --A500:#B48900; --A300:#D7A700; }
-.palette-teal{  --A900:#0D4A4A; --A700:#0F5E5E; --A500:#127373; --A300:#2F8C8C; }
-.palette-green{ --A900:#1B5E20; --A700:#2E7D32; --A500:#388E3C; --A300:#66BB6A; }
-.palette-violet{ --A900:#4A148C; --A700:#6A1B9A; --A500:#8E24AA; --A300:#BA68C8; --accent-ink-dark:#BA68C8; }
-
-/* Dark mode flips link/readability choices */
-@media (prefers-color-scheme: dark){
-  :root{
-    --bg:#0b0c0e; --ink:#e6e6e6; --muted:#9aa0a6; --border:#2a2f36; --code-bg:#161b22;
-    --accent-ink: var(--accent-ink-dark);                /* ensure AA in dark */
-    --accent-tint: color-mix(in srgb, var(--A700) 18%, transparent);
-  }
-}
-
-/* Core typography & layout */
-html,body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;line-height:1.6;font-size:17.5px;}
-main,.content,.container,.page-content,.vignette,.contents{max-width:var(--content);margin-inline:auto;padding-inline:clamp(16px,2vw,32px);} 
-p{margin-block:16px;}
-h1,h2,h3{font-weight:600;line-height:1.25;margin-top:32px;margin-bottom:12px;}
-h1{font-size:1.9rem; text-wrap:balance;} h2{font-size:1.4rem;} h3{font-size:1.2rem;}
-h2, h3{position:relative; padding-right:1.25em; scroll-margin-top: var(--anchor-offset);} 
-
-/* Links */
-a, a:visited{color:var(--accent-ink) !important; text-decoration:underline; text-decoration-thickness:.08em; text-underline-offset:2px; text-decoration-skip-ink:auto;}
-a:hover{color:color-mix(in srgb, var(--accent-ink) 85%, black);} /* light-mode darken */
-@media (prefers-color-scheme: dark){ a:hover{ color: color-mix(in srgb, var(--accent-ink) 85%, white); } }
-a:focus-visible{outline:2px solid var(--accent-ink); outline-offset:2px;}
-a:focus{outline:none;}
-
-/* Code blocks + copy button */
-code,pre,kbd,samp{font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono","Roboto Mono",monospace;font-size:0.95em; line-height:1.45;}
-pre{background:var(--code-bg); border:1px solid var(--border); padding:24px; border-radius:6px; overflow:auto; margin-block:24px; position:relative; box-shadow:none; tab-size:2; -moz-tab-size:2;}
-pre code{background:transparent; border:none; padding:0; word-break:normal; overflow-wrap:anywhere;}
-button.copy-code{position:absolute; top:8px; right:8px; border:1px solid var(--border); background:var(--accent-tint); color:var(--ink); padding:4px 8px; border-radius:4px; font:600 12px system-ui; cursor:pointer;}
-button.copy-code:focus{outline:2px solid var(--accent-ink); outline-offset:2px;}
-p code{background:var(--code-bg); padding:0.12em 0.38em; border-radius:4px; border:1px solid var(--border);} 
-
-/* Tables */
-table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;}
-th,td{border-bottom:1px solid var(--border); padding:10px 8px;}
-thead th{font-weight:600;}
-tbody tr:nth-child(odd){background: color-mix(in srgb, var(--A300) 8%, transparent);} 
-caption{caption-side:bottom; color:var(--muted); padding-top:12px; font-size:0.95em;}
-
-/* Callouts (Homage tint) */
-blockquote,.callout{border-left:3px solid var(--A500); background:var(--accent-tint); padding:16px 24px; margin-block:24px; border-radius:6px;}
-blockquote p{margin:0;}
-
-/* Anchors (square) at H2/H3 */
-h2:hover .anchor, h3:hover .anchor{opacity:1;}
-h2:focus-within .anchor, h3:focus-within .anchor{opacity:1;}
-.anchor{opacity:0; position:absolute; right:0; top:50%; transform:translateY(-50%); text-decoration:none; color:var(--A500); font-weight:700; line-height:1; transition:opacity .15s ease-in-out;}
-
-/* “Homage” hero tile (optional) */
-.homage-hero{ aspect-ratio:3/2; background:var(--bg); box-shadow: inset 0 0 0 84px var(--A300), inset 0 0 0 56px var(--A500), inset 0 0 0 28px var(--A700), inset 0 0 0 0 var(--A900); border-radius:4px; margin-block:24px; }
-/* Letterbox variant for calmer presence */
-.homage-hero--letterbox{ aspect-ratio:6/1; background:var(--bg); box-shadow: inset 0 0 0 48px var(--A300), inset 0 0 0 32px var(--A500), inset 0 0 0 16px var(--A700), inset 0 0 0 0 var(--A900); border-radius:4px; margin-block:16px 8px; }
-
-/* Hairline rules with square notch */
-.hr-notch{position:relative; height:1px; background:var(--border); margin:24px 0;}
-.hr-notch::before{content:""; position:absolute; left:0; top:-4px; width:8px; height:8px; background:var(--A500);} 
-
-/* Optional square bullets in overview lists */
-.overview ul{list-style:square;}
-
-/* Code blocks: add homage square corner */
-pre::before{content:""; position:absolute; left:10px; top:10px; width:10px; height:10px; background:var(--A500); border-radius:2px;}
-
-/* Nav active: tiny square */
-.navbar .nav-link.active::after, .navbar .active > a::after{content:""; display:inline-block; width:6px; height:6px; background:var(--A700); margin-left:6px; vertical-align:middle;}
-
-/* Print */
-@media print{ a{text-decoration:none; color:inherit;} pre{page-break-inside:avoid;} .navbar, .sidebar, .toc, .page-header{display:none!important;} }
-
-/* Prevent layout shift when scrollbars appear */
-:root { scrollbar-gutter: stable both-edges; }
-
-/* Small screens: maintain comfort */
-@media (max-width: 880px){
-  html, body { font-size: 17px; }
-  :root{ --anchor-offset: 64px; }
-}
-
-/* Prefer higher contrast if requested */
-@media (prefers-contrast: more){
-  :root{ --border: color-mix(in srgb, var(--A500) 28%, white); }
-  .hr-notch::before { background: var(--A700); }
-}
-</style>
-<script>document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("palette-teal");});</script><style>:root{--content:72ch}</style>
+<table class="table">
+<caption>All 13 choices accepted by the installed cluster4d()
+interface.</caption>
+<colgroup>
+<col width="21%">
+<col width="42%">
+<col width="36%">
+</colgroup>
+<thead><tr class="header">
+<th align="left">Unified method</th>
+<th align="left">Dominant work unit</th>
+<th align="left">Update pattern</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td align="left">Supervoxels</td>
+<td align="left">local heat kernels</td>
+<td align="left">iterative</td>
+</tr>
+<tr class="even">
+<td align="left">SNIC</td>
+<td align="left">seeded local growth</td>
+<td align="left">single growth</td>
+</tr>
+<tr class="odd">
+<td align="left">SLIC</td>
+<td align="left">local assignment</td>
+<td align="left">iterative</td>
+</tr>
+<tr class="even">
+<td align="left">Corr-SLIC</td>
+<td align="left">correlation embedding</td>
+<td align="left">iterative</td>
+</tr>
+<tr class="odd">
+<td align="left">BRS-SLIC</td>
+<td align="left">sketch plus exact boundary</td>
+<td align="left">staged</td>
+</tr>
+<tr class="even">
+<td align="left">Slice-MSF</td>
+<td align="left">spatial graph</td>
+<td align="left">single construction</td>
+</tr>
+<tr class="odd">
+<td align="left">FLASH-3D</td>
+<td align="left">compressed signatures</td>
+<td align="left">iterative</td>
+</tr>
+<tr class="even">
+<td align="left">G3S</td>
+<td align="left">gradient geodesic graph</td>
+<td align="left">growth plus refinement</td>
+</tr>
+<tr class="odd">
+<td align="left">ReNA</td>
+<td align="left">spatial graph</td>
+<td align="left">agglomerative</td>
+</tr>
+<tr class="even">
+<td align="left">ReNA+</td>
+<td align="left">spatial graph plus refinement</td>
+<td align="left">agglomerative</td>
+</tr>
+<tr class="odd">
+<td align="left">MCL</td>
+<td align="left">weighted graph diffusion</td>
+<td align="left">iterative</td>
+</tr>
+<tr class="even">
+<td align="left">ACSC</td>
+<td align="left">block community graph</td>
+<td align="left">community plus refinement</td>
+</tr>
+<tr class="odd">
+<td align="left">Commute</td>
+<td align="left">resistance embedding</td>
+<td align="left">spectral then cluster</td>
+</tr>
+</tbody>
+</table>
+<div class="figure" style="text-align: center">
+<img src="method-deep-dives_files/figure-html/method-map-1.png" class="r-plt" alt="Five grouped columns labeled local, embedded, graph, community, and spectral containing all thirteen method names." width="100%"><p class="caption">
+All 13 unified methods grouped by their dominant representation.
+Vertical position only separates labels within a group; it is not a
+score.
+</p>
+</div>
+<p><strong>What to notice.</strong> The methods differ first in
+representation and update strategy. The axes are categories, not claims
+about runtime, memory, or accuracy.</p>
+</div>
+<div class="section level2">
+<h2 id="what-is-distinctive-about-each-method">What is distinctive about each method?<a class="anchor" aria-label="anchor" href="#what-is-distinctive-about-each-method"></a>
+</h2>
 <ul>
-<li>Iterative, heat-kernel similarities; parallelized updates
-available.</li>
+<li>
+<strong>SNIC</strong> grows clusters from seeds with a priority
+queue in a non-iterative pass. Its native control is compactness.</li>
+<li>
+<strong>SLIC</strong> alternates local assignment and center
+updates. Its controls include compactness, iteration count, seeding,
+connectivity, and optional exact-K repair subject to mask topology.</li>
+<li>
+<strong>Corr-SLIC</strong> performs local SLIC updates in a compact
+correlation embedding; its approximation and exact-refinement controls
+must be reported.</li>
+<li>
+<strong>BRS-SLIC</strong> deliberately separates a coarse sketch
+stage from exact correlation refinement at parcel boundaries.</li>
+<li>
+<strong>Supervoxels</strong> iteratively combines feature and
+spatial heat-kernel similarities. It exposes bandwidths and convergence
+controls.</li>
+<li>
+<strong>Slice-MSF (experimental)</strong> builds normalized DCT
+sketches and segments a masked spatial graph with cosine dissimilarity;
+it can stitch across axial slices and combine seeded ensemble runs. It
+is excluded from automatic recommendations pending release
+recertification; see the <a href="slice-msf.html">evaluation
+contract</a>.</li>
+<li>
+<strong>FLASH-3D</strong> uses compact temporal signatures and
+iterative refinement. Hash length and DCT dimension are approximation
+controls, not generic quality scores.</li>
+<li>
+<strong>G3S</strong> uses functional gradients and geodesic growth
+followed by connected refinement.</li>
+<li>
+<strong>ReNA</strong> recursively agglomerates neighbouring regions
+on a spatial graph; <strong>ReNA+</strong> adds its own refinement path.
+Their weights are method-native rather than the unified spatial
+blend.</li>
+<li>
+<strong>MCL</strong> alternates expansion and inflation on a sparse
+weighted voxel graph; inflation controls granularity rather than a
+target-K objective.</li>
+<li>
+<strong>ACSC</strong> builds a block graph, applies community
+detection, and can refine boundaries using a chosen correlation
+definition.</li>
+<li>
+<strong>Commute</strong> embeds the voxel graph using
+effective-resistance geometry before clustering; its spectral
+representation has different scaling constraints from local assignment
+methods.</li>
 </ul>
 </div>
 <div class="section level2">
-<h2 id="snic">SNIC<a class="anchor" aria-label="anchor" href="#snic"></a>
+<h2 id="what-should-drive-the-final-choice">What should drive the final choice?<a class="anchor" aria-label="anchor" href="#what-should-drive-the-final-choice"></a>
 </h2>
-<ul>
-<li>Non-iterative; sequential priority queue; connected components by
-design.</li>
-</ul>
-</div>
-<div class="section level2">
-<h2 id="slic">SLIC<a class="anchor" aria-label="anchor" href="#slic"></a>
-</h2>
-<ul>
-<li>Iterative with local windows; preserves K; good speed/quality
-balance.</li>
-</ul>
-</div>
-<div class="section level2">
-<h2 id="slice-msf">Slice-MSF<a class="anchor" aria-label="anchor" href="#slice-msf"></a>
-</h2>
-<ul>
-<li>Slice-wise minimum spanning forest; supports consensus and
-stitching.</li>
-</ul>
-</div>
-<div class="section level2">
-<h2 id="flash3d">FLASH-3D<a class="anchor" aria-label="anchor" href="#flash3d"></a>
-</h2>
-<ul>
-<li>DCT-based hashing/compression; fast approximation; temporal
-smoothing via <code>lambda_t</code>. includes: in_header: |-
-<link rel="stylesheet" href="albers.css">
-<script src="albers.js"></script>
-</li>
-</ul>
+<p>Decide which properties are required: connected parcels, an exact
+target K, cross-slice edges, a particular similarity definition,
+deterministic output, or a memory ceiling. Then test candidate methods
+on the same mask and features with defined estimands. <a href="compare-methods.html">Compare clustering methods</a> shows that
+workflow; <a href="benchmarks.html">Benchmark with a reproducible
+receipt</a> shows how to attach runtime evidence.</p>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

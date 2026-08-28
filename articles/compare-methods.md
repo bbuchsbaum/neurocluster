@@ -1,148 +1,117 @@
 # Compare clustering methods
 
-## Goal
+## What makes a comparison fair?
 
-Run several methods with the same `n_clusters` and compare basic
-characteristics.
+Method comparison only makes sense when every result uses the same
+included voxels and physical geometry. It also needs named estimands:
+parcel count and size, spatial dispersion in millimetres, or temporal
+coherence from the original voxel time series.
+[`compare_cluster4d()`](https://bbuchsbaum.github.io/neurocluster/reference/compare_cluster4d.md)
+verifies the shared provenance before computing those quantities.
 
-We use a simple, scikit-learn-style synthetic (three vertical bands with
-distinct time courses plus light noise). It’s small, deterministic, and
-spatially local, so all methods have a fair shot.
-
-## Ground truth bands (for reference)
+We use one deterministic volume with known labels. This gives us an
+additional simulation-only estimand—agreement with the known
+partition—without pretending that synthetic recovery proves performance
+on real data.
 
 ``` r
 
-# Display the ground truth as a simple image
-truth_array <- array(toy$truth, dim = toy$dims)
-image(truth_array[,,1], col = rainbow(6),
-      main = "Ground Truth: 3 bands", axes = FALSE)
+syn <- generate_synthetic_volume(
+  scenario = "gaussian_blobs", dims = c(16, 16, 8),
+  n_clusters = 4, n_time = 40, noise_sd = 0.08, seed = 42
+)
 ```
 
-![Axial slice showing three colored vertical
-bands.](compare-methods_files/figure-html/fig-toy-ground-truth-1.png)
+## How do you hold inputs constant?
 
-Ground truth bands (3 clusters) on the toy axial slice.
-
-## Run methods (same K)
+Here ReNA, G3S, and SLIC all receive K = 4 and 26-neighbor connectivity.
+Their other defaults remain method-specific, so this is a controlled
+workflow example, not a tuned leaderboard. `preserve_k = TRUE` asks SLIC
+to repair its final partition to the requested count.
 
 ``` r
 
-methods <- c("snic", "slice_msf", "supervoxels")
-run_one <- function(m) {
-  args <- list(vec = toy$vec, mask = toy$mask, n_clusters = 3, method = m)
-  if (m == "snic") {
-    args$compactness <- 3
-  } else if (m == "slice_msf") {
-    args$r <- 8
-    args$min_size <- 5
-    args$compactness <- 3
-    args$num_runs <- 1
-    args$stitch_z <- TRUE
-  } else if (m == "supervoxels") {
-    args$alpha <- 0.6
-    args$connectivity <- 6
-  }
-  out <- try(do.call(cluster4d, args), silent = TRUE)
-  if (inherits(out, "try-error")) NULL else out
-}
-results <- setNames(lapply(methods, run_one), methods)
-results_ok <- Filter(Negate(is.null), results)
+rena_fit <- cluster4d(
+  syn$vec, syn$mask, 4, method = "rena",
+  connectivity = 26, parallel = FALSE
+)
+g3s_fit <- cluster4d(
+  syn$vec, syn$mask, 4, method = "g3s",
+  connectivity = 26, parallel = FALSE
+)
+slic_fit <- cluster4d(
+  syn$vec, syn$mask, 4, method = "slic",
+  connectivity = 26, parallel = FALSE, preserve_k = TRUE
+)
 ```
 
-## Axial slices by method
+![Four axial grid panels labeled known, ReNA, G3S, and SLIC. Every
+predicted parcel has a distinct color; ReNA matches the known regions
+while G3S and SLIC show different
+boundaries.](compare-methods_files/figure-html/method-slices-1.png)
+
+The known middle axial slice beside three fitted partitions. A
+one-to-one maximum-overlap assignment aligns the four arbitrary fitted
+IDs to the four known colors without merging predicted parcels; this
+display-only relabeling does not change any metric.
+
+## Which quantities are you comparing?
+
+The call below evaluates all three methods on the same support. Lower
+spatial RMS distance means voxels lie closer to their final parcel
+centroid. Temporal pairwise correlation is the mean Pearson correlation
+over all unordered voxel pairs within parcels; it is calculated from
+`feature_mat`, not from parcel centers.
 
 ``` r
 
-# Fallback in case prior chunk failed in a different environment
-if (!exists("results_ok", inherits = TRUE)) {
-  methods <- c("snic", "slice_msf", "supervoxels")
-  run_one <- function(m) {
-    args <- list(
-      vec = toy$vec, mask = toy$mask, n_clusters = 3, method = m
-    )
-    if (m == "slice_msf") {
-      args$num_runs <- 1
-      args$stitch_z <- TRUE
-    } else if (m == "supervoxels") {
-      args$max_iterations <- 5
-    }
-    out <- try(do.call(cluster4d, args), silent = TRUE)
-    if (inherits(out, "try-error")) NULL else out
-  }
-  results <- setNames(lapply(methods, run_one), methods)
-  results_ok <- Filter(Negate(is.null), results)
-}
-n <- length(results_ok); if (n == 0) n <- 1
-par(mfrow = c(1, n))
-for (nm in names(results_ok)) {
-  plot(results_ok[[nm]], slice = c(1, 1, 1), view = "axial")
-  title(nm)
-}
-```
-
-![Panels showing axial slices for available methods with arbitrary
-cluster colors.](compare-methods_files/figure-html/fig-methods-1.png)
-
-Toy axial view clustered by available methods (K=3). Colors indicate
-cluster IDs (arbitrary).
-
-![Panels showing axial slices for available methods with arbitrary
-cluster colors.](compare-methods_files/figure-html/fig-methods-2.png)
-
-Toy axial view clustered by available methods (K=3). Colors indicate
-cluster IDs (arbitrary).
-
-![Panels showing axial slices for available methods with arbitrary
-cluster colors.](compare-methods_files/figure-html/fig-methods-3.png)
-
-Toy axial view clustered by available methods (K=3). Colors indicate
-cluster IDs (arbitrary).
-
-``` r
-
-par(mfrow = c(1, 1))
-```
-
-## Compare
-
-``` r
-
-if (length(results_ok) >= 1) {
-  comparison <- do.call(compare_cluster4d, results_ok)
-  comparison
-}
+comparison <- compare_cluster4d(
+  fits,
+  metrics = c("summary", "spatial_dispersion", "temporal_coherence"),
+  feature_mat = feature_mat
+)
 comparison
-
-# Summarize basic facts from outputs
-if (length(results_ok) >= 1) {
-  sizes <- lapply(results_ok, function(x) table(x$cluster))
-  data.frame(
-    method = names(sizes),
-    n_clusters = sapply(results_ok, function(x) x$n_clusters),
-    min_size = sapply(sizes, min),
-    max_size = sapply(sizes, max),
-    mean_size = sapply(sizes, function(t) round(mean(t), 1))
-  )
-}
+#>   Method N_Clusters Min_Size Max_Size Mean_Size  SD_Size Spatial_RMS_Distance_mm
+#> 1   ReNA          4      303      738       512 177.8970                15.79605
+#> 2    G3S          4      345      682       512 155.7926                14.04236
+#> 3   SLIC          4      416      637       512 107.0420                12.26536
+#>   Temporal_Pairwise_Correlation
+#> 1                     0.9076958
+#> 2                     0.6714732
+#> 3                     0.4781601
 ```
 
-## Notes
+|      | Method | ARI_to_known | Spatial_RMS_mm | Temporal_correlation |
+|:-----|:-------|-------------:|---------------:|---------------------:|
+| ReNA | ReNA   |        1.000 |          15.80 |                0.908 |
+| G3S  | G3S    |        0.624 |          14.04 |                0.671 |
+| SLIC | SLIC   |        0.334 |          12.27 |                0.478 |
 
-- SNIC assigns voxels in a single pass via a priority queue (see
-  [`snic()`](https://bbuchsbaum.github.io/neurocluster/reference/snic.md));
-  clusters are connected by construction. Runtime depends on input size
-  and queue operations.
-- Supervoxels uses iterative reassignment with spatial/feature kernels
-  (see
-  [`supervoxels()`](https://bbuchsbaum.github.io/neurocluster/reference/supervoxels.md));
-  more iterations can change results and runtime.
-- SLIC uses local search windows and can preserve the requested K when
-  `preserve_k = TRUE` (see
-  [`cluster4d_slic()`](https://bbuchsbaum.github.io/neurocluster/reference/cluster4d_slic.md)).
+Observed diagnostics on this synthetic fixture. {.table}
 
-## See also
+![Scatter plot with spatial RMS distance on the horizontal axis and
+adjusted Rand index on the vertical axis. SLIC is leftmost and lowest,
+G3S is intermediate, and ReNA is upper
+right.](compare-methods_files/figure-html/tradeoff-plot-1.png)
 
-- Validate & compare: articles/validate-compare.html#checks
-- Method deep dives: articles/method-deep-dives.html#slic
-- Performance & memory: articles/performance-memory.html#scaling
+Agreement with the known synthetic partition versus physical
+compactness. Up indicates greater agreement; left indicates smaller
+spatial RMS distance. No single direction optimizes both estimands here.
+
+On this fixture ReNA recovers the known partition, while SLIC yields the
+lowest spatial dispersion. Those statements describe these evaluated
+outputs only. Real method choice should be repeated across
+representative subjects, masks, resolutions, and stability perturbations
+using estimands chosen before tuning.
+
+## What should you compare next?
+
+- Read [Choose
+  parameters](https://bbuchsbaum.github.io/neurocluster/articles/choose-parameters.md)
+  before tuning each method.
+- Read [Validate and
+  compare](https://bbuchsbaum.github.io/neurocluster/articles/validate-compare.md)
+  for structural validation and pairwise partition agreement.
+- Read [Benchmark
+  methodology](https://bbuchsbaum.github.io/neurocluster/articles/benchmarks.md)
+  for performance measurement rather than inferring speed here.

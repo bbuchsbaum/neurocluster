@@ -1,7 +1,8 @@
 # Run one Slice-MSF segmentation
 
-Low-level diagnostic interface returning native full-volume labels,
-split-half reliability weights, and an `r_used` by voxel DCT sketch.
+Low-level diagnostic interface returning native full-volume labels, a
+signed adjacent-pair temporal-smoothness diagnostic, and an `r_used` by
+voxel DCT sketch. Temporal smoothness does not affect segmentation.
 
 ## Usage
 
@@ -14,7 +15,7 @@ slice_msf_single(
   min_size = 80,
   nbhd = 8,
   stitch_z = TRUE,
-  gamma = 1.5,
+  gamma = 0,
   z_mult = 0,
   dct_frequencies = NULL,
   dct_weights = NULL
@@ -55,8 +56,9 @@ slice_msf_single(
 
 - gamma:
 
-  Non-negative exponent applied to positive split-half reliability; it
-  directly scales feature edge distances.
+  Reserved compatibility parameter. It must be zero; positive
+  reliability weighting is rejected because it can collapse
+  non-identical feature vectors to zero-distance edges.
 
 - z_mult:
 
@@ -72,4 +74,5 @@ slice_msf_single(
 
 ## Value
 
-A list with full-volume `labels`, `weights`, `sketch`, and `params`.
+A list with full-volume `labels`, `temporal_smoothness`, `sketch`, and
+`params`.

@@ -74,8 +74,8 @@ plot(result$clusvol)
 # Randomized IDs show distinct color patches
 plot(result_random$clusvol)
 
-# Works with any clustering method
-result_msf <- cluster4d(vec, mask, K = 100, method = "slice_msf")
-result_msf_random <- randomize_cluster_ids(result_msf)
+# Works with other supported clustering methods
+result_snic <- cluster4d(vec, mask, n_clusters = 100, method = "snic")
+result_snic_random <- randomize_cluster_ids(result_snic)
 } # }
 ```
