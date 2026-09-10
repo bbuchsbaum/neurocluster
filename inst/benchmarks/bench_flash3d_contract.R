@@ -27,7 +27,7 @@ run_core <- function(bits, barrier_on, diagnostics = FALSE) {
   )
 }
 
-slow_oracle_check <- function(bits, barrier_on) {
+slow_oracle_metrics <- function(bits, barrier_on) {
   oracle_dims <- c(12L, 10L, 2L)
   oracle_n <- prod(oracle_dims)
   oracle_k <- 12L
@@ -45,14 +45,15 @@ slow_oracle_check <- function(bits, barrier_on) {
     oracle_ts, oracle_idx, oracle_dims, oracle_k, lambda, 1L, bits, 12L,
     vox_scale, barrier_arg, FALSE, TRUE
   )
+  effective_bits <- ncol(core$voxel_hash_bits)
   scaled <- matrix(vox_scale, nrow = oracle_n, ncol = 3L, byrow = TRUE)
   scores <- matrix(NA_real_, nrow = oracle_n, ncol = oracle_k)
   for (cluster in seq_len(oracle_k)) {
     site_bits <- matrix(
       core$assignment_site_hash_bits[cluster, ],
-      nrow = oracle_n, ncol = bits, byrow = TRUE
+      nrow = oracle_n, ncol = effective_bits, byrow = TRUE
     )
-    hamming <- rowSums(abs(core$voxel_hash_bits - site_bits)) / bits
+    hamming <- rowSums(abs(core$voxel_hash_bits - site_bits)) / effective_bits
     spatial <- rowSums(
       (sweep(oracle_coords, 2L, core$assignment_site_coords[cluster, ], "-") * scaled)^2
     ) / core$S2
@@ -64,7 +65,15 @@ slow_oracle_check <- function(bits, barrier_on) {
       lambda[[2L]] * hamming + lambda[[3L]] * barrier_cost
   }
   oracle <- max.col(-scores, ties.method = "first")
-  identical(as.integer(core$labels), as.integer(oracle))
+  chosen_score <- scores[cbind(seq_len(oracle_n), core$labels)]
+  optimum_score <- apply(scores, 1L, min)
+  regret <- chosen_score - optimum_score
+  list(
+    labels_identical = identical(as.integer(core$labels), as.integer(oracle)),
+    score_optimal = all(regret <= 1e-6),
+    positive_regret_fraction = mean(regret > 1e-6),
+    max_regret = max(regret)
+  )
 }
 
 visible_allocated_bytes <- function(bits, barrier_on) {
@@ -89,8 +98,10 @@ benchmark_case <- function(bits, barrier_on, repetitions = 9L) {
       output <- run_core(bits, barrier_on, diagnostics = FALSE)
     })[["elapsed"]]
   }
+  oracle <- slow_oracle_metrics(bits, barrier_on)
   data.frame(
     bits = bits,
+    hash_bits_effective = output$hash_bits_effective,
     barrier = if (barrier_on) "on" else "off",
     n_voxels = n,
     n_features = nrow(ts),
@@ -98,7 +109,10 @@ benchmark_case <- function(bits, barrier_on, repetitions = 9L) {
     actual_k = length(unique(output$labels)),
     reseed_count = output$reseed_count,
     oracle_fixture_n = 240L,
-    slow_oracle_identical = slow_oracle_check(bits, barrier_on),
+    slow_oracle_labels_identical = oracle$labels_identical,
+    slow_oracle_score_optimal = oracle$score_optimal,
+    oracle_positive_regret_fraction = oracle$positive_regret_fraction,
+    oracle_max_regret = oracle$max_regret,
     median_elapsed_s = stats::median(elapsed),
     p95_elapsed_s = stats::quantile(elapsed, 0.95, names = FALSE),
     median_voxels_per_s = n / max(stats::median(elapsed), .Machine$double.eps),
@@ -114,3 +128,4 @@ results <- do.call(rbind, lapply(c(64L, 128L), function(bits) {
   )
 }))
 write.table(results, row.names = FALSE, sep = "\t", quote = FALSE)
+stopifnot(all(results$slow_oracle_score_optimal))

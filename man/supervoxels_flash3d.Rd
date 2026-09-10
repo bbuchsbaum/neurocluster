@@ -30,8 +30,9 @@ of included voxels.}
 
 \item{K}{The number of clusters to find}
 
-\item{lambda_s}{Finite non-negative spatial weight (default 0.6). It is
-annealed upward over rounds.}
+\item{lambda_s}{Finite non-negative target spatial weight (default 0.6).
+Multi-round optimization warms up from half this value and finishes at the
+requested value.}
 
 \item{lambda_t}{Finite non-negative temporal weight for Hamming distance of
 time-series hashes (default 1.0).}
@@ -41,7 +42,8 @@ positive, \code{barrier} is required.}
 
 \item{rounds}{Number of outer rounds (seed→flood→recenter). Default 2, typically 2-3 is sufficient.}
 
-\item{bits}{Length of temporal hash (64 or 128). Default 64.}
+\item{bits}{Maximum temporal hash length (64 or 128). The effective number
+of non-redundant comparisons is at most \code{choose(dctM, 2)}.}
 
 \item{dctM}{Number of low DCT coefficients to rank-hash (default 12, range 4-32)}
 

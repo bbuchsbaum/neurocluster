@@ -389,14 +389,15 @@ test_that("Algorithms handle structured data correctly", {
                                       compactness = 10, max_iter = 5,
                                       verbose = FALSE)
   
-  # Calculate how well each algorithm recovers the structure
-  # Using normalized mutual information or adjusted Rand index would be ideal
-  # For simplicity, we'll check temporal coherence which should be very high
+  # Calculate how well each algorithm recovers the structure. The fixture has
+  # explicit truth, so FLASH-3D must pass a partition-recovery gate in addition
+  # to the within-cluster coherence diagnostic.
   
   coherence_flash3d <- calculate_temporal_coherence(result_flash3d, vec, mask)
   coherence_supervoxels <- calculate_temporal_coherence(result_supervoxels, vec, mask)
   coherence_snic <- calculate_temporal_coherence(result_snic, vec, mask)
   coherence_slic4d <- calculate_temporal_coherence(result_slic4d, vec, mask)
+  flash3d_accuracy <- clustering_accuracy(result_flash3d$cluster, true_labels)
   
   cat("\n=== Structured Data Recovery ===\n")
   cat("Temporal coherence (should be high for structured data):\n")
@@ -404,8 +405,10 @@ test_that("Algorithms handle structured data correctly", {
   cat("  Supervoxels: ", round(coherence_supervoxels, 3), "\n")
   cat("  SNIC:        ", round(coherence_snic, 3), "\n")
   cat("  SLIC4D:      ", round(coherence_slic4d, 3), "\n")
+  cat("  FLASH-3D ARI:", round(flash3d_accuracy$ari, 3), "\n")
   
   # All algorithms should achieve good coherence on structured data
   expect_true(all(c(coherence_flash3d, coherence_supervoxels, 
                    coherence_snic, coherence_slic4d) > 0.7))
+  expect_gte(flash3d_accuracy$ari, 0.85)
 })

@@ -72,6 +72,7 @@ R CMD INSTALL --preclean --clean --no-multiarch --no-test-load \
 
 smoke_cases=(
   slic4d_core
+  flash3d_supervoxels_cpp
   fused_assignment
   fused_assignment_parallel_binned
   compute_masked_distances_cpp

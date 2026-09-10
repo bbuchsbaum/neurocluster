@@ -11,10 +11,12 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include <cstdlib>
 #include <limits>
 #include <stdint.h>
 #include <string.h>
 #include <functional>
+#include <utility>
 
 using namespace Rcpp;
 using namespace RcppParallel;
@@ -36,28 +38,42 @@ static inline uint32_t popcount64(uint64_t x) {
 
 // ----- fixed comparator table (deterministic) -------------------------------
 static void make_comparators(int M, int B, std::vector<uint8_t> &ci, std::vector<uint8_t> &cj) {
-  ci.resize(B); cj.resize(B);
   // A one-frame structural image has only the DC coefficient. Its temporal
-  // hash is therefore identically zero; avoid the impossible i != j loop.
+  // hash is therefore identically zero. Retain one inert comparison so the
+  // normalized Hamming denominator remains defined.
   if (M <= 1) {
-    std::fill(ci.begin(), ci.end(), 0);
-    std::fill(cj.begin(), cj.end(), 0);
+    ci.assign(1, 0);
+    cj.assign(1, 0);
     return;
   }
-  // simple LCG seeded constant for determinism
-  uint64_t s = 1469598103934665603ull ^ (uint64_t)M << 32 ^ (uint64_t)B;
+
+  // Generate every unordered comparison once, then deterministically shuffle.
+  // The seed deliberately excludes B so a 128-bit request strictly extends
+  // the 64-bit table instead of defining a different distance.
+  std::vector<std::pair<uint8_t, uint8_t>> pairs;
+  pairs.reserve((size_t)M * (size_t)(M - 1) / 2);
+  for (int i = 0; i < M; ++i) {
+    for (int j = i + 1; j < M; ++j) {
+      pairs.push_back(std::make_pair((uint8_t)i, (uint8_t)j));
+    }
+  }
+
+  uint64_t s = 1469598103934665603ull ^ ((uint64_t)M << 32);
   auto rnd = [&](){
     s ^= s << 13; s ^= s >> 7; s ^= s << 17;
     return s;
   };
-  for (int b = 0; b < B; ++b) {
-    int i, j;
-    do {
-      i = (int)(rnd() % (uint64_t)M);
-      j = (int)(rnd() % (uint64_t)M);
-    } while (j == i);
-    ci[b] = (uint8_t)i;
-    cj[b] = (uint8_t)j;
+  for (size_t pos = pairs.size(); pos > 1; --pos) {
+    size_t swap_pos = (size_t)(rnd() % (uint64_t)pos);
+    std::swap(pairs[pos - 1], pairs[swap_pos]);
+  }
+
+  const int effective_bits = std::min(B, (int)pairs.size());
+  ci.resize(effective_bits);
+  cj.resize(effective_bits);
+  for (int b = 0; b < effective_bits; ++b) {
+    ci[b] = pairs[(size_t)b].first;
+    cj[b] = pairs[(size_t)b].second;
   }
 }
 
@@ -80,27 +96,22 @@ struct HashWorker : public Worker {
   const RMatrix<double> X; // T x Nmask
   const int T;
   const int M;  // # low DCT coeffs
-  const int B;  // # bits (64 or 128)
+  const int B;  // number of effective, non-redundant comparisons
   const std::vector<double> &ctab;
   const std::vector<uint8_t> &ci;
   const std::vector<uint8_t> &cj;
-  RVector<double> mean_out; // optional tails
-  RVector<double> var_out;
   std::vector<uint64_t> &hashA; // output hashes (64 or lower half of 128)
-  std::vector<uint64_t> &hashB; // upper half when B==128, else unused
+  std::vector<uint64_t> &hashB; // upper half when B>64, else unused
 
   HashWorker(const NumericMatrix &X_,
              int M_,
-             int B_,
              const std::vector<double> &ctab_,
              const std::vector<uint8_t> &ci_,
              const std::vector<uint8_t> &cj_,
-             NumericVector &mean_,
-             NumericVector &var_,
              std::vector<uint64_t> &hashA_,
              std::vector<uint64_t> &hashB_)
-    : X(X_), T(X_.nrow()), M(M_), B(B_), ctab(ctab_), ci(ci_), cj(cj_),
-      mean_out(mean_), var_out(var_), hashA(hashA_), hashB(hashB_) {}
+    : X(X_), T(X_.nrow()), M(M_), B((int)ci_.size()), ctab(ctab_), ci(ci_), cj(cj_),
+      hashA(hashA_), hashB(hashB_) {}
 
   void operator()(std::size_t begin, std::size_t end) {
     const int N = X.ncol();
@@ -116,18 +127,17 @@ struct HashWorker : public Worker {
       double v = 0.0;
       for (int t = 0; t < T; ++t) { double d = x[t] - mu; v += d * d; }
       v = (v <= 0.0) ? 1.0 : std::sqrt(v / (double)T);
-      mean_out[idx] = mu;
-      var_out[idx]  = v * v;
 
-      // DCT-M
-      double c[32]; // support up to M<=32
-      for (int m = 0; m < Mloc; ++m) {
-        double acc = 0.0;
-        for (int t = 0; t < T; ++t) {
-          // (t*M + m)
-          acc += ((x[t] - mu) / v) * ctab[(size_t)t * Mloc + m];
+      // DCT-M. Traverse the row-major cosine table contiguously and reuse each
+      // standardized sample across all coefficients.
+      double c[32] = {0.0}; // support up to M<=32
+      const double inv_v = 1.0 / v;
+      for (int t = 0; t < T; ++t) {
+        const double z = (x[t] - mu) * inv_v;
+        const double *ct = &ctab[(size_t)t * Mloc];
+        for (int m = 0; m < Mloc; ++m) {
+          c[m] += z * ct[m];
         }
-        c[m] = acc;
       }
 
       // rank hash (comparators)
@@ -152,20 +162,19 @@ struct Seed {
 static void seed_blue_noise(const std::vector<int> &mask_lin, // Nmask, 0-based linear indices
                             int nx, int ny, int nz,
                             int K,
+                            double vx, double vy, double vz,
+                            double S_phys,
                             std::vector<Seed> &seeds) {
   const int64_t Nmask = (int64_t)mask_lin.size();
   if (Nmask == 0) return;
 
-  const double S_est = std::cbrt((double)Nmask / (double)K);
-  const int cx = std::max(1, (int)std::floor((double)nx / std::max(1.0, S_est)));
-  const int cy = std::max(1, (int)std::floor((double)ny / std::max(1.0, S_est)));
-  const int cz = std::max(1, (int)std::floor((double)nz / std::max(1.0, S_est)));
+  const int cx = std::max(1, (int)std::floor((double)nx * vx / S_phys));
+  const int cy = std::max(1, (int)std::floor((double)ny * vy / S_phys));
+  const int cz = std::max(1, (int)std::floor((double)nz * vz / S_phys));
 
   // Coarse grid dims
   const int gx = cx, gy = cy, gz = cz;
   const int64_t gcells = (int64_t)gx * gy * gz;
-  std::vector<int> coarse(gcells, -1);
-
   auto cell_of = [&](int idx)->int {
     int z = idx / (nx*ny);
     int rem = idx - z*(nx*ny);
@@ -211,9 +220,9 @@ static void seed_blue_noise(const std::vector<int> &mask_lin, // Nmask, 0-based 
       int r = idx - zc * (nx * ny);
       int yc = r / nx;
       int xc = r - yc * nx;
-      double dx = (double)xc - cx;
-      double dy = (double)yc - cy;
-      double dz = (double)zc - cz;
+      double dx = ((double)xc - cx) * vx;
+      double dy = ((double)yc - cy) * vy;
+      double dz = ((double)zc - cz) * vz;
       double d2 = dx*dx + dy*dy + dz*dz;
       if (d2 < best_dist) {
         best_dist = d2;
@@ -276,7 +285,6 @@ struct ParallelCentroidWorker : public Worker {
   const std::vector<int> &labels;
   const uint8_t *is_mask;
   const uint64_t *hashA, *hashB;
-  const float *best;
   const int nx, ny;
   const int K;
   const int bits;
@@ -287,9 +295,7 @@ struct ParallelCentroidWorker : public Worker {
     int64_t count;
     uint32_t bitcA[64];
     uint32_t bitcB[64];
-    float max_err;
-    int   max_idx;
-    CentroidAccum() : sx(0), sy(0), sz(0), count(0), max_err(-std::numeric_limits<float>::infinity()), max_idx(-1) {
+    CentroidAccum() : sx(0), sy(0), sz(0), count(0) {
       memset(bitcA, 0, sizeof(bitcA));
       memset(bitcB, 0, sizeof(bitcB));
     }
@@ -298,9 +304,9 @@ struct ParallelCentroidWorker : public Worker {
   std::vector<CentroidAccum> acc;  // Per-thread accumulator
 
   ParallelCentroidWorker(const std::vector<int> &lbl, const uint8_t *msk,
-                         const uint64_t *ha, const uint64_t *hb, const float *best_,
+                         const uint64_t *ha, const uint64_t *hb,
                          int nx_, int ny_, int K_, int bits_)
-    : labels(lbl), is_mask(msk), hashA(ha), hashB(hb), best(best_),
+    : labels(lbl), is_mask(msk), hashA(ha), hashB(hb),
       nx(nx_), ny(ny_), K(K_), bits(bits_) {
     acc.resize(K);
   }
@@ -308,7 +314,7 @@ struct ParallelCentroidWorker : public Worker {
   // Split constructor for RcppParallel
   ParallelCentroidWorker(const ParallelCentroidWorker& other, Split)
     : labels(other.labels), is_mask(other.is_mask),
-      hashA(other.hashA), hashB(other.hashB), best(other.best),
+      hashA(other.hashA), hashB(other.hashB),
       nx(other.nx), ny(other.ny), K(other.K), bits(other.bits) {
     acc.resize(K);
   }
@@ -329,12 +335,6 @@ struct ParallelCentroidWorker : public Worker {
         a.sy += yc;
         a.sz += zc;
         a.count++;
-
-        float err = best ? best[i] : 0.0f;
-        if (err > a.max_err) {
-          a.max_err = err;
-          a.max_idx = (int)i;
-        }
 
         // Bit voting for hash majority
         uint64_t h = hashA[i];
@@ -379,11 +379,6 @@ struct ParallelCentroidWorker : public Worker {
         for (int b = 0; b < 64; ++b) {
           acc[k].bitcB[b] += rhs.acc[k].bitcB[b];
         }
-      }
-
-      if (rhs.acc[k].max_err > acc[k].max_err) {
-        acc[k].max_err = rhs.acc[k].max_err;
-        acc[k].max_idx = rhs.acc[k].max_idx;
       }
     }
   }
@@ -456,6 +451,15 @@ static std::vector<int> reseed_empty_clusters(
     int label = labels[(size_t)mask_lin[pos]];
     if (label >= 0 && label < K) counts[(size_t)label]++;
   }
+
+  bool has_empty = false;
+  for (int k = 0; k < K; ++k) {
+    if (counts[(size_t)k] == 0) {
+      has_empty = true;
+      break;
+    }
+  }
+  if (!has_empty) return std::vector<int>((size_t)K, -1);
 
   std::vector<int> candidates = mask_lin;
   std::stable_sort(candidates.begin(), candidates.end(), [&](int lhs, int rhs) {
@@ -619,37 +623,46 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
     if (idx >= 0 && (size_t)idx < Ngrid) is_mask[(size_t)idx] = 1;
   }
 
-  // Estimate spacing S
-  const double S_est = std::cbrt((double)Nmask / (double)K);
-  const double S2 = std::max(1.0, S_est * S_est);
+  // Normalize physical squared distances by the nominal physical side length
+  // of one cluster. Uniform changes of spatial units therefore leave the
+  // spatial/temporal tradeoff unchanged, while anisotropy is still respected.
+  const double voxel_volume =
+    (double)vox_scale[0] * (double)vox_scale[1] * (double)vox_scale[2];
+  const double S_phys = std::cbrt(((double)Nmask / (double)K) * voxel_volume);
+  const double S2 = std::max(std::numeric_limits<double>::epsilon(), S_phys * S_phys);
 
   // Precompute DCT table & comparator pairs
   std::vector<double> ctab;
   build_dct_table(T, dctM_eff, ctab);
   std::vector<uint8_t> ci, cj;
   make_comparators(dctM_eff, bits, ci, cj);
+  const int effective_bits = (int)ci.size();
+  const bool has_hashB = effective_bits > 64;
 
   // Hash time series
   std::vector<uint64_t> hashA((size_t)Nmask, 0ull), hashB;
-  if (bits == 128) hashB.assign((size_t)Nmask, 0ull);
-  NumericVector mean_tail(Nmask), var_tail(Nmask);
+  if (has_hashB) hashB.assign((size_t)Nmask, 0ull);
   {
-    HashWorker hw(ts, dctM_eff, bits, ctab, ci, cj, mean_tail, var_tail, hashA, hashB);
+    HashWorker hw(ts, dctM_eff, ctab, ci, cj, hashA, hashB);
     parallelFor(0, (size_t)Nmask, hw, (size_t)2048);
   }
 
   // Place hashes into full grid arrays
   std::vector<uint64_t> gridHashA(Ngrid, 0ull), gridHashB;
-  if (bits == 128) gridHashB.assign(Ngrid, 0ull);
+  if (has_hashB) gridHashB.assign(Ngrid, 0ull);
   for (int i = 0; i < Nmask; ++i) {
     int idx = mask_lin[i];
     gridHashA[(size_t)idx] = hashA[(size_t)i];
-    if (bits == 128) gridHashB[(size_t)idx] = hashB[(size_t)i];
+    if (has_hashB) gridHashB[(size_t)idx] = hashB[(size_t)i];
   }
 
   // Seed K sites
   std::vector<Seed> seeds;
-  seed_blue_noise(mask_lin, nx, ny, nz, K, seeds);
+  seed_blue_noise(
+    mask_lin, nx, ny, nz, K,
+    (double)vox_scale[0], (double)vox_scale[1], (double)vox_scale[2],
+    S_phys, seeds
+  );
 
   // Site state
   struct Site { float x,y,z; uint64_t ha, hb; int seed_idx; };
@@ -666,7 +679,10 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
     int gridIdx = seeds[(size_t)k].gridIndex;
     float x,y,z;
     idx_to_xyz(gridIdx, x,y,z);
-    sites[(size_t)k] = Site{ x, y, z, gridHashA[(size_t)gridIdx], (bits==128)?gridHashB[(size_t)gridIdx]:0ull, gridIdx };
+    sites[(size_t)k] = Site{
+      x, y, z, gridHashA[(size_t)gridIdx],
+      has_hashB ? gridHashB[(size_t)gridIdx] : 0ull, gridIdx
+    };
   }
 
 
@@ -679,6 +695,7 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
     const float *barrier;
     const bool has_hashB;
     const bool use_bar;
+    const int hash_bits;
     const int nx, ny, nz;
     const double vx_sx, vx_sy, vx_sz; // voxel scaling (dx,dy,dz)
 
@@ -707,6 +724,7 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
                 const float *barrier_,
                 bool has_hashB_,
                 bool use_bar_,
+                int hash_bits_,
                 int nx_, int ny_, int nz_,
                 double vx_sx_, double vx_sy_, double vx_sz_,
                 double lambda_s_cur_, double lambda_t_,
@@ -721,6 +739,7 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
                 int step_)
       : is_mask(is_mask_), gridHashA(gridHashA_), gridHashB(gridHashB_), barrier(barrier_),
         has_hashB(has_hashB_), use_bar(use_bar_),
+        hash_bits(hash_bits_),
         nx(nx_), ny(ny_), nz(nz_),
         vx_sx(vx_sx_), vx_sy(vx_sy_), vx_sz(vx_sz_),
         lambda_s_cur(lambda_s_cur_), lambda_t(lambda_t_), lambda_g(lambda_g_), S2(S2_),
@@ -740,7 +759,8 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
     }
 
     // OPTIMIZED: Pass coordinates directly to avoid expensive div/mod operations
-    inline float score_vox(int vIdx, int xc, int yc, int zc, int siteId) const {
+    inline float score_vox(int vIdx, int xc, int yc, int zc, int siteId,
+                           float upper_bound) const {
       if (siteId < 0) return std::numeric_limits<float>::infinity();
       const Site &s = sites[(size_t)siteId];
 
@@ -749,10 +769,13 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
       double dz = ((double)zc - (double)s.z) * vx_sz;
       double sd2 = dx*dx + dy*dy + dz*dz;
 
-      uint32_t hd = hamming_dist((size_t)vIdx, s);
+      double sc = lambda_s_cur * (sd2 / S2);
+      // Every remaining score term is non-negative. Avoid Hamming and barrier
+      // work when the spatial lower bound cannot improve the incumbent.
+      if (sc >= (double)upper_bound) return (float)sc;
 
-      double sc = lambda_s_cur * (sd2 / S2) +
-        lambda_t * ((double)hd / (double)(has_hashB ? 128 : 64));
+      uint32_t hd = hamming_dist((size_t)vIdx, s);
+      sc += lambda_t * ((double)hd / (double)hash_bits);
       if (use_bar) {
         // Candidate-dependent boundary-field penalty. The previous additive
         // barrier[vIdx] term was constant across sites and could never change
@@ -802,10 +825,10 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
                 if (!is_mask[nb]) continue;
 
                 int cand = carry_read[nb];
-                if (cand < 0) continue;
+                if (cand < 0 || cand == car) continue;
 
                 // Pass current coordinates to avoid div/mod in score_vox
-                float sc = score_vox((int)idx, xc, yc, zc, cand);
+                float sc = score_vox((int)idx, xc, yc, zc, cand, b);
                 if (sc < b) { b = sc; lab = cand; car = cand; }
               }
             }
@@ -844,13 +867,23 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
   auto ceil_pow2 = [](int v)->int {
     int p = 1; while (p < v) p <<= 1; return p;
   };
+  size_t relax_grain = std::max(
+    (size_t)2048,
+    std::min((size_t)16384, std::max((size_t)1, Ngrid / (size_t)32))
+  );
+  const char *thread_env = std::getenv("RCPP_PARALLEL_NUM_THREADS");
+  if (thread_env != nullptr && std::atoi(thread_env) == 1) {
+    relax_grain = (size_t)65536;
+  }
 
   // ---- outer rounds ----
   for (int r = 0; r < rounds; ++r) {
     if (verbose) Rcpp::Rcout << "[FLASH-3D] Round " << (r+1) << " / " << rounds << " [JFA]\n";
 
-    // Anneal spatial weight slightly upward per round (encourages compactness to finish)
-    lambda_s_current = lambda_s0 * (1.0 + 0.5 * (double)r);
+    // Warm up from half strength, but always finish at the requested objective.
+    // The number of optimization rounds must not silently redefine lambda_s.
+    const double progress = rounds == 1 ? 1.0 : (double)r / (double)(rounds - 1);
+    lambda_s_current = lambda_s0 * (0.5 + 0.5 * progress);
     if (r == rounds - 1) final_assignment_sites = sites;
 
     // reset grids and seed from current medoids
@@ -883,10 +916,11 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
         RelaxWorker worker(
           is_mask.data(),
           gridHashA.data(),
-          (bits==128 ? gridHashB.data() : nullptr),
+          (has_hashB ? gridHashB.data() : nullptr),
           (use_barrier ? barrier.data() : nullptr),
-          (bits==128),
+          has_hashB,
           use_barrier,
+          effective_bits,
           nx, ny, nz,
           (double)vox_scale[0], (double)vox_scale[1], (double)vox_scale[2],
           lambda_s_current, lambda_t, lambda_g, S2,
@@ -895,7 +929,7 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
           label_next, best_next, carry_next,
           s
         );
-        parallelFor(0, (size_t)Ngrid, worker, (size_t)65536);
+        parallelFor(0, (size_t)Ngrid, worker, relax_grain);
       }
     }
 
@@ -904,14 +938,78 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
     std::swap(label, label_next);
     std::swap(carry, carry_next);
 
+    // JFA+2 on the final assignment only: two additional unit-stride passes
+    // repair candidates that first become visible at the final jump. Earlier
+    // rounds only need approximate assignments for recentering, so avoiding
+    // refinement there preserves the runtime benefit of the proposal stage.
+    const int final_refinement_passes = (r == rounds - 1) ? 2 : 0;
+    for (int refine = 0; refine < final_refinement_passes; ++refine) {
+      RelaxWorker worker(
+        is_mask.data(),
+        gridHashA.data(),
+        has_hashB ? gridHashB.data() : nullptr,
+        use_barrier ? barrier.data() : nullptr,
+        has_hashB,
+        use_barrier,
+        effective_bits,
+        nx, ny, nz,
+        (double)vox_scale[0], (double)vox_scale[1], (double)vox_scale[2],
+        lambda_s_current, lambda_t, lambda_g, S2,
+        sites,
+        label, best, carry,
+        label_next, best_next, carry_next,
+        1
+      );
+      parallelFor(0, (size_t)Ngrid, worker, relax_grain);
+      std::swap(best, best_next);
+      std::swap(label, label_next);
+      std::swap(carry, carry_next);
+    }
+
+    // Jump flooding propagates only through masked endpoints. Assign any
+    // unreached voxels (for example, an unseeded disconnected component) by
+    // exact scoring against the current K sites. This path is normally empty.
+    for (int m = 0; m < Nmask; ++m) {
+      int idx = mask_lin[(size_t)m];
+      if (label[(size_t)idx] >= 0) continue;
+      int zc = idx / (nx * ny);
+      int rem = idx - zc * (nx * ny);
+      int yc = rem / nx;
+      int xc = rem - yc * nx;
+      float best_score = inf;
+      int best_site = -1;
+      for (int k = 0; k < K; ++k) {
+        const Site &site = sites[(size_t)k];
+        double dx = ((double)xc - (double)site.x) * (double)vox_scale[0];
+        double dy = ((double)yc - (double)site.y) * (double)vox_scale[1];
+        double dz = ((double)zc - (double)site.z) * (double)vox_scale[2];
+        double score = lambda_s_current * ((dx*dx + dy*dy + dz*dz) / S2);
+        uint32_t hd = popcount64(gridHashA[(size_t)idx] ^ site.ha);
+        if (has_hashB) hd += popcount64(gridHashB[(size_t)idx] ^ site.hb);
+        score += lambda_t * ((double)hd / (double)effective_bits);
+        if (use_barrier) {
+          score += lambda_g * std::fabs(
+            (double)barrier[(size_t)idx] - (double)barrier[(size_t)site.seed_idx]
+          );
+        }
+        if ((float)score < best_score) {
+          best_score = (float)score;
+          best_site = k;
+        }
+      }
+      if (best_site < 0) stop("FLASH-3D could not score an unreached masked voxel");
+      label[(size_t)idx] = best_site;
+      carry[(size_t)idx] = best_site;
+      best[(size_t)idx] = best_score;
+    }
+
     // ----- recenter sites (OPTIMIZED: parallel reduction) -----
     ParallelCentroidWorker centroid_worker(
       label,
       is_mask.data(),
       gridHashA.data(),
-      (bits == 128) ? gridHashB.data() : nullptr,
-      best.data(),
-      nx, ny, K, bits
+      has_hashB ? gridHashB.data() : nullptr,
+      nx, ny, K, effective_bits
     );
     parallelReduce(0, Ngrid, centroid_worker);
 
@@ -962,7 +1060,7 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
         int replacement = reseed_idx[(size_t)k];
         float x,y,z; idx_to_xyz(replacement, x,y,z);
         ha = gridHashA[(size_t)replacement];
-        if (bits==128) hb = gridHashB[(size_t)replacement];
+        if (has_hashB) hb = gridHashB[(size_t)replacement];
         sites[(size_t)k] = Site{ x, y, z, ha, hb, replacement };
         continue;
       }
@@ -971,13 +1069,14 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
       if (seed_idx < 0) seed_idx = sites[(size_t)k].seed_idx; // fallback
       float x,y,z; idx_to_xyz(seed_idx, x,y,z);
 
-      for (int b=0;b<64;b++) {
+      const int lower_bits = std::min(64, effective_bits);
+      for (int b=0;b<lower_bits;b++) {
         if (centroid_worker.acc[(size_t)k].bitcA[b] * 2 >= centroid_worker.acc[(size_t)k].count) {
           ha |= (1ull<<b);
         }
       }
-      if (bits==128) {
-        for (int b=0;b<64;b++) {
+      if (has_hashB) {
+        for (int b=0;b<effective_bits - 64;b++) {
           if (centroid_worker.acc[(size_t)k].bitcB[b] * 2 >= centroid_worker.acc[(size_t)k].count) {
             hb |= (1ull<<b);
           }
@@ -1039,6 +1138,7 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
     Named("centers") = centers,
     Named("coords") = coords,
     Named("K") = K,
+    Named("hash_bits_effective") = effective_bits,
     Named("reseed_count") = reseed_history.size(),
     Named("round_reseed_counts") = round_reseed_counts,
     Named("reseed_indices_grid") = wrap(reseed_history)
@@ -1047,29 +1147,36 @@ List flash3d_supervoxels_cpp(NumericMatrix ts,     // T x Nmask (time series for
   if (diagnostics) {
     NumericMatrix assignment_site_coords(K, 3);
     IntegerVector assignment_site_seed_grid(K);
-    IntegerMatrix assignment_site_hash_bits(K, bits);
-    IntegerMatrix voxel_hash_bits(Nmask, bits);
+    IntegerMatrix assignment_site_hash_bits(K, effective_bits);
+    IntegerMatrix voxel_hash_bits(Nmask, effective_bits);
+    IntegerVector comparator_i(effective_bits), comparator_j(effective_bits);
     for (int k = 0; k < K; ++k) {
       const Site &site = final_assignment_sites[(size_t)k];
       assignment_site_coords(k, 0) = site.x;
       assignment_site_coords(k, 1) = site.y;
       assignment_site_coords(k, 2) = site.z;
       assignment_site_seed_grid[k] = site.seed_idx + 1;
-      for (int bit = 0; bit < bits; ++bit) {
+      for (int bit = 0; bit < effective_bits; ++bit) {
         uint64_t word = bit < 64 ? site.ha : site.hb;
         assignment_site_hash_bits(k, bit) = (word >> (bit % 64)) & 1ull;
       }
     }
     for (int voxel = 0; voxel < Nmask; ++voxel) {
-      for (int bit = 0; bit < bits; ++bit) {
+      for (int bit = 0; bit < effective_bits; ++bit) {
         uint64_t word = bit < 64 ? hashA[(size_t)voxel] : hashB[(size_t)voxel];
         voxel_hash_bits(voxel, bit) = (word >> (bit % 64)) & 1ull;
       }
+    }
+    for (int bit = 0; bit < effective_bits; ++bit) {
+      comparator_i[bit] = (int)ci[(size_t)bit] + 1;
+      comparator_j[bit] = (int)cj[(size_t)bit] + 1;
     }
     result["assignment_site_coords"] = assignment_site_coords;
     result["assignment_site_seed_grid"] = assignment_site_seed_grid;
     result["assignment_site_hash_bits"] = assignment_site_hash_bits;
     result["voxel_hash_bits"] = voxel_hash_bits;
+    result["comparator_i"] = comparator_i;
+    result["comparator_j"] = comparator_j;
     result["S2"] = S2;
     result["lambda_s_final"] = lambda_s_current;
   }

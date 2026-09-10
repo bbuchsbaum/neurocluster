@@ -14,14 +14,16 @@
 #'   If the mask is a \code{\link[neuroim2:LogicalNeuroVol-class]{LogicalNeuroVol}}, then \code{TRUE} will define the set
 #'   of included voxels.
 #' @param K The number of clusters to find
-#' @param lambda_s Finite non-negative spatial weight (default 0.6). It is
-#'   annealed upward over rounds.
+#' @param lambda_s Finite non-negative target spatial weight (default 0.6).
+#'   Multi-round optimization warms up from half this value and finishes at the
+#'   requested value.
 #' @param lambda_t Finite non-negative temporal weight for Hamming distance of
 #'   time-series hashes (default 1.0).
 #' @param lambda_g Finite non-negative boundary-field weight (default 0.0). If
 #'   positive, \code{barrier} is required.
 #' @param rounds Number of outer rounds (seed→flood→recenter). Default 2, typically 2-3 is sufficient.
-#' @param bits Length of temporal hash (64 or 128). Default 64.
+#' @param bits Maximum temporal hash length (64 or 128). The effective number
+#'   of non-redundant comparisons is at most \code{choose(dctM, 2)}.
 #' @param dctM Number of low DCT coefficients to rank-hash (default 12, range 4-32)
 #' @param vox_scale Voxel size scaling for spatial distance, e.g., c(dx,dy,dz). Default c(1,1,1)
 #' @param barrier Optional non-negative finite 3D boundary field with the same
@@ -215,6 +217,11 @@ supervoxels_flash3d <- function(vec, mask, K,
           lambda_g = lambda_g,
           rounds = rounds,
           bits = bits,
+          hash_bits_effective = if (min(dctM, nrow(ts_matrix)) <= 1L) {
+            1L
+          } else {
+            as.integer(min(bits, choose(min(dctM, nrow(ts_matrix)), 2L)))
+          },
           dctM = dctM,
           dctM_effective = min(dctM, nrow(ts_matrix)),
           vox_scale = as.numeric(vox_scale)
@@ -291,6 +298,7 @@ supervoxels_flash3d <- function(vec, mask, K,
         lambda_g = lambda_g,
         rounds = rounds,
         bits = bits,
+        hash_bits_effective = cpp_result$hash_bits_effective,
         dctM = dctM,
         dctM_effective = dctM_eff,
         vox_scale = vox_scale

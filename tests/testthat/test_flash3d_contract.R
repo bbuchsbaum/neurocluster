@@ -123,6 +123,98 @@ test_that("FLASH-3D scoring agrees with an exhaustive slow oracle", {
   }
 })
 
+test_that("FLASH-3D spatial scoring is invariant to uniform physical rescaling", {
+  dims <- c(12L, 10L, 3L)
+  n <- prod(dims)
+  ntime <- 24L
+  set.seed(917)
+  coords <- arrayInd(seq_len(n), dims)
+  group <- 1L + (coords[, 1L] > 6L) + 2L * (coords[, 2L] > 5L)
+  patterns <- synthetic_time_patterns(4L, ntime, "harmonic")
+  ts <- t(patterns[group, ]) + matrix(rnorm(ntime * n, sd = 0.25), ntime, n)
+
+  run_scaled <- function(scale) {
+    flash3d_supervoxels_cpp(
+      ts, seq_len(n), dims, 6L, c(0.25, 0.75, 0), 4L, 64L, 16L,
+      rep(scale, 3L), NULL, FALSE, TRUE
+    )
+  }
+  unit <- run_scaled(1)
+  tripled <- run_scaled(3)
+
+  expect_identical(unit$labels, tripled$labels)
+  expect_equal(tripled$S2 / unit$S2, 9, tolerance = 1e-12)
+})
+
+test_that("FLASH-3D annealing ends at the requested spatial objective", {
+  dims <- c(8L, 6L, 2L)
+  n <- prod(dims)
+  set.seed(918)
+  ts <- matrix(rnorm(20L * n), nrow = 20L)
+
+  for (rounds in c(1L, 2L, 4L, 8L)) {
+    core <- flash3d_supervoxels_cpp(
+      ts, seq_len(n), dims, 5L, c(0.3, 0.7, 0), rounds,
+      64L, 16L, c(1, 1, 1), NULL, FALSE, TRUE
+    )
+    expect_equal(core$lambda_s_final, 0.3, tolerance = 1e-12,
+                 info = paste("rounds", rounds))
+  }
+})
+
+test_that("FLASH-3D assigns disconnected mask components even when K is smaller", {
+  dims <- c(20L, 20L, 1L)
+  mask <- array(FALSE, dims)
+  mask[2:5, 2:5, 1L] <- TRUE
+  mask[16:19, 16:19, 1L] <- TRUE
+  mask_idx <- which(mask)
+  set.seed(919)
+  ts <- matrix(rnorm(20L * length(mask_idx)), nrow = 20L)
+
+  core <- flash3d_supervoxels_cpp(
+    ts, mask_idx, dims, 1L, c(0.25, 0.75, 0), 4L,
+    64L, 12L, c(1, 1, 1), NULL, FALSE, TRUE
+  )
+  expect_identical(as.integer(core$labels), rep(1L, length(mask_idx)))
+})
+
+test_that("FLASH-3D hash comparisons are unique and nested", {
+  dims <- c(5L, 4L, 2L)
+  n <- prod(dims)
+  set.seed(920)
+  ts <- matrix(rnorm(24L * n), nrow = 24L)
+  run_bits <- function(bits) {
+    flash3d_supervoxels_cpp(
+      ts, seq_len(n), dims, 4L, c(0.25, 0.75, 0), 1L,
+      bits, 16L, c(1, 1, 1), NULL, FALSE, TRUE
+    )
+  }
+  hash64 <- run_bits(64L)
+  hash128 <- run_bits(128L)
+  hash_small <- flash3d_supervoxels_cpp(
+    ts, seq_len(n), dims, 4L, c(0.25, 0.75, 0), 1L,
+    128L, 4L, c(1, 1, 1), NULL, FALSE, TRUE
+  )
+  one_frame <- flash3d_supervoxels_cpp(
+    matrix(seq_len(n), nrow = 1L), seq_len(n), dims, 4L,
+    c(0.25, 0.75, 0), 1L, 128L, 4L, c(1, 1, 1), NULL, FALSE, TRUE
+  )
+  pair_key <- function(core) {
+    paste(pmin(core$comparator_i, core$comparator_j),
+          pmax(core$comparator_i, core$comparator_j), sep = ":")
+  }
+
+  expect_identical(hash64$hash_bits_effective, 64L)
+  expect_identical(hash128$hash_bits_effective, 120L)
+  expect_identical(hash_small$hash_bits_effective, 6L)
+  expect_identical(one_frame$hash_bits_effective, 1L)
+  expect_true(all(one_frame$voxel_hash_bits == 0L))
+  expect_length(unique(pair_key(hash64)), hash64$hash_bits_effective)
+  expect_length(unique(pair_key(hash128)), hash128$hash_bits_effective)
+  expect_identical(pair_key(hash128)[seq_len(hash64$hash_bits_effective)],
+                   pair_key(hash64))
+})
+
 test_that("public FLASH-3D centers are final-label means in physical space", {
   dims <- c(5L, 4L, 2L)
   spatial <- NeuroSpace(dims, spacing = c(2, 3, 4))
