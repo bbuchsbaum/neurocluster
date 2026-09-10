@@ -44,8 +44,9 @@ supervoxels_flash3d(
 
 - lambda_s:
 
-  Finite non-negative spatial weight (default 0.6). It is annealed
-  upward over rounds.
+  Finite non-negative target spatial weight (default 0.6). Multi-round
+  optimization warms up from half this value and finishes at the
+  requested value.
 
 - lambda_t:
 
@@ -64,7 +65,8 @@ supervoxels_flash3d(
 
 - bits:
 
-  Length of temporal hash (64 or 128). Default 64.
+  Maximum temporal hash length (64 or 128). The effective number of
+  non-redundant comparisons is at most `choose(dctM, 2)`.
 
 - dctM:
 

@@ -104,8 +104,9 @@ of included voxels.</p></dd>
 
 
 <dt id="arg-lambda-s">lambda_s<a class="anchor" aria-label="anchor" href="#arg-lambda-s"></a></dt>
-<dd><p>Finite non-negative spatial weight (default 0.6). It is
-annealed upward over rounds.</p></dd>
+<dd><p>Finite non-negative target spatial weight (default 0.6).
+Multi-round optimization warms up from half this value and finishes at the
+requested value.</p></dd>
 
 
 <dt id="arg-lambda-t">lambda_t<a class="anchor" aria-label="anchor" href="#arg-lambda-t"></a></dt>
@@ -123,7 +124,8 @@ positive, <code>barrier</code> is required.</p></dd>
 
 
 <dt id="arg-bits">bits<a class="anchor" aria-label="anchor" href="#arg-bits"></a></dt>
-<dd><p>Length of temporal hash (64 or 128). Default 64.</p></dd>
+<dd><p>Maximum temporal hash length (64 or 128). The effective number
+of non-redundant comparisons is at most <code>choose(dctM, 2)</code>.</p></dd>
 
 
 <dt id="arg-dctm">dctM<a class="anchor" aria-label="anchor" href="#arg-dctm"></a></dt>
