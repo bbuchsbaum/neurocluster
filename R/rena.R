@@ -480,20 +480,21 @@ rena_build_connectivity <- function(mask, mask_idx, connectivity) {
 #' Wrapper for ReNA algorithm with standardized cluster4d interface.
 #'
 #' @inheritParams cluster4d
-#' @param ... Additional parameters (currently unused for ReNA)
+#' @param ... Additional parameters (currently unused for ReNA). ReNA has no
+#'   spatial/feature trade-off, so \code{spatial_weight} is not a formal
+#'   argument; supplying it through \code{...} is an error.
 #' @param exact_k Logical; if TRUE, apply edge pruning to target exactly \code{n_clusters}.
 #'
 #' @return A cluster4d_result object
 #' @export
 cluster4d_rena <- function(vec, mask, n_clusters = 100,
-                           spatial_weight = 0.5,
                            max_iterations = 50,
                            connectivity = 26,
                            verbose = FALSE,
                            exact_k = TRUE,
                            ...) {
 
-  if (!missing(spatial_weight)) {
+  if ("spatial_weight" %in% names(match.call(expand.dots = FALSE)$...)) {
     stop("cluster4d_rena: spatial_weight is not supported", call. = FALSE)
   }
   validate_cluster4d_inputs(vec, mask, n_clusters, "cluster4d_rena")

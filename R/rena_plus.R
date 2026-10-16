@@ -191,10 +191,12 @@ rena_plus <- function(bvec, mask,
 #' @param r Over-clustering factor for coarsening stage.
 #' @param lambda Gradient penalty weight.
 #' @param grad_img Optional gradient/intensity vector (see \code{rena_plus}).
+#' @param ... Additional arguments passed to \code{rena_plus()}. ReNA++ has no
+#'   spatial/feature trade-off, so \code{spatial_weight} is not a formal
+#'   argument; supplying it through \code{...} is an error.
 #' @return A \code{cluster4d_result}.
 #' @export
 cluster4d_rena_plus <- function(vec, mask, n_clusters = 100,
-                                spatial_weight = 0.5,
                                 r = 2,
                                 lambda = 1,
                                 grad_img = NULL,
@@ -204,7 +206,7 @@ cluster4d_rena_plus <- function(vec, mask, n_clusters = 100,
                                 ...) {
 
   vec <- ensure_neurovec(vec)
-  if (!missing(spatial_weight)) {
+  if ("spatial_weight" %in% names(match.call(expand.dots = FALSE)$...)) {
     stop("cluster4d_rena_plus: spatial_weight is not supported", call. = FALSE)
   }
   validate_cluster4d_inputs(vec, mask, n_clusters, "cluster4d_rena_plus")

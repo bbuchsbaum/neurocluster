@@ -11,19 +11,26 @@
 #' @param n_clusters Finite integer target number of clusters (default 100), from
 #'   one through the number of included mask voxels. Note that some methods
 #'   may produce slightly different numbers of clusters due to algorithmic constraints.
-#' @param method Clustering algorithm to use. Options:
+#' @param method Clustering algorithm to use. One of the 13 values below; the
+#'   order is not a performance ranking or recommendation.
 #'   \itemize{
 #'     \item \code{"supervoxels"}: Iterative heat kernel-based clustering (default)
 #'     \item \code{"snic"}: Simple Non-Iterative Clustering
 #'     \item \code{"slic"}: SLIC superpixels extended to 4D
+#'     \item \code{"corr_slic"}: Correlation-embedded SLIC (local 3D SLIC updates on a
+#'       compact random-projection embedding of the voxel time series)
 #'     \item \code{"brs_slic"}: Boundary-Refined Sketch SLIC (coarse sketch + boundary exact-correlation refinement)
 #'     \item \code{"slice_msf"}: Experimental Slice-wise Minimum Spanning
 #'       Forest, available for explicit evaluation but not recommended
 #'     \item \code{"flash3d"}: Fast Low-rank Approximate Superclusters
-#'     \item \code{"g3s"}: Gradient-Guided Geodesic Supervoxels (NEW - recommended for best quality/speed)
-#'     \item \code{"rena"}: Recursive Nearest Agglomeration (fast, balanced, topology-aware)
+#'     \item \code{"g3s"}: Gradient-Guided Geodesic Supervoxels
+#'     \item \code{"rena"}: Recursive Nearest Agglomeration (balanced, topology-aware)
+#'     \item \code{"rena_plus"}: ReNA++, edge-aware multi-level ReNA
+#'       coarsening followed by Ward refinement to the exact target
 #'     \item \code{"mcl"}: Sparse Markov Cluster Algorithm on a weighted voxel graph
 #'     \item \code{"acsc"}: Adaptive Correlation Superclustering (graph-based with boundary refinement)
+#'     \item \code{"commute"}: Commute-time spectral clustering on a physical
+#'       k-nearest-neighbor graph
 #'   }
 #' @param spatial_weight Method-specific spatial control in `[0, 1]`. For methods
 #'   that define a convex feature/spatial blend, zero disables the spatial term
@@ -79,15 +86,32 @@
 #'
 #' @section Algorithm Comparison:
 #'
-#' \tabular{lllllll}{
-#'   \strong{Method} \tab \strong{Speed} \tab \strong{3D Continuity} \tab \strong{Memory} \tab \strong{Parallel} \tab \strong{Best For} \cr
-#'   supervoxels \tab Slow \tab Excellent \tab High \tab Yes \tab Small-medium data, smooth parcels \cr
-#'   snic \tab Fast \tab Good \tab Low \tab No \tab Large data, non-iterative \cr
-#'   slic \tab Fast \tab Good \tab Medium \tab Yes \tab Balanced speed/quality \cr
-#'   slice_msf \tab Experimental \tab 3-D when stitched \tab Low \tab No \tab Explicit evaluation only \cr
-#'   flash3d \tab Fast \tab Good \tab Medium \tab No \tab Large data, hash-based \cr
-#'   rena \tab Fast \tab Excellent \tab Low \tab No \tab Balanced clusters, topology-aware \cr
-#'   mcl \tab Fast \tab Good \tab Medium \tab No \tab Sparse graph clustering with tunable granularity \cr
+#' The \emph{Speed} column reports single-threaded wall-clock tiers measured
+#' with \code{cluster4d()} defaults on the neuroim2 bundled mask
+#' (\code{global_mask_v4.nii}, 29,532 voxels), 20 timepoints of Gaussian noise
+#' and \code{n_clusters = 200}: \emph{Fast} is under 1 s,
+#' \emph{Moderate} a few seconds, \emph{Slow} tens of seconds, and
+#' \emph{Very slow} did not finish within 5 minutes. Timings depend on
+#' hardware, mask size, and parameters; treat the tiers as relative guidance,
+#' not a ranking of quality. \emph{Parallel}, \emph{Iterations}, and
+#' \emph{Spatial weight} state whether the common \code{parallel},
+#' \code{max_iterations}, and \code{spatial_weight} arguments are active.
+#'
+#' \tabular{llllll}{
+#'   \strong{Method} \tab \strong{Speed} \tab \strong{Parallel} \tab \strong{Iterations} \tab \strong{Spatial weight} \tab \strong{Notes} \cr
+#'   supervoxels \tab Moderate \tab Yes \tab Yes \tab Yes \tab Heat-kernel iterative clustering; default method \cr
+#'   snic \tab Slow \tab No \tab No \tab Yes \tab Non-iterative; run time is dominated by k-NN gradient seeding \cr
+#'   slic \tab Fast \tab Yes \tab Yes \tab Yes \tab Compact 4D SLIC supervoxels \cr
+#'   corr_slic \tab Fast \tab No \tab Yes \tab Yes \tab Correlation feature distance on a random-projection embedding \cr
+#'   brs_slic \tab Fast \tab No \tab Yes \tab Yes \tab Sketch SLIC with exact-correlation boundary refinement \cr
+#'   slice_msf \tab Fast \tab No \tab No \tab Yes \tab Experimental; explicit evaluation only \cr
+#'   flash3d \tab Fast \tab No \tab Yes \tab Yes \tab Hash-based low-rank superclusters \cr
+#'   g3s \tab Fast \tab No \tab Yes \tab Yes \tab Gradient-guided geodesic supervoxels \cr
+#'   rena \tab Fast \tab No \tab Yes \tab No \tab Balanced, topology-aware agglomeration \cr
+#'   rena_plus \tab Very slow \tab No \tab Yes \tab No \tab Edge-aware ReNA with Ward refinement; for small masks \cr
+#'   mcl \tab Slow \tab No \tab Yes \tab Yes \tab Picks the natural MCL partition closest to \code{n_clusters}, so \code{actual_k} can differ unless \code{exact_k = TRUE} \cr
+#'   acsc \tab Slow \tab No \tab Yes \tab Yes \tab Correlation graph with boundary refinement \cr
+#'   commute \tab Very slow \tab No \tab No \tab Yes \tab Commute-time spectral embedding; for small masks \cr
 #' }
 #'
 #' @section Parameter Guidelines:
@@ -113,18 +137,17 @@
 #' }
 #'
 #' @examples
-#' \dontrun{
-#' # Simple synthetic example (runs quickly for testing)
+#' # Simple synthetic example (runs quickly)
 #' library(neuroim2)
+#' set.seed(1)
 #' mask <- NeuroVol(array(1, c(4,4,4)), NeuroSpace(c(4,4,4)))
-#' vec <- NeuroVec(array(rnorm(4*4*4*10), c(4,4,4,10)), 
-#'                 NeuroSpace(c(4,4,4,10)))
-#' result <- cluster4d(vec, mask, n_clusters = 3, method = "g3s", 
+#' vec <- NeuroVec(array(rnorm(4*4*4*20), c(4,4,4,20)),
+#'                 NeuroSpace(c(4,4,4,20)))
+#' result <- cluster4d(vec, mask, n_clusters = 3, method = "g3s",
 #'                    max_iterations = 1)
 #' print(result$n_clusters)
-#' }
 #'
-#' \dontrun{
+#' \donttest{
 #' # More realistic examples with larger data
 #' mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
 #' vec <- replicate(50, NeuroVol(array(runif(20*20*20), c(20,20,20)),
@@ -158,8 +181,9 @@
 #' Method-specific functions: \code{\link{cluster4d_supervoxels}}, 
 #' \code{\link{cluster4d_snic}}, \code{\link{cluster4d_slic}},
 #' \code{\link{cluster4d_slice_msf}}, \code{\link{cluster4d_flash3d}},
-#' \code{\link{cluster4d_mcl}},
-#' \code{\link{cluster4d_commute}}
+#' \code{\link{cluster4d_g3s}}, \code{\link{cluster4d_rena}},
+#' \code{\link{cluster4d_rena_plus}}, \code{\link{cluster4d_mcl}},
+#' \code{\link{cluster4d_acsc}}, \code{\link{cluster4d_commute}}
 #' 
 #' Legacy functions (deprecated): \code{\link{supervoxels}}, \code{\link{snic}},
 #' \code{\link{slic4d_supervoxels}}, \code{\link{slice_msf}}, \code{\link{supervoxels_flash3d}}

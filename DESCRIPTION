@@ -1,7 +1,7 @@
 Package: neurocluster
 Type: Package
 Title: Spatially Constrained Clustering for Neuroimaging Data
-Version: 0.1.0
+Version: 0.1.0.9000
 Authors@R: person(given = "Bradley",
                   family = "Buchsbaum",
                   role = c("aut", "cre"),

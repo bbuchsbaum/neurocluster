@@ -385,3 +385,25 @@ test_that("advertised spatial_weight endpoints reach real implementations", {
     }
   }
 })
+
+test_that("ReNA wrappers do not advertise an inactive spatial_weight default (#1)", {
+  # Regression for #1: the usage showed `spatial_weight = 0.5` although any
+  # supplied value is rejected. The argument must not be a formal, and it must
+  # still be rejected (not silently ignored) when passed through `...`.
+  for (fn in list(cluster4d_rena, cluster4d_rena_plus)) {
+    expect_false("spatial_weight" %in% names(formals(fn)))
+  }
+  fixture <- contract_fixture()
+  expect_error(
+    cluster4d_rena(fixture$vec, fixture$mask, 2, spatial_weight = 0),
+    "cluster4d_rena: spatial_weight is not supported"
+  )
+  expect_error(
+    cluster4d_rena_plus(fixture$vec, fixture$mask, 2, spatial_weight = 1),
+    "cluster4d_rena_plus: spatial_weight is not supported"
+  )
+  fit <- cluster4d_rena(fixture$vec, fixture$mask, 2)
+  expect_null(fit$parameters$spatial_weight)
+  fit_plus <- cluster4d_rena_plus(fixture$vec, fixture$mask, 2)
+  expect_null(fit_plus$parameters$spatial_weight)
+})

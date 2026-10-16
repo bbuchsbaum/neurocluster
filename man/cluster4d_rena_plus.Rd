@@ -8,7 +8,6 @@ cluster4d_rena_plus(
   vec,
   mask,
   n_clusters = 100,
-  spatial_weight = 0.5,
   r = 2,
   lambda = 1,
   grad_img = NULL,
@@ -28,27 +27,6 @@ strictly greater than zero; zero and negative values are excluded.}
 \item{n_clusters}{Exact finite integer target number of clusters, from one
 through the number of included mask voxels.}
 
-\item{spatial_weight}{Method-specific spatial control in \verb{[0, 1]}. For methods
-that define a convex feature/spatial blend, zero disables the spatial term
-and one disables the feature term. Other methods use the value as a bounded
-mapping to a native scale; their endpoints do not have that blend meaning.
-Default 0.5.
-This parameter is inactive for \code{"rena"} and \code{"rena_plus"};
-supplying it explicitly for either method is an error.
-Maps to method-specific parameters:
-\itemize{
-\item supervoxels: \code{alpha = 1 - spatial_weight} (0 = all spatial, 1 = all feature)
-\item snic: \code{compactness = spatial_weight * 10} (range 0-10)
-\item slic: \code{compactness = spatial_weight * 20} (typical range 1-20)
-\item corr_slic/brs_slic: direct convex blend between correlation and
-scaled spatial distance
-\item slice_msf: \code{compactness = spatial_weight * 10}, followed by
-FH component scale \code{2 / (compactness + 1)}. This changes the
-graph-segmentation scale; it is not a convex spatial/feature blend.
-\item flash3d: \code{lambda_s = spatial_weight} (direct mapping)
-\item mcl: direct blend between feature and spatial edge similarities
-}}
-
 \item{r}{Over-clustering factor for coarsening stage.}
 
 \item{lambda}{Gradient penalty weight.}
@@ -66,7 +44,9 @@ methods. It is inactive for \code{"snic"}, \code{"slice_msf"}, and
 
 \item{verbose}{Print progress messages. Default FALSE.}
 
-\item{...}{Additional method-specific parameters. See method documentation for details.}
+\item{...}{Additional arguments passed to \code{rena_plus()}. ReNA++ has no
+spatial/feature trade-off, so \code{spatial_weight} is not a formal
+argument; supplying it through \code{...} is an error.}
 }
 \value{
 A \code{cluster4d_result}.
