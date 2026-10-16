@@ -197,11 +197,11 @@ The *Speed* column reports single-threaded wall-clock tiers measured
 with `cluster4d()` defaults on the neuroim2 bundled mask
 (`global_mask_v4.nii`, 29,532 voxels), 20 timepoints of Gaussian noise
 and `n_clusters = 200`: *Fast* is under 1 s, *Moderate* a few seconds,
-*Slow* tens of seconds, and *Very slow* did not finish within 5 minutes.
-Timings depend on hardware, mask size, and parameters; treat the tiers
-as relative guidance, not a ranking of quality. *Parallel*,
-*Iterations*, and *Spatial weight* state whether the common `parallel`,
-`max_iterations`, and `spatial_weight` arguments are active.
+and *Slow* tens of seconds. Timings depend on hardware, mask size, and
+parameters; treat the tiers as relative guidance, not a ranking of
+quality. *Parallel*, *Iterations*, and *Spatial weight* state whether
+the common `parallel`, `max_iterations`, and `spatial_weight` arguments
+are active.
 
 |  |  |  |  |  |  |
 |----|----|----|----|----|----|
@@ -215,10 +215,10 @@ as relative guidance, not a ranking of quality. *Parallel*,
 | flash3d | Fast | No | Yes | Yes | Hash-based low-rank superclusters |
 | g3s | Fast | No | Yes | Yes | Gradient-guided geodesic supervoxels |
 | rena | Fast | No | Yes | No | Balanced, topology-aware agglomeration |
-| rena_plus | Very slow | No | Yes | No | Edge-aware ReNA with Ward refinement; for small masks |
+| rena_plus | Fast | No | Yes | No | Edge-aware ReNA coarsening with exact Ward refinement |
 | mcl | Slow | No | Yes | Yes | Picks the natural MCL partition closest to `n_clusters`, so `actual_k` can differ unless `exact_k = TRUE` |
 | acsc | Slow | No | Yes | Yes | Correlation graph with boundary refinement |
-| commute | Very slow | No | No | Yes | Commute-time spectral embedding; for small masks |
+| commute | Moderate | No | No | Yes | Commute-time spectral embedding; sparse eigensolver (RSpectra) above 3,000 voxels |
 
 ## Parameter Guidelines
 

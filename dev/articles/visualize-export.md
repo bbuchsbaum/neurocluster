@@ -115,7 +115,7 @@ output_file <- file.path(tempdir(), "neurocluster-parcels.nii.gz")
 neuroim2::write_vol(fit$clusvol, output_file)
 c(path = output_file, bytes = file.info(output_file)$size)
 #>                                          path 
-#> "/tmp/RtmperSzfK/neurocluster-parcels.nii.gz" 
+#> "/tmp/Rtmptlkcz7/neurocluster-parcels.nii.gz" 
 #>                                         bytes 
 #>                                         "410"
 ```

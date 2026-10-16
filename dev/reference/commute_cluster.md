@@ -20,6 +20,7 @@ commute_cluster(
   bad_voxel_policy = c("error", "zero_constant"),
   variance_tol = 1e-09,
   eigen_tol = 1e-10,
+  eigen_solver = c("auto", "dense", "sparse"),
   verbose = FALSE
 )
 ```
@@ -80,6 +81,21 @@ commute_cluster(
 
   Positive tolerance for the Laplacian zero eigenspace.
 
+- eigen_solver:
+
+  `"auto"` (default), `"dense"`, or `"sparse"`. The dense solver runs a
+  full [`eigen()`](https://rdrr.io/r/base/eigen.html) on the N-by-N
+  Laplacian: O(N^2) memory and O(N^3) time, practical up to a few
+  thousand voxels. The sparse solver computes only the `ncomp + 1`
+  smallest eigenpairs by shift-invert Lanczos
+  ([`RSpectra::eigs_sym()`](https://rdrr.io/pkg/RSpectra/man/eigs.html),
+  a suggested package) and scales to whole-brain masks. `"auto"` uses
+  the dense solver for at most 3,000 masked voxels and the sparse solver
+  above that. Both span the same eigenspace; embeddings agree to solver
+  tolerance, up to the sign of each eigenvector (and the basis inside a
+  repeated eigenvalue), which commute-time distances and hence k-means
+  do not depend on.
+
 - verbose:
 
   Logical; print progress.
@@ -96,6 +112,9 @@ data-policy provenance.
 The implementation is deterministic. Any RNG initialization performed
 inside [`stats::kmeans()`](https://rdrr.io/r/stats/kmeans.html) is
 scoped to a fixed local seed, after which the caller's prior RNG state
-(including absence of `.Random.seed`) is restored exactly. It forms a
-dense Laplacian eigendecomposition, requiring quadratic memory and cubic
-time; use only for small regions.
+(including absence of `.Random.seed`) is restored exactly. With the
+dense solver it forms a full Laplacian eigendecomposition, requiring
+quadratic memory and cubic time, so `eigen_solver = "auto"` switches to
+the sparse solver above 3,000 voxels. With the sparse solver the run
+time is dominated by k-means and is a few seconds for about 30,000
+voxels and K = 200.

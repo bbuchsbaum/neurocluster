@@ -44,12 +44,12 @@ timings <- do.call(rbind, lapply(seq_along(benchmark_order), function(run) {
 }))
 timings
 #>   run method repetition elapsed_seconds actual_k valid
-#> 1   1   snic          1           0.040        4  TRUE
+#> 1   1   snic          1           0.033        4  TRUE
 #> 2   2   slic          1           0.006        4  TRUE
 #> 3   3   slic          2           0.005        4  TRUE
-#> 4   4   snic          2           0.039        4  TRUE
-#> 5   5   snic          3           0.039        4  TRUE
-#> 6   6   slic          3           0.006        4  TRUE
+#> 4   4   snic          2           0.033        4  TRUE
+#> 5   5   snic          3           0.033        4  TRUE
+#> 6   6   slic          3           0.005        4  TRUE
 ```
 
 ![Jittered timing points and median diamonds for SNIC and serial SLIC on

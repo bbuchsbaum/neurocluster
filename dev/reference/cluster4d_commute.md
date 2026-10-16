@@ -82,4 +82,9 @@ A cluster4d_result object
 
 ## Note
 
-Commute-time embedding is O(N^3) eigen; use only on small ROIs.
+Masks with more than 3,000 voxels use a sparse shift-invert eigensolver
+(the suggested package RSpectra); smaller masks use the dense
+[`eigen()`](https://rdrr.io/r/base/eigen.html) path. Pass `eigen_solver`
+(see
+[`commute_cluster`](https://bbuchsbaum.github.io/neurocluster/dev/reference/commute_cluster.md))
+to choose explicitly.
