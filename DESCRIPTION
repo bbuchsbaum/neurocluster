@@ -17,15 +17,15 @@ License: GPL (>= 3)
 URL: https://bbuchsbaum.github.io/neurocluster/, https://github.com/bbuchsbaum/neurocluster
 BugReports: https://github.com/bbuchsbaum/neurocluster/issues
 Encoding: UTF-8
-Depends: R (>= 3.5.0)
+Depends: R (>= 4.1)
 Imports: Rcpp (>= 0.11.3), RcppParallel, Matrix, FNN, RANN,
     assertthat, clue, igraph, adjoin, neuroim2,
-    purrr, future, future.apply, furrr, methods
+    purrr, future, future.apply, furrr, methods, eigencore (>= 1.0.3)
 LinkingTo: Rcpp, RcppParallel, RcppArmadillo
 RoxygenNote: 7.3.3
 Roxygen: list(markdown = TRUE)
 Suggests: testthat, knitr, rmarkdown, pkgdown, ggplot2, rsvd, neurosurf,
-    irlba, robustbase, mclust, albersdown, processx, RSpectra
+    irlba, robustbase, mclust, albersdown, processx
 VignetteBuilder: knitr
 Remotes: bbuchsbaum/neurosurf
 Config/Needs/website: albersdown

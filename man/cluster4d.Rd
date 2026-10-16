@@ -141,7 +141,7 @@ rena \tab Fast \tab No \tab Yes \tab No \tab Balanced, topology-aware agglomerat
 rena_plus \tab Fast \tab No \tab Yes \tab No \tab Edge-aware ReNA coarsening with exact Ward refinement \cr
 mcl \tab Slow \tab No \tab Yes \tab Yes \tab Picks the natural MCL partition closest to \code{n_clusters}, so \code{actual_k} can differ unless \code{exact_k = TRUE} \cr
 acsc \tab Slow \tab No \tab Yes \tab Yes \tab Correlation graph with boundary refinement \cr
-commute \tab Moderate \tab No \tab No \tab Yes \tab Commute-time spectral embedding; sparse eigensolver (\pkg{RSpectra}) above 3,000 voxels \cr
+commute \tab Moderate \tab No \tab No \tab Yes \tab Commute-time spectral embedding; sparse eigensolver (\pkg{eigencore}) above 3,000 voxels \cr
 }
 }
 

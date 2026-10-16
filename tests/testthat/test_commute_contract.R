@@ -242,7 +242,6 @@ test_that("centers and result shapes independently summarize final labels", {
 })
 
 test_that("sparse and dense eigensolvers give the same embedding and labels", {
-  skip_if_not_installed("RSpectra")
   fixture <- make_commute_contract_data(dims = c(9L, 8L, 6L), n_time = 7L)
   for (mode in c("heat", "binary")) {
     dense <- commute_cluster(
@@ -269,7 +268,6 @@ test_that("sparse and dense eigensolvers give the same embedding and labels", {
 
 
 test_that("sparse spectral embedding matches the effective-resistance oracle", {
-  skip_if_not_installed("RSpectra")
   set.seed(11)
   n <- 30L
   edges <- rbind(cbind(seq_len(n - 1L), 2:n), cbind(1:10, 21:30))
@@ -291,6 +289,10 @@ test_that("sparse spectral embedding matches the effective-resistance oracle", {
     tolerance = 1e-8
   )
   expect_identical(sparse$zero_eigenvalues, 1L)
+  expect_s4_class(sparse$laplacian, "sparseMatrix")
+  residual <- sparse$laplacian %*% sparse$eigenvectors -
+    sweep(sparse$eigenvectors, 2L, sparse$eigenvalues, "*")
+  expect_lt(max(sqrt(Matrix::colSums(residual^2))), 1e-8)
 
   # Asking for the whole spectrum is the dense problem.
   full <- neurocluster:::.commute_spectral_embedding(
@@ -307,11 +309,9 @@ test_that("auto solver keeps small problems dense and large ones sparse", {
     neurocluster:::.commute_resolve_solver("dense", 3001L),
     "dense eigendecomposition"
   )
-  if (requireNamespace("RSpectra", quietly = TRUE)) {
-    expect_identical(
-      neurocluster:::.commute_resolve_solver("auto", 3001L), "sparse"
-    )
-  }
+  expect_identical(
+    neurocluster:::.commute_resolve_solver("auto", 3001L), "sparse"
+  )
   expect_error(
     neurocluster:::.commute_resolve_solver("eigs", 10L),
     "should be one of"
@@ -326,7 +326,6 @@ test_that("auto solver keeps small problems dense and large ones sparse", {
 
 test_that("commute scales to a whole-brain-sized mask with the sparse solver", {
   skip_on_cran()
-  skip_if_not_installed("RSpectra")
   dims <- c(30L, 30L, 20L)
   space <- neuroim2::NeuroSpace(dims, c(2, 2, 2))
   mask <- neuroim2::NeuroVol(array(1, dims), space)
@@ -343,4 +342,90 @@ test_that("commute scales to a whole-brain-sized mask with the sparse solver", {
   expect_identical(result$n_clusters, 50L)
   expect_identical(result$parameters$eigen_solver, "sparse")
   expect_lt(elapsed, 120)
+})
+
+
+test_that("auto commute works above 3000 voxels with required eigencore", {
+  fixture <- make_commute_contract_data(c(16L, 14L, 14L))
+  result <- cluster4d(
+    fixture$vec, fixture$mask, n_clusters = 3L, method = "commute",
+    ncomp = 5L
+  )
+  expect_identical(result$parameters$eigen_solver, "sparse")
+  expect_identical(result$n_clusters, 3L)
+  expect_identical(dim(result$embedding), c(3136L, 5L))
+  expect_true(all(is.finite(result$embedding)))
+  expect_true(all(result$eigenvalues > 0))
+  expect_true(validate_cluster4d(result, fixture$vec, fixture$mask)$valid)
+})
+
+
+test_that("eigencore sparse solves are reproducible and preserve RNG state", {
+  fixture <- make_commute_contract_data()
+  had_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  old_seed <- if (had_seed) get(".Random.seed", envir = .GlobalEnv) else NULL
+  on.exit({
+    if (had_seed) {
+      assign(".Random.seed", old_seed, envir = .GlobalEnv)
+    } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+      rm(".Random.seed", envir = .GlobalEnv)
+    }
+  }, add = TRUE)
+  run <- function() commute_cluster(
+    fixture$vec, fixture$mask, K = 1L, ncomp = 3L,
+    connectivity = 3L, eigen_solver = "sparse"
+  )
+  if (had_seed) rm(".Random.seed", envir = .GlobalEnv)
+  first <- run()
+  expect_false(exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE))
+  expect_true(first$metadata$rng$used)
+  expect_identical(first$metadata$rng$purpose, "eigencore")
+  expect_identical(first$metadata$rng$local_seed, 1L)
+
+  set.seed(481)
+  before <- .Random.seed
+  second <- run()
+  expect_identical(.Random.seed, before)
+  expect_identical(second$embedding, first$embedding)
+})
+
+
+test_that("sparse commute independently checks original-coordinate eigenpairs", {
+  graph <- Matrix::bandSparse(
+    4L, k = c(-1L, 1L), diagonals = list(rep(1, 3L), rep(1, 3L))
+  )
+  laplacian <- diag(as.numeric(Matrix::rowSums(graph))) - as.matrix(graph)
+  oracle <- eigen(laplacian, symmetric = TRUE)
+  selected <- order(oracle$values)[1:2]
+  candidate <- list(
+    values = oracle$values[selected], vectors = oracle$vectors[, selected],
+    nconv = 0L, certificate = list(passed = FALSE)
+  )
+  testthat::local_mocked_bindings(
+    eig_partial = function(...) candidate,
+    .package = "eigencore"
+  )
+  run <- function() neurocluster:::.commute_spectral_embedding(
+    graph, ncomp = 1L, eigen_solver = "sparse"
+  )
+  accepted <- run()
+  expect_false(accepted$solver_diagnostics$certificate$passed)
+  expect_lt(max(accepted$solver_diagnostics$relative_residuals), 1e-10)
+
+  # A package certificate alone cannot establish our numerical contract.
+  candidate$certificate$passed <- TRUE
+  candidate$nconv <- 2L
+  candidate$values <- candidate$values + 1
+  expect_error(run(), "sparse eigensolver did not converge")
+  # Repeated exact eigenvectors have zero residual but are not orthogonal.
+  candidate$values <- rep(oracle$values[selected[1L]], 2L)
+  candidate$vectors <- oracle$vectors[, rep(selected[1L], 2L)]
+  expect_error(run(), "sparse eigensolver did not converge")
+  candidate$vectors <- matrix(0, 3L, 2L)
+  expect_error(run(), "sparse eigensolver did not converge")
+  candidate$vectors <- matrix(NA_real_, 4L, 2L)
+  expect_error(run(), "sparse eigensolver did not converge")
+  candidate$vectors <- oracle$vectors[, selected]
+  candidate$values <- c(0, Inf)
+  expect_error(run(), "sparse eigensolver did not converge")
 })

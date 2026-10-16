@@ -60,7 +60,7 @@ Wrapper for commute_cluster with standardized interface.
 }
 \note{
 Masks with more than 3,000 voxels use a sparse shift-invert
-eigensolver (the suggested package \pkg{RSpectra}); smaller masks use the
+eigensolver (the required package \pkg{eigencore}); smaller masks use the
 dense \code{eigen()} path. Pass \code{eigen_solver} (see
 \code{\link{commute_cluster}}) to choose explicitly.
 }

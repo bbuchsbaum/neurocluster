@@ -54,7 +54,7 @@ NA and Inf always fail closed. No noise is injected.}
 solver runs a full \code{eigen()} on the N-by-N Laplacian: O(N^2) memory and
 O(N^3) time, practical up to a few thousand voxels. The sparse solver
 computes only the \code{ncomp + 1} smallest eigenpairs by shift-invert Lanczos
-(\code{RSpectra::eigs_sym()}, a suggested package) and scales to whole-brain
+(\code{eigencore::eig_partial()}, a required dependency) and supports larger
 masks. \code{"auto"} uses the dense solver for at most 3,000 masked voxels and
 the sparse solver above that. Both span the same eigenspace; embeddings
 agree to solver tolerance, up to the sign of each eigenvector (and the
@@ -74,12 +74,20 @@ coordinate space, computes a Laplacian commute-time embedding, and applies
 deterministically initialized k-means.
 }
 \details{
-The implementation is deterministic. Any RNG initialization performed
-inside \code{stats::kmeans()} is scoped to a fixed local seed, after which the
-caller's prior RNG state (including absence of \code{.Random.seed}) is restored
+The implementation is deterministic. RNG initialization for the
+sparse eigensolver and \code{stats::kmeans()} is scoped to a fixed local seed,
+after which the caller's prior RNG state (including absence of
+\code{.Random.seed}) is restored
 exactly. With the dense solver it forms a full Laplacian
 eigendecomposition, requiring quadratic memory and cubic time, so
 \code{eigen_solver = "auto"} switches to the sparse solver above 3,000
-voxels. With the sparse solver the run time is dominated by k-means and
-is a few seconds for about 30,000 voxels and K = 200.
+voxels. Sparse solver memory and time depend on factorization fill-in,
+the requested embedding dimension, and convergence. Sparse eigenpairs
+must have original-Laplacian relative residuals at most 1e-10 and
+orthogonality error at most 1e-8. Residuals are scaled by
+\code{(norm(L, "I") + abs(lambda)) * norm(v, "2")}. These checks and
+eigencore's separate certificate at the solver tolerance are retained in
+\code{metadata$spectral$diagnostics}. The sparse solver never silently falls
+back to a dense solve. A full-spectrum request (\code{ncomp = N - 1})
+uses the dense solver even when \code{eigen_solver = "sparse"}.
 }

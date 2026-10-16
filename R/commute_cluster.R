@@ -153,16 +153,6 @@
   if (identical(eigen_solver, "auto")) {
     eigen_solver <- if (n <= .commute_dense_max) "dense" else "sparse"
   }
-  if (identical(eigen_solver, "sparse") &&
-      !requireNamespace("RSpectra", quietly = TRUE)) {
-    stop(
-      "commute_cluster: the sparse eigensolver needs the 'RSpectra' package ",
-      "(", n, " masked voxels; the dense solver is limited to ",
-      .commute_dense_max, "). Install it with install.packages(\"RSpectra\") ",
-      "or set eigen_solver = \"dense\" (O(N^2) memory, O(N^3) time).",
-      call. = FALSE
-    )
-  }
   if (identical(eigen_solver, "dense") && n > .commute_dense_max) {
     message(
       "commute_cluster: dense eigendecomposition of a ", n, "-by-", n,
@@ -205,6 +195,7 @@
   if (identical(eigen_solver, "sparse") && ncomp + 1L >= n) {
     eigen_solver <- "dense"
   }
+  solver_diagnostics <- NULL
   if (identical(eigen_solver, "dense")) {
     laplacian <- diag(as.numeric(degree)) - as.matrix(graph)
     decomposition <- eigen(laplacian, symmetric = TRUE)
@@ -219,15 +210,48 @@
     # and converges to the eigenvalues nearest zero in a few iterations.
     n_eigen <- min(n, ncomp + 1L)
     sigma <- -1e-3 * mean(degree)
-    decomposition <- RSpectra::eigs_sym(
-      laplacian, k = n_eigen, sigma = sigma,
-      opts = list(tol = 1e-12, maxitr = 10000L, retvec = TRUE)
+    # eigencore's maxit bounds the stored Krylov basis, unlike RSpectra's
+    # iteration cap. Keep it proportional to the requested subspace.
+    decomposition <- .commute_local_rng(
+      eigencore::eig_partial(
+        laplacian, k = n_eigen, target = eigencore::nearest(sigma),
+        method = eigencore::shift_invert(sigma),
+        tol = 1e-12, maxit = min(n, max(100L, 10L * n_eigen + 20L)),
+        vectors = TRUE, certify = TRUE, allow_dense_fallback = "never"
+      )
     )
-    if (length(decomposition$values) < n_eigen ||
-        any(!is.finite(decomposition$values))) {
+    if (length(decomposition$values) != n_eigen ||
+        any(!is.finite(decomposition$values)) ||
+        !identical(dim(decomposition$vectors), c(n, n_eigen)) ||
+        any(!is.finite(decomposition$vectors))) {
       stop("commute_cluster: sparse eigensolver did not converge",
            call. = FALSE)
     }
+    # The shift-invert stopping tolerance applies to the inverse operator.
+    # Check accuracy in the original Laplacian independently: eigencore's
+    # certificate reuses the tighter solver tolerance in these coordinates.
+    vectors <- decomposition$vectors
+    residual <- laplacian %*% vectors -
+      sweep(vectors, 2L, decomposition$values, "*")
+    laplacian_norm <- max(Matrix::rowSums(abs(laplacian)))
+    relative_residuals <- sqrt(Matrix::colSums(residual^2)) /
+      ((laplacian_norm + abs(decomposition$values)) * sqrt(colSums(vectors^2)))
+    orthogonality <- max(abs(crossprod(vectors) - diag(n_eigen)))
+    if (any(!is.finite(relative_residuals)) ||
+        any(relative_residuals > 1e-10) ||
+        !is.finite(orthogonality) || orthogonality > 1e-8) {
+      stop("commute_cluster: sparse eigensolver did not converge",
+           call. = FALSE)
+    }
+    solver_diagnostics <- list(
+      backend = "eigencore",
+      certificate = decomposition$certificate,
+      nconv = decomposition$nconv,
+      relative_residuals = unname(relative_residuals),
+      residual_tolerance = 1e-10,
+      orthogonality = orthogonality,
+      orthogonality_tolerance = 1e-8
+    )
     # Gershgorin bound on the largest Laplacian eigenvalue (2 * max degree),
     # standing in for the unseen top of the spectrum.
     spectrum_scale <- max(2 * max(degree), 1)
@@ -269,7 +293,8 @@
     laplacian = laplacian,
     graph_volume = volume,
     zero_eigenvalues = as.integer(zero_count),
-    solver = eigen_solver
+    solver = eigen_solver,
+    solver_diagnostics = solver_diagnostics
   )
 }
 
@@ -340,7 +365,7 @@
 #'   solver runs a full `eigen()` on the N-by-N Laplacian: O(N^2) memory and
 #'   O(N^3) time, practical up to a few thousand voxels. The sparse solver
 #'   computes only the `ncomp + 1` smallest eigenpairs by shift-invert Lanczos
-#'   (`RSpectra::eigs_sym()`, a suggested package) and scales to whole-brain
+#'   (`eigencore::eig_partial()`, a required dependency) and supports larger
 #'   masks. `"auto"` uses the dense solver for at most 3,000 masked voxels and
 #'   the sparse solver above that. Both span the same eigenspace; embeddings
 #'   agree to solver tolerance, up to the sign of each eigenvector (and the
@@ -351,14 +376,22 @@
 #' @return A `commute_time_cluster_result` with contiguous labels, K-by-T
 #'   original-space feature means, K-by-3 physical coordinate means, the N-by-ncomp
 #'   embedding, graph and spectral provenance, and explicit data-policy provenance.
-#' @details The implementation is deterministic. Any RNG initialization performed
-#'   inside `stats::kmeans()` is scoped to a fixed local seed, after which the
-#'   caller's prior RNG state (including absence of `.Random.seed`) is restored
+#' @details The implementation is deterministic. RNG initialization for the
+#'   sparse eigensolver and `stats::kmeans()` is scoped to a fixed local seed,
+#'   after which the caller's prior RNG state (including absence of
+#'   `.Random.seed`) is restored
 #'   exactly. With the dense solver it forms a full Laplacian
 #'   eigendecomposition, requiring quadratic memory and cubic time, so
 #'   `eigen_solver = "auto"` switches to the sparse solver above 3,000
-#'   voxels. With the sparse solver the run time is dominated by k-means and
-#'   is a few seconds for about 30,000 voxels and K = 200.
+#'   voxels. Sparse solver memory and time depend on factorization fill-in,
+#'   the requested embedding dimension, and convergence. Sparse eigenpairs
+#'   must have original-Laplacian relative residuals at most 1e-10 and
+#'   orthogonality error at most 1e-8. Residuals are scaled by
+#'   `(norm(L, "I") + abs(lambda)) * norm(v, "2")`. These checks and
+#'   eigencore's separate certificate at the solver tolerance are retained in
+#'   `metadata$spectral$diagnostics`. The sparse solver never silently falls
+#'   back to a dense solve. A full-spectrum request (`ncomp = N - 1`)
+#'   uses the dense solver even when `eigen_solver = "sparse"`.
 #'
 #' @importFrom neuroim2 ClusteredNeuroVol
 #' @importFrom stats kmeans
@@ -526,13 +559,17 @@ commute_cluster <- function(bvec,
         eigenvalues = spectral$eigenvalues,
         graph_volume = spectral$graph_volume,
         zero_eigenvalues = spectral$zero_eigenvalues,
-        solver = spectral$solver
+        solver = spectral$solver,
+        diagnostics = spectral$solver_diagnostics
       ),
       kmeans = kmeans_diagnostics,
       rng = list(
-        used = K > 1L && K < n,
-        local_seed = if (K > 1L && K < n) 1L else NULL,
-        purpose = if (K > 1L && K < n) "stats::kmeans internals" else "none",
+        used = identical(spectral$solver, "sparse") || (K > 1L && K < n),
+        local_seed = if (identical(spectral$solver, "sparse") ||
+                         (K > 1L && K < n)) 1L else NULL,
+        purpose = if (identical(spectral$solver, "sparse")) {
+          if (K > 1L && K < n) "eigencore and stats::kmeans internals" else "eigencore"
+        } else if (K > 1L && K < n) "stats::kmeans internals" else "none",
         global_state_preserved = TRUE
       )
     )

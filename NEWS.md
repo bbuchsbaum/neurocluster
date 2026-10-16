@@ -2,6 +2,11 @@
 
 ## Performance fixes
 
+* The sparse commute solver now uses `eigencore (>= 1.0.3)` from CRAN as a
+  required import, replacing optional RSpectra. Large masks no longer need
+  a separate solver installation. Sparse solves use a fixed local RNG seed,
+  check original-Laplacian residuals and orthogonality, and disable implicit
+  dense fallback. The minimum R version is now 4.1, as required by eigencore.
 * `rena_plus()` (`cluster4d(method = "rena_plus")`) is no longer quadratic in
   the number of voxels. The ReNA coarsening walked each row of the
   column-compressed adjacency matrix with Armadillo's row iterator, which
@@ -14,11 +19,11 @@
   N-by-N Laplacian and a full `eigen()` (O(N^2) memory, O(N^3) time; about
   7 GB per dense copy on a 30,000-voxel mask) although only the `ncomp`
   smallest eigenpairs are used. Above 3,000 voxels `"auto"` now computes only
-  those eigenpairs with shift-invert Lanczos from the suggested package
-  RSpectra; at or below 3,000 voxels results are unchanged. On the
-  29,532-voxel mask the method now finishes in about 5 s instead of not
-  finishing; dense and sparse solvers give identical labels in the tests.
-  Without RSpectra, large masks stop with an informative error (#3).
+  those eigenpairs with shift-invert Lanczos; at or below 3,000 voxels
+  results are unchanged. The initial RSpectra implementation finished the
+  29,532-voxel mask in about 5 s (#3); that timing does not characterize the
+  replacement eigencore backend. Dense and sparse solvers are compared
+  against numerical oracles in the tests.
 
 ## Continuous integration
 
