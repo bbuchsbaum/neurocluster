@@ -53,12 +53,18 @@ if [[ "${mode}" == "asan" ]]; then
     fi
     export DYLD_INSERT_LIBRARIES="${asan_runtime}${DYLD_INSERT_LIBRARIES:+:${DYLD_INSERT_LIBRARIES}}"
   else
+    # Do not export LD_PRELOAD here. It would interpose ASan into every child
+    # of R CMD INSTALL, including GNU make: with strict_string_checks=1, make's
+    # own strndup() reads are reported as heap-buffer-overflows and make aborts
+    # (status 134) before any package source is compiled (issue #2). Only the
+    # uninstrumented R binary that loads the instrumented package needs the
+    # runtime preloaded; the smoke loop below scopes it to that process.
     asan_runtime="$("${cxx_bin}" -print-file-name=libasan.so)"
     if [[ ! -f "${asan_runtime}" ]]; then
       echo "unable to locate the AddressSanitizer runtime via ${cxx_bin}" >&2
       exit 1
     fi
-    export LD_PRELOAD="${asan_runtime}${LD_PRELOAD:+:${LD_PRELOAD}}"
+    asan_preload="${asan_runtime}${LD_PRELOAD:+:${LD_PRELOAD}}"
   fi
 else
   export UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1"
@@ -69,6 +75,21 @@ fi
 # system shell that strips DYLD_INSERT_LIBRARIES before ASan can interpose.
 R CMD INSTALL --preclean --clean --no-multiarch --no-test-load \
   --library="${lib_dir}" "${repo_root}"
+
+r_home="$(R RHOME)"
+
+# Run R's real executable with the ASan runtime preloaded into that process
+# only. `R CMD` supplies R's environment (R_HOME, library paths) without the
+# preload reaching its own shell helpers.
+run_asan_r() {
+  R CMD env LD_PRELOAD="${asan_preload}" "${r_home}/bin/exec/R" \
+    --vanilla --slave "$@"
+}
+
+if [[ "${mode}" == "asan" && "$(uname -s)" != "Darwin" ]]; then
+  # Fail loudly rather than pass a smoke matrix that ran without ASan.
+  run_asan_r -e 'maps <- readLines("/proc/self/maps"); if (!any(grepl("libasan", maps, fixed = TRUE))) stop("ASan runtime is not loaded in the smoke R process"); cat("asan runtime: loaded\n")'
+fi
 
 smoke_cases=(
   slic4d_core
@@ -89,11 +110,14 @@ for smoke_case in "${smoke_cases[@]}"; do
   if [[ "${mode}" == "asan" && "$(uname -s)" == "Darwin" ]]; then
     # The Rscript launcher passes through a protected shell on macOS, which
     # strips DYLD_INSERT_LIBRARIES. Invoke R's real executable directly.
-    r_home="$(R RHOME)"
     R_HOME="${r_home}" NEUROCLUSTER_USE_INSTALLED=true \
       "${r_home}/bin/exec/R" --vanilla --slave \
         --file="${repo_root}/tools/run-native-subprocess-smoke.R" --args \
         --root="${repo_root}" --case="${smoke_case}"
+  elif [[ "${mode}" == "asan" ]]; then
+    NEUROCLUSTER_USE_INSTALLED=true \
+      run_asan_r --file="${repo_root}/tools/run-native-subprocess-smoke.R" \
+        --args --root="${repo_root}" --case="${smoke_case}"
   else
     NEUROCLUSTER_USE_INSTALLED=true \
       Rscript "${repo_root}/tools/run-native-subprocess-smoke.R" \
