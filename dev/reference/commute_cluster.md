@@ -88,9 +88,9 @@ commute_cluster(
   Laplacian: O(N^2) memory and O(N^3) time, practical up to a few
   thousand voxels. The sparse solver computes only the `ncomp + 1`
   smallest eigenpairs by shift-invert Lanczos
-  ([`RSpectra::eigs_sym()`](https://rdrr.io/pkg/RSpectra/man/eigs.html),
-  a suggested package) and scales to whole-brain masks. `"auto"` uses
-  the dense solver for at most 3,000 masked voxels and the sparse solver
+  ([`eigencore::eig_partial()`](https://bbuchsbaum.github.io/eigencore/reference/eig_partial.html),
+  a required dependency) and supports larger masks. `"auto"` uses the
+  dense solver for at most 3,000 masked voxels and the sparse solver
   above that. Both span the same eigenspace; embeddings agree to solver
   tolerance, up to the sign of each eigenvector (and the basis inside a
   repeated eigenvalue), which commute-time distances and hence k-means
@@ -109,12 +109,19 @@ data-policy provenance.
 
 ## Details
 
-The implementation is deterministic. Any RNG initialization performed
-inside [`stats::kmeans()`](https://rdrr.io/r/stats/kmeans.html) is
-scoped to a fixed local seed, after which the caller's prior RNG state
-(including absence of `.Random.seed`) is restored exactly. With the
-dense solver it forms a full Laplacian eigendecomposition, requiring
+The implementation is deterministic. RNG initialization for the sparse
+eigensolver and [`stats::kmeans()`](https://rdrr.io/r/stats/kmeans.html)
+is scoped to a fixed local seed, after which the caller's prior RNG
+state (including absence of `.Random.seed`) is restored exactly. With
+the dense solver it forms a full Laplacian eigendecomposition, requiring
 quadratic memory and cubic time, so `eigen_solver = "auto"` switches to
-the sparse solver above 3,000 voxels. With the sparse solver the run
-time is dominated by k-means and is a few seconds for about 30,000
-voxels and K = 200.
+the sparse solver above 3,000 voxels. Sparse solver memory and time
+depend on factorization fill-in, the requested embedding dimension, and
+convergence. Sparse eigenpairs must have original-Laplacian relative
+residuals at most 1e-10 and orthogonality error at most 1e-8. Residuals
+are scaled by `(norm(L, "I") + abs(lambda)) * norm(v, "2")`. These
+checks and eigencore's separate certificate at the solver tolerance are
+retained in `metadata$spectral$diagnostics`. The sparse solver never
+silently falls back to a dense solve. A full-spectrum request
+(`ncomp = N - 1`) uses the dense solver even when
+`eigen_solver = "sparse"`.

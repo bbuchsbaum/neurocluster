@@ -131,7 +131,7 @@ exported <- neuroim2::read_vol(output_file)
 c(path = output_file, bytes = file.info(output_file)$size,
   labels = paste(sort(unique(as.integer(as.array(exported)))), collapse = ", "))
 #>                                          path 
-#> "/tmp/Rtmphbodjy/neurocluster-parcels.nii.gz" 
+#> "/tmp/RtmpsrUqja/neurocluster-parcels.nii.gz" 
 #>                                         bytes 
 #>                                         "410" 
 #>                                        labels 

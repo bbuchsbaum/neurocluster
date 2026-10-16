@@ -132,7 +132,7 @@ graph-segmentation scale; it is not a convex spatial/feature blend.</p></li>
     <div class="section level2">
     <h2 id="note">Note<a class="anchor" aria-label="anchor" href="#note"></a></h2>
     <p>Masks with more than 3,000 voxels use a sparse shift-invert
-eigensolver (the suggested package <span class="pkg">RSpectra</span>); smaller masks use the
+eigensolver (the required package <span class="pkg">eigencore</span>); smaller masks use the
 dense <code><a href="https://rdrr.io/r/base/eigen.html" class="external-link">eigen()</a></code> path. Pass <code>eigen_solver</code> (see
 <code><a href="commute_cluster.html">commute_cluster</a></code>) to choose explicitly.</p>
     </div>

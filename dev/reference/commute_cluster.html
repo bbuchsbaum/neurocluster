@@ -146,7 +146,7 @@ NA and Inf always fail closed. No noise is injected.</p></dd>
 solver runs a full <code><a href="https://rdrr.io/r/base/eigen.html" class="external-link">eigen()</a></code> on the N-by-N Laplacian: O(N^2) memory and
 O(N^3) time, practical up to a few thousand voxels. The sparse solver
 computes only the <code>ncomp + 1</code> smallest eigenpairs by shift-invert Lanczos
-(<code><a href="https://rdrr.io/pkg/RSpectra/man/eigs.html" class="external-link">RSpectra::eigs_sym()</a></code>, a suggested package) and scales to whole-brain
+(<code><a href="https://bbuchsbaum.github.io/eigencore/reference/eig_partial.html" class="external-link">eigencore::eig_partial()</a></code>, a required dependency) and supports larger
 masks. <code>"auto"</code> uses the dense solver for at most 3,000 masked voxels and
 the sparse solver above that. Both span the same eigenspace; embeddings
 agree to solver tolerance, up to the sign of each eigenvector (and the
@@ -166,14 +166,22 @@ embedding, graph and spectral provenance, and explicit data-policy provenance.</
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
-    <p>The implementation is deterministic. Any RNG initialization performed
-inside <code><a href="https://rdrr.io/r/stats/kmeans.html" class="external-link">stats::kmeans()</a></code> is scoped to a fixed local seed, after which the
-caller's prior RNG state (including absence of <code>.Random.seed</code>) is restored
+    <p>The implementation is deterministic. RNG initialization for the
+sparse eigensolver and <code><a href="https://rdrr.io/r/stats/kmeans.html" class="external-link">stats::kmeans()</a></code> is scoped to a fixed local seed,
+after which the caller's prior RNG state (including absence of
+<code>.Random.seed</code>) is restored
 exactly. With the dense solver it forms a full Laplacian
 eigendecomposition, requiring quadratic memory and cubic time, so
 <code>eigen_solver = "auto"</code> switches to the sparse solver above 3,000
-voxels. With the sparse solver the run time is dominated by k-means and
-is a few seconds for about 30,000 voxels and K = 200.</p>
+voxels. Sparse solver memory and time depend on factorization fill-in,
+the requested embedding dimension, and convergence. Sparse eigenpairs
+must have original-Laplacian relative residuals at most 1e-10 and
+orthogonality error at most 1e-8. Residuals are scaled by
+<code>(norm(L, "I") + abs(lambda)) * norm(v, "2")</code>. These checks and
+eigencore's separate certificate at the solver tolerance are retained in
+<code>metadata$spectral$diagnostics</code>. The sparse solver never silently falls
+back to a dense solve. A full-spectrum request (<code>ncomp = N - 1</code>)
+uses the dense solver even when <code>eigen_solver = "sparse"</code>.</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

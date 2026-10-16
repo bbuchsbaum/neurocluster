@@ -218,7 +218,7 @@ are active.
 | rena_plus | Fast | No | Yes | No | Edge-aware ReNA coarsening with exact Ward refinement |
 | mcl | Slow | No | Yes | Yes | Picks the natural MCL partition closest to `n_clusters`, so `actual_k` can differ unless `exact_k = TRUE` |
 | acsc | Slow | No | Yes | Yes | Correlation graph with boundary refinement |
-| commute | Moderate | No | No | Yes | Commute-time spectral embedding; sparse eigensolver (RSpectra) above 3,000 voxels |
+| commute | Moderate | No | No | Yes | Commute-time spectral embedding; sparse eigensolver (eigencore) above 3,000 voxels |
 
 ## Parameter Guidelines
 
