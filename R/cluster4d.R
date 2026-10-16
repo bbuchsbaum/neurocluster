@@ -90,8 +90,7 @@
 #' with \code{cluster4d()} defaults on the neuroim2 bundled mask
 #' (\code{global_mask_v4.nii}, 29,532 voxels), 20 timepoints of Gaussian noise
 #' and \code{n_clusters = 200}: \emph{Fast} is under 1 s,
-#' \emph{Moderate} a few seconds, \emph{Slow} tens of seconds, and
-#' \emph{Very slow} did not finish within 5 minutes. Timings depend on
+#' \emph{Moderate} a few seconds, and \emph{Slow} tens of seconds. Timings depend on
 #' hardware, mask size, and parameters; treat the tiers as relative guidance,
 #' not a ranking of quality. \emph{Parallel}, \emph{Iterations}, and
 #' \emph{Spatial weight} state whether the common \code{parallel},
@@ -108,10 +107,10 @@
 #'   flash3d \tab Fast \tab No \tab Yes \tab Yes \tab Hash-based low-rank superclusters \cr
 #'   g3s \tab Fast \tab No \tab Yes \tab Yes \tab Gradient-guided geodesic supervoxels \cr
 #'   rena \tab Fast \tab No \tab Yes \tab No \tab Balanced, topology-aware agglomeration \cr
-#'   rena_plus \tab Very slow \tab No \tab Yes \tab No \tab Edge-aware ReNA with Ward refinement; for small masks \cr
+#'   rena_plus \tab Fast \tab No \tab Yes \tab No \tab Edge-aware ReNA coarsening with exact Ward refinement \cr
 #'   mcl \tab Slow \tab No \tab Yes \tab Yes \tab Picks the natural MCL partition closest to \code{n_clusters}, so \code{actual_k} can differ unless \code{exact_k = TRUE} \cr
 #'   acsc \tab Slow \tab No \tab Yes \tab Yes \tab Correlation graph with boundary refinement \cr
-#'   commute \tab Very slow \tab No \tab No \tab Yes \tab Commute-time spectral embedding; for small masks \cr
+#'   commute \tab Moderate \tab No \tab No \tab Yes \tab Commute-time spectral embedding; sparse eigensolver (\pkg{RSpectra}) above 3,000 voxels \cr
 #' }
 #'
 #' @section Parameter Guidelines:
@@ -449,7 +448,10 @@ cluster4d <- function(vec, mask,
 #' @param ncomp Number of embedding components (defaults to sqrt(2K)).
 #' @return A cluster4d_result object
 #' @export
-#' @note Commute-time embedding is O(N^3) eigen; use only on small ROIs.
+#' @note Masks with more than 3,000 voxels use a sparse shift-invert
+#'   eigensolver (the suggested package \pkg{RSpectra}); smaller masks use the
+#'   dense \code{eigen()} path. Pass \code{eigen_solver} (see
+#'   \code{\link{commute_cluster}}) to choose explicitly.
 cluster4d_commute <- function(vec, mask, n_clusters = 100,
                              spatial_weight = 0.5,
                              verbose = FALSE,
@@ -489,9 +491,10 @@ cluster4d_commute <- function(vec, mask, n_clusters = 100,
       n_clusters_requested = n_clusters,
       spatial_weight = spatial_weight,
       alpha = alpha,
-      ncomp = ncomp
+      ncomp = ncomp,
+      eigen_solver = result$parameters$eigen_solver
     ),
-    dots
+    dots[setdiff(names(dots), "eigen_solver")]
   )
 
   finalize_cluster4d_result(result, vec, mask, "commute", result$parameters)

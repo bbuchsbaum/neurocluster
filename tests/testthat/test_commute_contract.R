@@ -240,3 +240,107 @@ test_that("centers and result shapes independently summarize final labels", {
   )
   expect_true(validation$valid, info = paste(validation$errors, collapse = "; "))
 })
+
+test_that("sparse and dense eigensolvers give the same embedding and labels", {
+  skip_if_not_installed("RSpectra")
+  fixture <- make_commute_contract_data(dims = c(9L, 8L, 6L), n_time = 7L)
+  for (mode in c("heat", "binary")) {
+    dense <- commute_cluster(
+      fixture$vec, fixture$mask, K = 12L, ncomp = 7L,
+      connectivity = 6L, weight_mode = mode, eigen_solver = "dense"
+    )
+    sparse <- commute_cluster(
+      fixture$vec, fixture$mask, K = 12L, ncomp = 7L,
+      connectivity = 6L, weight_mode = mode, eigen_solver = "sparse"
+    )
+    expect_identical(dense$parameters$eigen_solver, "dense")
+    expect_identical(sparse$parameters$eigen_solver, "sparse")
+    expect_identical(sparse$metadata$spectral$solver, "sparse")
+    expect_equal(sparse$eigenvalues, dense$eigenvalues, tolerance = 1e-10)
+    # Eigenvector signs are arbitrary; commute-time distances are not.
+    expect_equal(
+      as.matrix(stats::dist(sparse$embedding)),
+      as.matrix(stats::dist(dense$embedding)),
+      tolerance = 1e-8
+    )
+    expect_identical(sparse$labels, dense$labels)
+  }
+})
+
+
+test_that("sparse spectral embedding matches the effective-resistance oracle", {
+  skip_if_not_installed("RSpectra")
+  set.seed(11)
+  n <- 30L
+  edges <- rbind(cbind(seq_len(n - 1L), 2:n), cbind(1:10, 21:30))
+  graph <- Matrix::sparseMatrix(
+    i = c(edges[, 1L], edges[, 2L]), j = c(edges[, 2L], edges[, 1L]),
+    x = rep(stats::runif(nrow(edges), 0.5, 2), 2L), dims = c(n, n)
+  )
+  dense <- neurocluster:::.commute_spectral_embedding(
+    graph, ncomp = 5L, eigen_solver = "dense"
+  )
+  sparse <- neurocluster:::.commute_spectral_embedding(
+    graph, ncomp = 5L, eigen_solver = "sparse"
+  )
+  expect_identical(sparse$solver, "sparse")
+  expect_equal(sparse$eigenvalues, dense$eigenvalues, tolerance = 1e-10)
+  expect_equal(
+    sparse$eigenvectors %*% t(sparse$eigenvectors),
+    dense$eigenvectors %*% t(dense$eigenvectors),
+    tolerance = 1e-8
+  )
+  expect_identical(sparse$zero_eigenvalues, 1L)
+
+  # Asking for the whole spectrum is the dense problem.
+  full <- neurocluster:::.commute_spectral_embedding(
+    graph, ncomp = n - 1L, eigen_solver = "sparse"
+  )
+  expect_identical(full$solver, "dense")
+})
+
+
+test_that("auto solver keeps small problems dense and large ones sparse", {
+  expect_identical(neurocluster:::.commute_resolve_solver("auto", 3000L), "dense")
+  expect_identical(neurocluster:::.commute_resolve_solver("dense", 10L), "dense")
+  expect_message(
+    neurocluster:::.commute_resolve_solver("dense", 3001L),
+    "dense eigendecomposition"
+  )
+  if (requireNamespace("RSpectra", quietly = TRUE)) {
+    expect_identical(
+      neurocluster:::.commute_resolve_solver("auto", 3001L), "sparse"
+    )
+  }
+  expect_error(
+    neurocluster:::.commute_resolve_solver("eigs", 10L),
+    "should be one of"
+  )
+
+  fixture <- make_commute_contract_data()
+  small <- commute_cluster(fixture$vec, fixture$mask, K = 3L, ncomp = 4L,
+                           connectivity = 3L)
+  expect_identical(small$parameters$eigen_solver, "dense")
+})
+
+
+test_that("commute scales to a whole-brain-sized mask with the sparse solver", {
+  skip_on_cran()
+  skip_if_not_installed("RSpectra")
+  dims <- c(30L, 30L, 20L)
+  space <- neuroim2::NeuroSpace(dims, c(2, 2, 2))
+  mask <- neuroim2::NeuroVol(array(1, dims), space)
+  set.seed(3)
+  vec <- neuroim2::NeuroVec(
+    array(stats::rnorm(prod(dims) * 5L), c(dims, 5L)),
+    neuroim2::NeuroSpace(c(dims, 5L), c(2, 2, 2))
+  )
+  # The former dense path needed a 18,000 x 18,000 eigendecomposition here
+  # (several GB, many minutes).
+  elapsed <- system.time(
+    result <- cluster4d(vec, mask, n_clusters = 50L, method = "commute")
+  )[["elapsed"]]
+  expect_identical(result$n_clusters, 50L)
+  expect_identical(result$parameters$eigen_solver, "sparse")
+  expect_lt(elapsed, 120)
+})

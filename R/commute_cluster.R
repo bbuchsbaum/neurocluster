@@ -142,8 +142,42 @@
 }
 
 
+# Largest masked-voxel count for which `eigen_solver = "auto"` uses the dense
+# eigendecomposition. Above it the dense path needs O(N^2) memory and O(N^3)
+# time (about 7 GB per dense copy and hours of LAPACK time at N = 30,000).
+.commute_dense_max <- 3000L
+
+
+.commute_resolve_solver <- function(eigen_solver, n) {
+  eigen_solver <- match.arg(eigen_solver, c("auto", "dense", "sparse"))
+  if (identical(eigen_solver, "auto")) {
+    eigen_solver <- if (n <= .commute_dense_max) "dense" else "sparse"
+  }
+  if (identical(eigen_solver, "sparse") &&
+      !requireNamespace("RSpectra", quietly = TRUE)) {
+    stop(
+      "commute_cluster: the sparse eigensolver needs the 'RSpectra' package ",
+      "(", n, " masked voxels; the dense solver is limited to ",
+      .commute_dense_max, "). Install it with install.packages(\"RSpectra\") ",
+      "or set eigen_solver = \"dense\" (O(N^2) memory, O(N^3) time).",
+      call. = FALSE
+    )
+  }
+  if (identical(eigen_solver, "dense") && n > .commute_dense_max) {
+    message(
+      "commute_cluster: dense eigendecomposition of a ", n, "-by-", n,
+      " Laplacian needs about ", format(ceiling(16 * n^2 / 2^30)),
+      " GB and O(N^3) time; eigen_solver = \"sparse\" is much faster"
+    )
+  }
+  eigen_solver
+}
+
+
 .commute_spectral_embedding <- function(graph, ncomp,
-                                        eigen_tol = 1e-10) {
+                                        eigen_tol = 1e-10,
+                                        eigen_solver = c("dense", "sparse")) {
+  eigen_solver <- match.arg(eigen_solver)
   graph <- as(graph, "dgCMatrix")
   n <- nrow(graph)
   if (n < 2L || n != ncol(graph) || any(!is.finite(graph@x)) ||
@@ -166,14 +200,44 @@
   if (any(degree <= 0)) {
     stop("commute_cluster: graph contains isolated voxels", call. = FALSE)
   }
-  laplacian <- diag(as.numeric(degree)) - as.matrix(graph)
-  decomposition <- eigen(laplacian, symmetric = TRUE)
+  # The Lanczos solver needs fewer requested eigenpairs than rows; a request
+  # for the whole spectrum is the dense problem anyway.
+  if (identical(eigen_solver, "sparse") && ncomp + 1L >= n) {
+    eigen_solver <- "dense"
+  }
+  if (identical(eigen_solver, "dense")) {
+    laplacian <- diag(as.numeric(degree)) - as.matrix(graph)
+    decomposition <- eigen(laplacian, symmetric = TRUE)
+    # Scale of the spectrum: the largest absolute eigenvalue.
+    spectrum_scale <- max(abs(decomposition$values), 1)
+  } else {
+    laplacian <- Matrix::Diagonal(x = as.numeric(degree)) - graph
+    laplacian <- as(laplacian, "generalMatrix")
+    # Only the ncomp + 1 smallest eigenpairs are used: the constant null
+    # vector plus ncomp embedding directions. Shift-invert Lanczos about a
+    # small negative shift factors the sparse, positive-definite L - sigma*I
+    # and converges to the eigenvalues nearest zero in a few iterations.
+    n_eigen <- min(n, ncomp + 1L)
+    sigma <- -1e-3 * mean(degree)
+    decomposition <- RSpectra::eigs_sym(
+      laplacian, k = n_eigen, sigma = sigma,
+      opts = list(tol = 1e-12, maxitr = 10000L, retvec = TRUE)
+    )
+    if (length(decomposition$values) < n_eigen ||
+        any(!is.finite(decomposition$values))) {
+      stop("commute_cluster: sparse eigensolver did not converge",
+           call. = FALSE)
+    }
+    # Gershgorin bound on the largest Laplacian eigenvalue (2 * max degree),
+    # standing in for the unseen top of the spectrum.
+    spectrum_scale <- max(2 * max(degree), 1)
+  }
   order_idx <- order(decomposition$values)
   values <- decomposition$values[order_idx]
   vectors <- decomposition$vectors[, order_idx, drop = FALSE]
   threshold <- max(
     eigen_tol,
-    max(abs(values), 1) * .Machine$double.eps * n * 10
+    spectrum_scale * .Machine$double.eps * n * 10
   )
   positive <- which(values > threshold)
   zero_count <- sum(abs(values) <= threshold)
@@ -204,7 +268,8 @@
     eigenvectors = unname(vectors[, selected, drop = FALSE]),
     laplacian = laplacian,
     graph_volume = volume,
-    zero_eigenvalues = as.integer(zero_count)
+    zero_eigenvalues = as.integer(zero_count),
+    solver = eigen_solver
   )
 }
 
@@ -271,6 +336,16 @@
 #'   NA and Inf always fail closed. No noise is injected.
 #' @param variance_tol Non-negative threshold defining a constant voxel series.
 #' @param eigen_tol Positive tolerance for the Laplacian zero eigenspace.
+#' @param eigen_solver `"auto"` (default), `"dense"`, or `"sparse"`. The dense
+#'   solver runs a full `eigen()` on the N-by-N Laplacian: O(N^2) memory and
+#'   O(N^3) time, practical up to a few thousand voxels. The sparse solver
+#'   computes only the `ncomp + 1` smallest eigenpairs by shift-invert Lanczos
+#'   (`RSpectra::eigs_sym()`, a suggested package) and scales to whole-brain
+#'   masks. `"auto"` uses the dense solver for at most 3,000 masked voxels and
+#'   the sparse solver above that. Both span the same eigenspace; embeddings
+#'   agree to solver tolerance, up to the sign of each eigenvector (and the
+#'   basis inside a repeated eigenvalue), which commute-time distances and
+#'   hence k-means do not depend on.
 #' @param verbose Logical; print progress.
 #'
 #' @return A `commute_time_cluster_result` with contiguous labels, K-by-T
@@ -279,8 +354,11 @@
 #' @details The implementation is deterministic. Any RNG initialization performed
 #'   inside `stats::kmeans()` is scoped to a fixed local seed, after which the
 #'   caller's prior RNG state (including absence of `.Random.seed`) is restored
-#'   exactly. It forms a dense Laplacian eigendecomposition,
-#'   requiring quadratic memory and cubic time; use only for small regions.
+#'   exactly. With the dense solver it forms a full Laplacian
+#'   eigendecomposition, requiring quadratic memory and cubic time, so
+#'   `eigen_solver = "auto"` switches to the sparse solver above 3,000
+#'   voxels. With the sparse solver the run time is dominated by k-means and
+#'   is a few seconds for about 30,000 voxels and K = 200.
 #'
 #' @importFrom neuroim2 ClusteredNeuroVol
 #' @importFrom stats kmeans
@@ -297,6 +375,7 @@ commute_cluster <- function(bvec,
                             bad_voxel_policy = c("error", "zero_constant"),
                             variance_tol = 1e-9,
                             eigen_tol = 1e-10,
+                            eigen_solver = c("auto", "dense", "sparse"),
                             verbose = FALSE) {
   caller_had_seed <- exists(
     ".Random.seed", envir = .GlobalEnv, inherits = FALSE
@@ -344,6 +423,9 @@ commute_cluster <- function(bvec,
   verbose <- .cluster4d_scalar_logical(verbose, "verbose", "commute_cluster")
   weight_mode <- match.arg(weight_mode)
   bad_voxel_policy <- match.arg(bad_voxel_policy)
+  eigen_solver <- .commute_resolve_solver(
+    match.arg(eigen_solver), n
+  )
 
   original <- .cluster4d_original_data(bvec, mask, "commute_cluster")
   prepared <- .commute_prepare_features(
@@ -362,8 +444,12 @@ commute_cluster <- function(bvec,
     )
   }
 
-  if (verbose) message("commute_cluster: computing dense spectral embedding")
-  spectral <- .commute_spectral_embedding(graph$graph, ncomp, eigen_tol)
+  if (verbose) {
+    message("commute_cluster: computing ", eigen_solver, " spectral embedding")
+  }
+  spectral <- .commute_spectral_embedding(
+    graph$graph, ncomp, eigen_tol, eigen_solver
+  )
   if (K == n) {
     labels <- seq_len(n)
     kmeans_diagnostics <- list(iter = 0L, tot.withinss = 0)
@@ -425,7 +511,8 @@ commute_cluster <- function(bvec,
       weight_mode = weight_mode,
       bad_voxel_policy = bad_voxel_policy,
       variance_tol = variance_tol,
-      eigen_tol = eigen_tol
+      eigen_tol = eigen_tol,
+      eigen_solver = spectral$solver
     ),
     metadata = list(
       data_policy = prepared$provenance,
@@ -438,7 +525,8 @@ commute_cluster <- function(bvec,
       spectral = list(
         eigenvalues = spectral$eigenvalues,
         graph_volume = spectral$graph_volume,
-        zero_eigenvalues = spectral$zero_eigenvalues
+        zero_eigenvalues = spectral$zero_eigenvalues,
+        solver = spectral$solver
       ),
       kmeans = kmeans_diagnostics,
       rng = list(

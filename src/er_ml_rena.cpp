@@ -225,6 +225,15 @@ IntegerVector rena_rnn_step_internal(const arma::mat &X,
   bool use_norms = (row_norms.n_elem == p);
   double inf = std::numeric_limits<double>::infinity();
 
+  // Row i of G is visited as column i of G^T. Armadillo stores sp_mat in
+  // compressed-sparse-column form, so sp_mat::const_row_iterator has to search
+  // every column for row i: one row walk costs O(p) and the whole level
+  // O(p^2), which made ReNA++ quadratic in the voxel count (issue #3).
+  // Column iteration of the transpose is O(degree) per node and yields the
+  // same neighbours in the same ascending order, so first-minimum tie-breaking
+  // and therefore the labels are unchanged.
+  const sp_mat Gt = G.t();
+
   // Parallel nearest-neighbor search per node
   #ifdef _OPENMP
   #pragma omp parallel for schedule(static)
@@ -235,9 +244,9 @@ IntegerVector rena_rnn_step_internal(const arma::mat &X,
 
     const double g_i = use_grad ? grad(i) : 0.0; // avoid repeated loads
 
-    for (sp_mat::const_row_iterator it = G.begin_row(i);
-         it != G.end_row(i); ++it) {
-      uword j = it.col();
+    for (sp_mat::const_iterator it = Gt.begin_col(i);
+         it != Gt.end_col(i); ++it) {
+      uword j = it.row();
       if (i == j) continue;
       // Use optimized distance calculation with pre-computed norms
       double d = use_norms ? squared_l2_with_norms(X, i, j, row_norms)
