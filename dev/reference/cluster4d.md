@@ -1,0 +1,315 @@
+# Unified 4D Clustering for Neuroimaging Data
+
+Performs spatially-constrained clustering on 4D neuroimaging data using
+various algorithms. This is the main entry point for all clustering
+methods in the neurocluster package.
+
+## Usage
+
+``` r
+cluster4d(
+  vec,
+  mask,
+  n_clusters = 100,
+  method = c("supervoxels", "snic", "slic", "corr_slic", "brs_slic", "slice_msf",
+    "flash3d", "g3s", "rena", "rena_plus", "mcl", "acsc", "commute"),
+  spatial_weight = 0.5,
+  max_iterations = NULL,
+  connectivity = NULL,
+  parallel = TRUE,
+  verbose = FALSE,
+  ...
+)
+```
+
+## Arguments
+
+- vec:
+
+  A `NeuroVec` instance supplying the 4D data (x, y, z, time) to cluster
+
+- mask:
+
+  A `NeuroVol` mask defining the voxels to include in clustering. Values
+  must be finite. Voxels are included exactly when the mask value is
+  strictly greater than zero; zero and negative values are excluded.
+
+- n_clusters:
+
+  Finite integer target number of clusters (default 100), from one
+  through the number of included mask voxels. Note that some methods may
+  produce slightly different numbers of clusters due to algorithmic
+  constraints.
+
+- method:
+
+  Clustering algorithm to use. One of the 13 values below; the order is
+  not a performance ranking or recommendation.
+
+  - `"supervoxels"`: Iterative heat kernel-based clustering (default)
+
+  - `"snic"`: Simple Non-Iterative Clustering
+
+  - `"slic"`: SLIC superpixels extended to 4D
+
+  - `"corr_slic"`: Correlation-embedded SLIC (local 3D SLIC updates on a
+    compact random-projection embedding of the voxel time series)
+
+  - `"brs_slic"`: Boundary-Refined Sketch SLIC (coarse sketch + boundary
+    exact-correlation refinement)
+
+  - `"slice_msf"`: Experimental Slice-wise Minimum Spanning Forest,
+    available for explicit evaluation but not recommended
+
+  - `"flash3d"`: Fast Low-rank Approximate Superclusters
+
+  - `"g3s"`: Gradient-Guided Geodesic Supervoxels
+
+  - `"rena"`: Recursive Nearest Agglomeration (balanced, topology-aware)
+
+  - `"rena_plus"`: ReNA++, edge-aware multi-level ReNA coarsening
+    followed by Ward refinement to the exact target
+
+  - `"mcl"`: Sparse Markov Cluster Algorithm on a weighted voxel graph
+
+  - `"acsc"`: Adaptive Correlation Superclustering (graph-based with
+    boundary refinement)
+
+  - `"commute"`: Commute-time spectral clustering on a physical
+    k-nearest-neighbor graph
+
+- spatial_weight:
+
+  Method-specific spatial control in `[0, 1]`. For methods that define a
+  convex feature/spatial blend, zero disables the spatial term and one
+  disables the feature term. Other methods use the value as a bounded
+  mapping to a native scale; their endpoints do not have that blend
+  meaning. Default 0.5. This parameter is inactive for `"rena"` and
+  `"rena_plus"`; supplying it explicitly for either method is an error.
+  Maps to method-specific parameters:
+
+  - supervoxels: `alpha = 1 - spatial_weight` (0 = all spatial, 1 = all
+    feature)
+
+  - snic: `compactness = spatial_weight * 10` (range 0-10)
+
+  - slic: `compactness = spatial_weight * 20` (typical range 1-20)
+
+  - corr_slic/brs_slic: direct convex blend between correlation and
+    scaled spatial distance
+
+  - slice_msf: `compactness = spatial_weight * 10`, followed by FH
+    component scale `2 / (compactness + 1)`. This changes the
+    graph-segmentation scale; it is not a convex spatial/feature blend.
+
+  - flash3d: `lambda_s = spatial_weight` (direct mapping)
+
+  - mcl: direct blend between feature and spatial edge similarities
+
+- max_iterations:
+
+  Positive finite integer iteration limit for iterative methods. It is
+  inactive for `"snic"`, `"slice_msf"`, and `"commute"`; supplying it
+  explicitly for those methods is an error.
+
+- connectivity:
+
+  Integer neighborhood connectivity. Supported values are
+  method-specific: supervoxels accepts 6, 18, 26, or 27; slic,
+  corr_slic, brs_slic, and slice_msf accept 6 or 26; G3S, ReNA variants,
+  and MCL accept 6, 18, or 26. It is inactive for snic, flash3d, acsc,
+  and commute.
+
+- parallel:
+
+  Enable parallel processing for supervoxels and slic. For all other
+  methods, an explicit `TRUE` is rejected; omitted or `FALSE` selects
+  the serial implementation. Default TRUE for supported methods.
+
+- verbose:
+
+  Print progress messages. Default FALSE.
+
+- ...:
+
+  Additional method-specific parameters. See method documentation for
+  details.
+
+## Value
+
+A `cluster4d_result` object (also inherits from `cluster_result`)
+containing:
+
+- labels:
+
+  Contiguous positive integer final labels in mask voxel order
+
+- cluster:
+
+  Backward-compatible alias that is identical to `labels`
+
+- clusvol:
+
+  A `ClusteredNeuroVol` with cluster assignments
+
+- centers:
+
+  Actual final-label means in the original feature space, with shape
+  actual K by timepoints
+
+- coord_centers:
+
+  Actual final-label coordinate means in physical mm, with shape actual
+  K by 3
+
+- actual_k:
+
+  Actual number of clusters produced
+
+- n_clusters:
+
+  Backward-compatible alias of `actual_k`
+
+- label_ids:
+
+  Explicit mapping from center rows to contiguous label IDs
+
+- method:
+
+  Clustering method used
+
+- parameters:
+
+  List of all parameters used
+
+- provenance:
+
+  Typed label, original-feature, physical-coordinate, geometry, and mask
+  provenance
+
+- metadata:
+
+  Method-specific additional information
+
+## Algorithm Comparison
+
+The *Speed* column reports single-threaded wall-clock tiers measured
+with `cluster4d()` defaults on the neuroim2 bundled mask
+(`global_mask_v4.nii`, 29,532 voxels), 20 timepoints of Gaussian noise
+and `n_clusters = 200`: *Fast* is under 1 s, *Moderate* a few seconds,
+*Slow* tens of seconds, and *Very slow* did not finish within 5 minutes.
+Timings depend on hardware, mask size, and parameters; treat the tiers
+as relative guidance, not a ranking of quality. *Parallel*,
+*Iterations*, and *Spatial weight* state whether the common `parallel`,
+`max_iterations`, and `spatial_weight` arguments are active.
+
+|  |  |  |  |  |  |
+|----|----|----|----|----|----|
+| **Method** | **Speed** | **Parallel** | **Iterations** | **Spatial weight** | **Notes** |
+| supervoxels | Moderate | Yes | Yes | Yes | Heat-kernel iterative clustering; default method |
+| snic | Slow | No | No | Yes | Non-iterative; run time is dominated by k-NN gradient seeding |
+| slic | Fast | Yes | Yes | Yes | Compact 4D SLIC supervoxels |
+| corr_slic | Fast | No | Yes | Yes | Correlation feature distance on a random-projection embedding |
+| brs_slic | Fast | No | Yes | Yes | Sketch SLIC with exact-correlation boundary refinement |
+| slice_msf | Fast | No | No | Yes | Experimental; explicit evaluation only |
+| flash3d | Fast | No | Yes | Yes | Hash-based low-rank superclusters |
+| g3s | Fast | No | Yes | Yes | Gradient-guided geodesic supervoxels |
+| rena | Fast | No | Yes | No | Balanced, topology-aware agglomeration |
+| rena_plus | Very slow | No | Yes | No | Edge-aware ReNA with Ward refinement; for small masks |
+| mcl | Slow | No | Yes | Yes | Picks the natural MCL partition closest to `n_clusters`, so `actual_k` can differ unless `exact_k = TRUE` |
+| acsc | Slow | No | Yes | Yes | Correlation graph with boundary refinement |
+| commute | Very slow | No | No | Yes | Commute-time spectral embedding; for small masks |
+
+## Parameter Guidelines
+
+**For whole-brain parcellation:**
+
+- n_clusters: 100-1000 depending on desired granularity
+
+- spatial_weight: 0.4-0.6 for balanced clustering
+
+- connectivity: 26 for smoother boundaries
+
+**For ROI analysis:**
+
+- n_clusters: 10-100 depending on ROI size
+
+- spatial_weight: 0.2-0.4 to emphasize functional similarity
+
+- connectivity: 6 for more discrete parcels
+
+**For high-resolution data (\< 2mm):**
+
+- method: "flash3d" for speed; Slice-MSF remains experimental
+
+- n_clusters: Scale with voxel count (roughly n_voxels/200)
+
+## See also
+
+Method-specific functions:
+[`cluster4d_supervoxels`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_supervoxels.md),
+[`cluster4d_snic`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_snic.md),
+[`cluster4d_slic`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_slic.md),
+[`cluster4d_slice_msf`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_slice_msf.md),
+[`cluster4d_flash3d`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_flash3d.md),
+[`cluster4d_g3s`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_g3s.md),
+[`cluster4d_rena`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_rena.md),
+[`cluster4d_rena_plus`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_rena_plus.md),
+[`cluster4d_mcl`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_mcl.md),
+[`cluster4d_acsc`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_acsc.md),
+[`cluster4d_commute`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_commute.md)
+
+Legacy functions (deprecated):
+[`supervoxels`](https://bbuchsbaum.github.io/neurocluster/dev/reference/supervoxels.md),
+[`snic`](https://bbuchsbaum.github.io/neurocluster/dev/reference/snic.md),
+[`slic4d_supervoxels`](https://bbuchsbaum.github.io/neurocluster/dev/reference/slic4d_supervoxels.md),
+[`slice_msf`](https://bbuchsbaum.github.io/neurocluster/dev/reference/slice_msf.md),
+[`supervoxels_flash3d`](https://bbuchsbaum.github.io/neurocluster/dev/reference/supervoxels_flash3d.md)
+
+## Examples
+
+``` r
+# Simple synthetic example (runs quickly)
+library(neuroim2)
+#> Loading required package: Matrix
+set.seed(1)
+mask <- NeuroVol(array(1, c(4,4,4)), NeuroSpace(c(4,4,4)))
+vec <- NeuroVec(array(rnorm(4*4*4*20), c(4,4,4,20)),
+                NeuroSpace(c(4,4,4,20)))
+result <- cluster4d(vec, mask, n_clusters = 3, method = "g3s",
+                   max_iterations = 1)
+#> Requested n_components (15) explained 90.2% variance; increased to 17 components to retain 95%.
+print(result$n_clusters)
+#> [1] 3
+
+# \donttest{
+# More realistic examples with larger data
+mask <- NeuroVol(array(1, c(20,20,20)), NeuroSpace(c(20,20,20)))
+vec <- replicate(50, NeuroVol(array(runif(20*20*20), c(20,20,20)),
+                              NeuroSpace(c(20,20,20))), simplify=FALSE)
+vec <- do.call(concat, vec)
+
+# Basic usage with default supervoxels method
+result <- cluster4d(vec, mask, n_clusters = 100)
+
+# Fast clustering with FLASH-3D (hash-based)
+result <- cluster4d(vec, mask, n_clusters = 100, method = "flash3d")
+
+# Emphasize spatial compactness
+result <- cluster4d(vec, mask, n_clusters = 100, spatial_weight = 0.8)
+
+# Explicitly evaluate the experimental Slice-MSF method
+result <- cluster4d(vec, mask, n_clusters = 100, 
+                   method = "slice_msf",
+                   num_runs = 3,  # slice_msf-specific parameter
+                   consensus = TRUE)
+
+# Get parameter suggestions for your data
+n_vox <- sum(mask > 0)
+n_time <- dim(vec)[4]
+params <- suggest_cluster4d_params(n_vox, n_time, priority = "quality")
+result <- cluster4d(vec, mask, 
+                   n_clusters = params$n_clusters,
+                   method = params$recommended_method)
+# }
+```

@@ -1,0 +1,505 @@
+# neurocluster
+
+[Getting
+started](https://bbuchsbaum.github.io/neurocluster/articles/getting-started.html)
+· [Choose a
+method](https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.html)
+· [Validate
+results](https://bbuchsbaum.github.io/neurocluster/articles/validate-compare.html)
+· [API
+map](https://bbuchsbaum.github.io/neurocluster/articles/api-overview.html)
+
+**neurocluster** is an R package for turning masked 3D images and 4D
+neuroimaging series into spatially constrained parcels. Its
+[`cluster4d()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d.md)
+front door runs several clustering families through one interface and
+returns one result contract: contiguous voxel labels, feature means,
+physical centroids, and mask and geometry provenance.
+
+Use it to construct supervoxels or exploratory parcellations when both
+signal similarity and spatial organization matter.
+
+> **Status:** Development version `0.1.0`, distributed from source.
+> Interfaces and defaults may change as the package matures.
+
+## Install
+
+The package is not currently distributed through CRAN. Install the
+development version from GitHub; its runtime dependencies are resolved
+from CRAN:
+
+``` r
+
+install.packages("remotes")
+remotes::install_github("bbuchsbaum/neurocluster")
+```
+
+Installation compiles C++ code, so it requires the usual R package build
+tools for your platform.
+
+## Quick start
+
+This complete example generates data with known regions, clusters it
+with the deterministic ReNA backend, validates the returned object
+against its inputs, and checks recovery against the known partition.
+
+``` r
+
+library(neurocluster)
+
+syn <- generate_synthetic_volume(
+  "gaussian_blobs",
+  dims = c(16, 16, 8),
+  n_clusters = 4,
+  n_time = 40,
+  noise_sd = 0.08,
+  seed = 42
+)
+
+fit <- cluster4d(
+  syn$vec,
+  syn$mask,
+  n_clusters = 4,
+  method = "rena"
+)
+
+audit <- validate_cluster4d(fit, syn$vec, syn$mask)
+quality <- cluster_metrics(fit, truth = syn$truth)
+
+list(
+  actual_k = fit$actual_k,
+  min_cluster_size = min(table(fit$labels)),
+  valid = audit$valid,
+  ari = round(quality$ari_truth, 3)
+)
+#> $actual_k
+#> [1] 4
+#>
+#> $min_cluster_size
+#> [1] 303
+#>
+#> $valid
+#> [1] TRUE
+#>
+#> $ari
+#> [1] 1
+```
+
+The adjusted Rand index is available here because the synthetic fixture
+has ground truth; real neuroimaging data generally do not.
+[`validate_cluster4d()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/validate_cluster4d.md)
+tests the structural and numerical result contract—it does not establish
+that a parcellation is scientifically meaningful.
+
+![A synthetic neurocluster workflow showing four distinct temporal
+signatures, the known spatial regions on an axial slice, and the ReNA
+parcellation with perfect partition agreement on this
+fixture.](reference/figures/neurocluster-workflow.png)
+
+A synthetic neurocluster workflow showing four distinct temporal
+signatures, the known spatial regions on an axial slice, and the ReNA
+parcellation with perfect partition agreement on this fixture.
+
+The figure is rebuilt by `tools/render-readme-figure.R` from the same
+public workflow. Perfect agreement describes this deliberately separable
+synthetic fixture; it is not a benchmark or a claim about empirical
+neuroimaging data.
+
+## Read the result
+
+Every unified method returns the same core fields:
+
+| Field | Meaning |
+|----|----|
+| `labels` | Contiguous positive labels in included-mask voxel order |
+| `actual_k` | Number of clusters actually returned |
+| `centers` | `actual_k` × time/features means in the original feature space |
+| `coord_centers` | `actual_k` × 3 centroids in physical millimetres |
+| `clusvol` | A [`neuroim2::ClusteredNeuroVol`](https://bbuchsbaum.github.io/neuroim2/reference/ClusteredNeuroVol-class.html) for plotting or export |
+| `provenance` | Label mapping, feature summary, geometry, and mask contract |
+
+`cluster` and `n_clusters` remain aliases for `labels` and `actual_k`.
+Prefer the explicit names in new code.
+
+## Choose a method
+
+There is no universally superior clustering algorithm. The useful choice
+depends on the similarity model, topology, desired cluster-count policy,
+and computational scale. This table describes mechanisms and decision
+signals, not benchmark rankings.
+
+| `method` | Mechanism | Consider it when… |
+|----|----|----|
+| `supervoxels` | Iterative feature and spatial heat-kernel reassignment | You want separate feature and coordinate bandwidths and optional gradient seeding |
+| `snic` | Single-pass priority-queue region growing | You want a non-iterative spatial growth process |
+| `slic` | Local Euclidean SLIC assignment and refinement | Local search and optional connected exact-K repair fit the data model |
+| `corr_slic` | Correlation-aware SLIC using a compact embedding, with optional exact refinement | Correlation is the relevant temporal similarity and the series is long |
+| `brs_slic` | Sketched coarse SLIC followed by exact-correlation boundary refinement | You want to spend exact-correlation work mainly near parcel boundaries |
+| `slice_msf` | Experimental DCT/cosine minimum-spanning forest with optional consensus and z stitching | Explicit evaluation only; it is not currently recommended for production use |
+| `flash3d` | Low-DCT temporal hashing and 3D jump-flood propagation | A compressed temporal signature is appropriate and hash length is a useful control |
+| `g3s` | Low-gradient seeds and multi-source geodesic propagation on the masked grid | Grid connectivity and a feature/spatial path objective should drive the parcels |
+| `rena` | Recursive 1-nearest-neighbor graph agglomeration | You want deterministic, topology-constrained aggregation and exact K when feasible |
+| `rena_plus` | Reciprocal-neighbor coarsening followed by spatial Ward refinement | You want an edge-aware coarse-to-fine hierarchy with exact K |
+| `mcl` | Sparse Markov flow expansion and inflation | Graph-flow communities are the model; choose natural-K search or request exact-K repair |
+| `acsc` | Correlation block graph, Louvain communities, and optional boundary refinement | You need Pearson, Spearman, or robust correlation with graph-community structure |
+| `commute` | Physical k-nearest-neighbor graph, commute-time embedding, and k-means | A spectral graph embedding is appropriate for a data size that permits dense eigendecomposition |
+
+**Slice-MSF status.** Earlier reliability weighting could collapse
+distinct features to zero-distance edges, and its former exact-K repair
+could peel off singletons. Those paths have been rejected or replaced,
+and local package recertification passes at this source revision.
+Slice-MSF remains experimental while broader real-data validation and
+hosted release evidence are pending; the parameter suggester will not
+recommend it. If you are evaluating it explicitly, begin with
+[`vignette("slice-msf")`](https://bbuchsbaum.github.io/neurocluster/dev/articles/slice-msf.md)
+and retain its natural/exact-K provenance.
+
+Start with the [method
+comparison](https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.html),
+then use [parameter
+guidance](https://bbuchsbaum.github.io/neurocluster/articles/choose-parameters.html)
+to translate a scientific goal into controls. Method-specific arguments
+belong in `...`; unsupported common arguments are rejected rather than
+silently ignored.
+
+## Fit and boundaries
+
+neurocluster is a good fit when the analysis unit is a finite positive
+mask over a
+[`neuroim2::NeuroVol`](https://bbuchsbaum.github.io/neuroim2/reference/NeuroVol.html)
+or `NeuroVec`, and spatially coherent parcels are an intermediate
+representation for exploration or downstream modelling. A single-volume
+`NeuroVol` is accepted for 3D clustering.
+
+Keep these boundaries visible:
+
+- `n_clusters` is a target. Read `actual_k`; exact K can be
+  topologically infeasible, particularly on disconnected masks.
+- Cluster IDs are arbitrary identifiers, not ordered values or
+  anatomical labels. Do not interpret their numeric order.
+- Algorithms may standardize, compress, or embed features internally.
+  Public `centers` are nevertheless recomputed from final labels in the
+  original input feature space.
+- `spatial_weight`, `connectivity`, `max_iterations`, and `parallel` are
+  method-capability dependent. The unified API fails closed on
+  unsupported explicit settings.
+- A structurally valid result is not a validation of biological truth.
+  Use held-out data, stability analysis, registered estimands, or
+  external labels appropriate to the scientific question.
+- Compare results only over the same included voxels and physical
+  geometry.
+  [`compare_cluster4d()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/compare_cluster4d.md)
+  enforces that support and reports explicitly defined estimands.
+
+## Learning path
+
+- [Getting
+  started](https://bbuchsbaum.github.io/neurocluster/articles/getting-started.html)
+  — build, inspect, plot, and export a first result.
+- [Spatially constrained
+  clustering](https://bbuchsbaum.github.io/neurocluster/articles/spatially-constrained-clustering.html)
+  — understand the feature-versus-space objective.
+- **Evaluate Slice-MSF** — run
+  [`vignette("slice-msf")`](https://bbuchsbaum.github.io/neurocluster/dev/articles/slice-msf.md)
+  to inspect the experimental similarity, exact-K, feasibility, and
+  metadata contract.
+- [Compare
+  methods](https://bbuchsbaum.github.io/neurocluster/articles/compare-methods.html)
+  and [choose
+  parameters](https://bbuchsbaum.github.io/neurocluster/articles/choose-parameters.html)
+  — make a method choice from evidence rather than labels such as “fast”
+  or “best.”
+- [Objects and
+  results](https://bbuchsbaum.github.io/neurocluster/articles/objects-results.html)
+  — interpret labels, centers, coordinates, and provenance.
+- [Validate and
+  compare](https://bbuchsbaum.github.io/neurocluster/articles/validate-compare.html)
+  — check contracts and use explicit comparison estimands.
+- [Visualize and
+  export](https://bbuchsbaum.github.io/neurocluster/articles/visualize-export.html)
+  and [end-to-end NIfTI
+  export](https://bbuchsbaum.github.io/neurocluster/articles/end-to-end-export.html)
+  — move from result objects to figures and files.
+- [Method deep
+  dives](https://bbuchsbaum.github.io/neurocluster/articles/method-deep-dives.html),
+  [performance and
+  memory](https://bbuchsbaum.github.io/neurocluster/articles/performance-memory.html),
+  and [benchmark
+  methodology](https://bbuchsbaum.github.io/neurocluster/articles/benchmarks.html)
+  — inspect mechanisms, scaling considerations, and the limits of
+  performance claims.
+- [API
+  overview](https://bbuchsbaum.github.io/neurocluster/articles/api-overview.html)
+  — find unified and specialist entry points.
+
+## Development
+
+For a source checkout, use `devtools::load_all()` for interactive
+development, `devtools::test()` for the test suite, and
+`devtools::check()` for package-level checks. Please report reproducible
+issues at
+[bbuchsbaum/neurocluster](https://github.com/bbuchsbaum/neurocluster/issues).
+
+## License
+
+neurocluster is licensed under GPL (\>= 3), as declared in
+`DESCRIPTION`.
+
+# Package index
+
+## All functions
+
+- [`acsc()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/acsc.md)
+  : Adaptive Correlation Superclustering (ACSC)
+- [`check_cluster_ordering()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/check_cluster_ordering.md)
+  : Check for Spatial Ordering in Cluster IDs
+- [`cl_class_ids(`*`<cluster_result>`*`)`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cl_class_ids.cluster_result.md)
+  : Extract Class IDs from Cluster Result
+- [`cluster4d()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d.md)
+  : Unified 4D Clustering for Neuroimaging Data
+- [`cluster4d_acsc()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_acsc.md)
+  : Cluster4d using ACSC method
+- [`cluster4d_brsslic()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_brsslic.md)
+  : Cluster4d using boundary-refined sketch SLIC
+- [`cluster4d_commute()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_commute.md)
+  : Cluster4d using commute-time spectral method
+- [`cluster4d_corrslic()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_corrslic.md)
+  : Cluster4d using correlation-embedded SLIC method
+- [`cluster4d_flash3d()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_flash3d.md)
+  : Cluster4d using FLASH-3D method
+- [`cluster4d_g3s()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_g3s.md)
+  : Gradient-guided geodesic clustering on a masked grid
+- [`cluster4d_mcl()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_mcl.md)
+  : Cluster4d using sparse Markov Clustering (MCL)
+- [`cluster4d_rena()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_rena.md)
+  : Cluster4d using ReNA method
+- [`cluster4d_rena_plus()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_rena_plus.md)
+  : Cluster4d wrapper for ReNA++
+- [`cluster4d_slic()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_slic.md)
+  : Cluster4d using SLIC method
+- [`cluster4d_slice_msf()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_slice_msf.md)
+  : Cluster4d using slice_msf method
+- [`cluster4d_snic()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_snic.md)
+  : Cluster4d using SNIC method
+- [`cluster4d_supervoxels()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster4d_supervoxels.md)
+  : Cluster4d using supervoxels method
+- [`cluster_metrics()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/cluster_metrics.md)
+  : Explicit cluster-quality estimands
+- [`clustering_accuracy()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/clustering_accuracy.md)
+  : Compute Clustering Accuracy Metrics
+- [`commute_cluster()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/commute_cluster.md)
+  : Commute-time clustering on a physical k-nearest-neighbor graph
+- [`compare_cluster4d()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/compare_cluster4d.md)
+  : Compare multiple cluster4d results
+- [`compress_features_svd()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/compress_features_svd.md)
+  : Compress High-Dimensional Features via Randomized SVD
+- [`compute_centroids()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/compute_centroids.md)
+  : Compute Centroids of Clusters
+- [`compute_functional_gradient()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/compute_functional_gradient.md)
+  : Compute Functional Gradient from Feature Matrix
+- [`detrend_basis_cpp()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/detrend_basis_cpp.md)
+  : Flexible Detrending with Basis Functions (Fast C++ Implementation)
+- [`detrend_dct_cpp()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/detrend_dct_cpp.md)
+  : DCT Detrending (Convenience Function)
+- [`detrend_poly_cpp()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/detrend_poly_cpp.md)
+  : Polynomial Detrending (Convenience Function)
+- [`detrend_time()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/detrend_time.md)
+  : Detrend Voxel Timeseries
+- [`detrend_time_cpp()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/detrend_time_cpp.md)
+  : Detrend Voxel Timeseries (Fast C++ Implementation)
+- [`er_ml_rena()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/er_ml_rena.md)
+  : Backwards-compatible alias for rena_plus
+- [`estimate_optimal_components()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/estimate_optimal_components.md)
+  : Estimate Optimal Number of SVD Components
+- [`find_gradient_seeds_g3s()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/find_gradient_seeds_g3s.md)
+  : Find G3S Seeds via Functional Gradient Minima
+- [`find_initial_points()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/find_initial_points.md)
+  : Find Initial Cluster Centers for Supervoxel Algorithm (Deprecated)
+- [`generate_synthetic_volume()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/generate_synthetic_volume.md)
+  : Generate a synthetic 4D neuroimaging volume with labeled clusters
+- [`is.cl_partition(`*`<cluster_result>`*`)`](https://bbuchsbaum.github.io/neurocluster/dev/reference/is.cl_partition.cluster_result.md)
+  : Test if Object is a Partition
+- [`knn_shrink()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/knn_shrink.md)
+  : K-nearest-neighbor shrink
+- [`make_block_synthetic()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/make_block_synthetic.md)
+  : Make a tiny block-structured synthetic volume
+- [`make_dct_basis()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/make_dct_basis.md)
+  : Generate DCT-II Basis Matrix
+- [`make_poly_basis()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/make_poly_basis.md)
+  : Generate Polynomial Basis Matrix
+- [`make_synthetic_clusters()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/make_synthetic_clusters.md)
+  : Create Synthetic Ground Truth Clustering Data
+- [`merge_clus()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/merge_clus.md)
+  : Merge Clustering Results Using a Consensus Clustering Algorithm
+- [`merge_clus(`*`<cluster_result>`*`)`](https://bbuchsbaum.github.io/neurocluster/dev/reference/merge_clus.cluster_result.md)
+  : Merge Clustering Results for ClusteredNeuroVol Objects
+- [`meta_clust()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/meta_clust.md)
+  : Meta Clustering for Cluster Results (S4 Generic)
+- [`meta_clust(`*`<cluster_result>`*`)`](https://bbuchsbaum.github.io/neurocluster/dev/reference/meta_clust.cluster_result.md)
+  : Meta Clustering for Cluster Results
+- [`neurocluster_simd_info()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/neurocluster_simd_info.md)
+  : SIMD / CPU Feature Report (Development Helper)
+- [`normalize_detrend()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/normalize_detrend.md)
+  : Normalize and Detrend Neuroimaging Data
+- [`normalize_detrend_cpp()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/normalize_detrend_cpp.md)
+  : Normalize Volumes and Detrend Timeseries (Fast C++ Implementation)
+- [`normalize_volumes()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/normalize_volumes.md)
+  : Normalize Volumes by Removing Mean Offset
+- [`normalize_volumes_cpp()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/normalize_volumes_cpp.md)
+  : Normalize Volumes by Removing Mean Offset (Fast C++ Implementation)
+- [`plot(`*`<cluster4d_result>`*`)`](https://bbuchsbaum.github.io/neurocluster/dev/reference/plot.cluster4d_result.md)
+  : Plot cluster4d result
+- [`print(`*`<cluster4d_result>`*`)`](https://bbuchsbaum.github.io/neurocluster/dev/reference/print.cluster4d_result.md)
+  : S3 Methods for cluster4d_result Objects
+- [`print(`*`<g3s_result>`*`)`](https://bbuchsbaum.github.io/neurocluster/dev/reference/print.g3s_result.md)
+  : Print Method for G3S Results
+- [`randomize_cluster_ids()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/randomize_cluster_ids.md)
+  : Randomize Cluster IDs
+- [`rena()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/rena.md)
+  : Recursive Nearest Agglomeration (ReNA) Clustering
+- [`rena_plus()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/rena_plus.md)
+  : ReNA++: Edge-aware Reciprocal Multi-Level ReNA with Ward refinement
+- [`slic4d_grad_summary()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/slic4d_grad_summary.md)
+  : Visualize gradient used for seed relocation
+- [`slic4d_supervoxels()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/slic4d_supervoxels.md)
+  : Fast 4D SLIC supervoxels (mask-aware, gradient relocation,
+  preserve-K)
+- [`slice_msf()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/slice_msf.md)
+  : Volumetric DCT minimum-spanning-forest clustering
+- [`slice_msf_consensus()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/slice_msf_consensus.md)
+  : Fuse Slice-MSF runs on a masked graph
+- [`slice_msf_single()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/slice_msf_single.md)
+  : Run one Slice-MSF segmentation
+- [`snic()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/snic.md)
+  : SNIC: Simple Non-Iterative Clustering
+- [`spatial_gradient()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/spatial_gradient.md)
+  : Spatial Gradient Calculation
+- [`suggest_cluster4d_params()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/suggest_cluster4d_params.md)
+  : Suggest cluster4d parameters based on data characteristics
+- [`summary(`*`<cluster4d_result>`*`)`](https://bbuchsbaum.github.io/neurocluster/dev/reference/summary.cluster4d_result.md)
+  : Summarize cluster4d result
+- [`supervoxel_cluster_surface()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/supervoxel_cluster_surface.md)
+  : Supervoxel Clustering on a Surface
+- [`supervoxel_cluster_time()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/supervoxel_cluster_time.md)
+  : Supervoxel Clustering in Time
+- [`supervoxels()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/supervoxels.md)
+  : Supervoxel Clustering (3D volumes)
+- [`supervoxels_flash3d()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/supervoxels_flash3d.md)
+  : FLASH-3D: Fast 3D Superclustering for fMRI
+- [`synthetic_time_patterns()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/synthetic_time_patterns.md)
+  : Generate synthetic temporal patterns for cluster signals
+- [`tesselate()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/tesselate.md)
+  : Tesselate a Mask Volume into K Clusters using K-means
+- [`test_all_clustering_methods()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/test_all_clustering_methods.md)
+  : Test All Clustering Methods on Synthetic Data
+- [`test_clustering_method()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/test_clustering_method.md)
+  : Test Clustering Method on Synthetic Data
+- [`transform_new_data_svd()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/transform_new_data_svd.md)
+  : Transform New Data Using Existing SVD Compression
+- [`validate_cluster4d()`](https://bbuchsbaum.github.io/neurocluster/dev/reference/validate_cluster4d.md)
+  : Validate cluster4d result
+
+# Articles
+
+### Tutorials
+
+- [Getting started with
+  neurocluster](https://bbuchsbaum.github.io/neurocluster/dev/articles/getting-started.md):
+
+  A first spatially constrained clustering, from data to a checked
+  result.
+
+- [Compare clustering
+  methods](https://bbuchsbaum.github.io/neurocluster/dev/articles/compare-methods.md):
+
+  Compare valid partitions using explicit, shared estimands.
+
+- [End-to-end: From NIfTI to
+  clusters](https://bbuchsbaum.github.io/neurocluster/dev/articles/end-to-end-export.md):
+
+  Read 4D data and a mask, fit a checked partition, and round-trip its
+  NIfTI label map.
+
+### How-tos
+
+- [Choose parameters for your
+  data](https://bbuchsbaum.github.io/neurocluster/dev/articles/choose-parameters.md):
+
+  Learn how parcel count and spatial weighting change the estimand.
+
+- [Use parallel execution
+  responsibly](https://bbuchsbaum.github.io/neurocluster/dev/articles/speed-parallel.md):
+
+  Select per-call parallel controls and verify what the method actually
+  used.
+
+- [Visualize and export
+  results](https://bbuchsbaum.github.io/neurocluster/dev/articles/visualize-export.md):
+
+  Read parcel maps, inspect temporal summaries, and verify NIfTI export.
+
+- [Build consensus and stitch across
+  slices](https://bbuchsbaum.github.io/neurocluster/dev/articles/consensus-stitch.md):
+
+  Understand the two independent Slice-MSF controls for ensembles and
+  volumetric topology.
+
+- [Evaluate Slice-MSF
+  (experimental)](https://bbuchsbaum.github.io/neurocluster/dev/articles/slice-msf.md):
+
+  Inspect Slice-MSF’s feature geometry, natural and exact-K modes,
+  feasibility gates, and provenance before deciding whether to evaluate
+  it.
+
+- [Validate and compare
+  clusterings](https://bbuchsbaum.github.io/neurocluster/dev/articles/validate-compare.md):
+
+  Separate structural validity, single-partition diagnostics, and
+  pairwise agreement.
+
+- [Direct method APIs and
+  cluster4d](https://bbuchsbaum.github.io/neurocluster/dev/articles/legacy-apis.md):
+
+  Understand what the unified interface maps and what remains
+  method-specific.
+
+### Explanations
+
+- [Understand spatially constrained
+  clustering](https://bbuchsbaum.github.io/neurocluster/dev/articles/spatially-constrained-clustering.md):
+
+  See how feature similarity, distance, and connectivity shape a parcel
+  map.
+
+- [How the clustering methods
+  differ](https://bbuchsbaum.github.io/neurocluster/dev/articles/method-deep-dives.md):
+
+  Compare algorithmic work units and controls without turning them into
+  universal rankings.
+
+- [Reason about performance and
+  memory](https://bbuchsbaum.github.io/neurocluster/dev/articles/performance-memory.md):
+
+  Define what can be estimated before measuring method-specific runtime
+  and memory.
+
+### Benchmarks
+
+- [Benchmark with a reproducible
+  receipt](https://bbuchsbaum.github.io/neurocluster/dev/articles/benchmarks.md):
+
+  Run a scoped micro-comparison and report enough context to reproduce
+  it.
+
+### Reference Maps
+
+- [Choose the right neurocluster
+  interface](https://bbuchsbaum.github.io/neurocluster/dev/articles/api-overview.md):
+
+  Start with cluster4d, then move to validation, comparison, or direct
+  method APIs.
+
+- [Read, validate, and save clustering
+  results](https://bbuchsbaum.github.io/neurocluster/dev/articles/objects-results.md):
+
+  Interpret the cluster4d_result contract and preserve its provenance.
